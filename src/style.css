@@ -1,0 +1,5 @@
+:root { font-family: system-ui, sans-serif; color: #f7f1d5; background: #10151d; }
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100dvh; display: grid; place-items: center; overflow: hidden; }
+#app { width: min(100vw, 540px); height: 100dvh; max-height: 900px; }
+canvas { display: block; width: 100% !important; height: 100% !important; touch-action: none; }
