@@ -1452,6 +1452,57 @@ canvas { display: block; width: 100% !important; height: 100% !important; touch-
   .tower-name { font-size: 8px; }
   .tower-actions .action-button { font-size: 7px; }
 }
+
+/* Display-only tactical overview floats above the build tray and never intercepts map input. */
+.minimap-panel {
+  position: absolute;
+  z-index: 3;
+  left: max(10px, env(safe-area-inset-left));
+  bottom: calc(var(--game-bottom-hud-height, 248px) + 8px);
+  width: clamp(160px, 14vw, 196px);
+  padding: 5px;
+  overflow: hidden;
+  border: 1px solid #90b5bf9c;
+  border-radius: 8px;
+  color: #eaf4f4;
+  background: linear-gradient(145deg, #0d1a22e8, #0b141ceF 78%);
+  box-shadow: 0 5px 16px #000a, inset 0 1px #e8ffff1e;
+  pointer-events: none;
+  user-select: none;
+}
+.minimap-heading {
+  display: flex;
+  height: 17px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 3px 3px;
+  color: #a8c9ce;
+  font-size: 7px;
+  font-weight: 900;
+  letter-spacing: .15em;
+}
+.minimap-heading span:last-child { color: #e8d59c; font-size: 7px; letter-spacing: .03em; }
+.game-minimap {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid #5a7880;
+  border-radius: 3px;
+  background: rgba(12, 25, 32, .76);
+  pointer-events: none;
+}
+
+@media (max-width: 600px) {
+  .minimap-panel {
+    left: max(7px, env(safe-area-inset-left));
+    bottom: calc(var(--game-bottom-hud-height, 248px) + 7px);
+    width: clamp(116px, 35vw, 150px);
+    padding: 4px;
+    border-radius: 7px;
+  }
+  .minimap-heading { height: 15px; font-size: 6px; }
+  .minimap-heading span:last-child { font-size: 6px; }
+}
 @media (min-width: 440px) {
   .bottom-hud-bar { grid-template-rows: 98px auto; min-height: 0; }
   .defender-choice { height: 85px; min-height: 85px; }

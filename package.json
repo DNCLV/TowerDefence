@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
+    "preview:pages": "node scripts/serve-pages-subpath.mjs",
     "test:enemy-waves": "node --import ./scripts/register-ts-loader.mjs scripts/test-enemy-waves.mjs && node --import ./scripts/register-ts-loader.mjs scripts/test-content-combat.mjs",
     "test:content-combat": "node --import ./scripts/register-ts-loader.mjs scripts/test-content-combat.mjs",
     "test:content-assets": "node scripts/test-content-assets.cjs"

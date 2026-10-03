@@ -7,6 +7,7 @@ import { DEFENDER_CONFIG, DefenderType } from "./game/config/DefenderConfig";
 import { WORLD_UNITS_PER_CELL } from "./core/GameConstants";
 import { resolveAssetUrl } from "./core/AssetUrl";
 import { MAP_CHOICES, MapDefinition } from "./game/config/MapConfig";
+import { MinimapRenderer } from "./game/minimap/MinimapRenderer";
 
 const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) throw new Error("Missing #app root element");
@@ -125,6 +126,11 @@ ui.innerHTML = `
     </div>
   </aside>
 
+  <section id="minimap-panel" class="minimap-panel" aria-label="Tactical map overview">
+    <div class="minimap-heading"><span>FIELD MAP</span><span aria-hidden="true">N ↑</span></div>
+    <canvas id="game-minimap" class="game-minimap" role="img" aria-label="Map overview"></canvas>
+  </section>
+
   <footer class="bottom-hud-bar">
     <section class="build-unit-section" aria-label="Build units">
       <div class="bottom-section-heading"><span>BUILD UNITS</span></div>
@@ -232,6 +238,16 @@ const query = <T extends HTMLElement>(selector: string): T => {
   if (!element) throw new Error(`Missing UI element: ${selector}`);
   return element;
 };
+const minimapPanel = query<HTMLElement>("#minimap-panel");
+const minimapCanvas = query<HTMLCanvasElement>("#game-minimap");
+const minimap = new MinimapRenderer(minimapPanel, minimapCanvas, map);
+const bottomHudBar = query<HTMLElement>(".bottom-hud-bar");
+const syncMinimapDock = (): void => {
+  ui.style.setProperty("--game-bottom-hud-height", `${bottomHudBar.getBoundingClientRect().height}px`);
+};
+const minimapDockObserver = new ResizeObserver(syncMinimapDock);
+minimapDockObserver.observe(bottomHudBar);
+requestAnimationFrame(syncMinimapDock);
 const buildUnitSection = query<HTMLElement>(".build-unit-section");
 const defenderChoicePanel = query<HTMLElement>(".defender-choice-panel");
 const updateBuildTrayOverflow = (): void => {
@@ -254,6 +270,7 @@ const disposeBuildTrayObservers = (): void => {
   window.removeEventListener("resize", handleBuildTrayResize);
   buildTrayResizeObserver.disconnect();
   buildTrayMutationObserver.disconnect();
+  minimapDockObserver.disconnect();
 };
 requestAnimationFrame(updateBuildTrayOverflow);
 const waveValue = query<HTMLElement>("#stat-wave");
@@ -458,6 +475,7 @@ tryAgainButton.addEventListener("click", () => {
 });
 
 renderer.start(gameState, (state) => {
+  minimap.update(state, renderer.getApproximateMinimapView());
   goldValue.textContent = String(state.gold);
   livesValue.textContent = String(state.lives);
   waveValue.textContent = String(state.currentWave);
@@ -716,6 +734,7 @@ function resetRun(): void {
   renderer.resetRunPresentation();
   setSelection();
   gameState.resetGame("try-again");
+  minimap.refresh(gameState, renderer.getApproximateMinimapView());
   renderPauseButton(false);
   speedButton.textContent = "1×";
   speedButton.classList.remove("is-fast");
@@ -729,6 +748,8 @@ function returnToMapSelect(): void {
   renderer.selectTower(undefined);
   setSelection();
   disposeBuildTrayObservers();
+  minimap.dispose();
+  minimapPanel.remove();
   pendingRendererDisposal = renderer.dispose();
   ui.remove();
   canvas.remove();

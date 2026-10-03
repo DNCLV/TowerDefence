@@ -24,6 +24,7 @@ import { EnvironmentTheme, themeForRun } from "./EnvironmentThemes";
 import { WinterArenaArt } from "./WinterArenaArt";
 import { TerrainCliffRenderer } from "./TerrainCliffRenderer";
 import { GameSpeedMultiplier, SimulationClock } from "../SimulationClock";
+import type { MinimapCameraView } from "../minimap/MinimapRenderer";
 import type { LinesMesh } from "@babylonjs/core";
 
 type TowerVisual = ArcherVisual | QuaterniusArcherVisual | BlueWizardVisual | HolyKnightVisual | QuaterniusDefenderVisual;
@@ -348,6 +349,21 @@ export class BabylonGameRenderer {
   getGameSpeedMultiplier(): GameSpeedMultiplier { return this.simulationClock.speedMultiplier; }
   isPaused(): boolean { return this.simulationClock.isPaused; }
   setPaused(paused: boolean): void { this.simulationClock.setPaused(paused); }
+
+  /** Approximate ground-plane viewport for the display-only minimap; camera controls are unchanged. */
+  getApproximateMinimapView(): MinimapCameraView {
+    const halfVerticalView = this.camera.radius * Math.tan(this.camera.fov / 2);
+    const aspect = this.engine.getRenderWidth() / Math.max(1, this.engine.getRenderHeight());
+    const groundDepthScale = Math.max(0.24, Math.cos(this.camera.beta));
+    const halfWidth = halfVerticalView * aspect;
+    const halfDepth = halfVerticalView / groundDepthScale;
+    return {
+      x: this.camera.target.x - halfWidth,
+      y: this.camera.target.z - halfDepth,
+      width: halfWidth * 2,
+      height: halfDepth * 2,
+    };
+  }
 
   /** Releases renderer resources and global input listeners before changing maps. */
   async dispose(): Promise<void> {

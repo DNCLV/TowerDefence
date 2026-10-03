@@ -12,7 +12,9 @@ permissions:
 
 concurrency:
   group: github-pages
-  cancel-in-progress: true
+  # Let an active Pages deploy finish; newer pushes may replace the pending run,
+  # but should not leave the site serving an older successful artifact.
+  cancel-in-progress: false
 
 jobs:
   build:

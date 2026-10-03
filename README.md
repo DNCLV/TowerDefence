@@ -65,9 +65,11 @@ The current implementation supersedes the earlier single-enemy/scaling notes abo
 - Appen starter på en mobilvenlig **Choose Map**-skærm: **Open Field** (1 Spawn), **Split Advance** (2 Spawns) og **Triple Convergence** (3 Spawns).
 - `src/game/config/MapConfig.ts` definerer de tre faste, nord→syd-kort, deres build-blocking terræn, convergence-punkter, startgold, enemy-count multiplier og map previews.
 - Startværdierne er 70 / 110 / 150 gold og 1.0× / 1.5× / 2.0× enemy count. Enemy HP, speed, rewards og wave-typer ændres ikke af mapvalget.
-- Kortstørrelserne er 40×80, 56×100 og 70×120. Open Field har ingen interne blockers; Split Advance holder sine to ruter adskilt til y=75 (75% af kortets længde) før fælles approach.
-- Triple Convergence har tre brede topzoner, en 3→2 overgang ved række 43, to brede mid-fronts og to fire-cellers convergence-åbninger før det fælles slutfelt. Ground paths bruger terrænet; flying enemies ignorerer det og fortsætter direkte mod castle.
+- Kortstørrelserne er reduceret til 28×54, 38×68 og 48×82. Open Field har ingen interne blockers; Split Advance holder sine to ruter adskilt til række 51 (75% af kortets længde) før fælles approach.
+- Triple Convergence har tre brede topzoner, en 3→2 overgang ved række 29 (35% af højden), to brede mid-fronts og to fire-cellers convergence-åbninger ved x=17–20 og x=34–37 før det fælles slutfelt. Ground paths bruger terrænet; flying enemies ignorerer det og fortsætter direkte mod castle.
 - Waves fordeles rundevis over kortets spawns; live maze-building repather ground enemies, og placement-validering beskytter ruter fra alle aktive spawns. `npm run test:enemy-waves` verificerer også store kort, de to convergence gates og maze-turns i alle tre 3-spawn startzoner.
+- Det display-only minimap ligger nederst til venstre over Build Units. `src/game/minimap/MinimapRenderer.ts` tegner terræn på et statisk Canvas-lag og opdaterer tower-, enemy- og kameramarkører med cirka 12,5 Hz. Det nulstilles ved run-reset og fjernes ved retur til Map Select.
+- Choose Map er fortsat første skærm i production build. Den seneste Pages-mangel skyldtes en annulleret Actions-deploy, så Pages fortsat serverede en ældre artifact; Vite `/TowerDefence/`-base var allerede korrekt. Deploy-workflowet annullerer ikke længere en igangværende deploy ved et nyt push.
 
 ## Visual refinement
 

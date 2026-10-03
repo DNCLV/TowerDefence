@@ -126,6 +126,7 @@ async function main() {
   await command("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
   const mapSelection = await evaluate(`(() => {
     const start = document.querySelector('#start-selected-map');
+    const minimapAbsentBeforeStarting = !document.querySelector('#minimap-panel');
     if (start.disabled) throw new Error('START should be enabled for the preselected first map');
     const first = document.querySelector('.map-choice-card[data-map-id="single-spawn"]');
     if (first.getAttribute('aria-pressed') !== 'true') throw new Error('1 Spawn should be selected by default');
@@ -137,6 +138,7 @@ async function main() {
     start.click();
     return {
       checks,
+      minimapAbsentBeforeStarting,
       defaultMap: first.dataset.mapId,
       mapNames: [...document.querySelectorAll('.map-choice-card .map-choice-copy strong')].map((node) => node.textContent.trim()),
       previewPaths: [...document.querySelectorAll('.map-preview svg')].map((svg) => svg.querySelectorAll('.map-preview-route').length),
@@ -146,6 +148,7 @@ async function main() {
   })()`);
   if (mapSelection.checks.length !== 3 || mapSelection.checks.some((choice) => !choice.selected || !choice.canStart)
     || mapSelection.defaultMap !== "single-spawn"
+    || !mapSelection.minimapAbsentBeforeStarting
     || JSON.stringify(mapSelection.previewPaths) !== JSON.stringify([1, 2, 3])
     || JSON.stringify(mapSelection.mapNames) !== JSON.stringify(["Open Field", "Split Advance", "Triple Convergence"])
     || mapSelection.previewObstacles[0] !== 0 || mapSelection.previewObstacles[1] === 0 || mapSelection.previewObstacles[2] < 3
@@ -159,6 +162,25 @@ async function main() {
     if (loaded) break;
     if (attempt === 99) throw new Error("New enemy and defender GLB templates failed to load.");
     await delay(300);
+  }
+  const initialMinimap = await evaluate(`(() => {
+    const panel = document.querySelector('#minimap-panel');
+    const canvas = document.querySelector('#game-minimap');
+    return panel && canvas ? {
+      mapId: panel.dataset.mapId,
+      dimensions: panel.dataset.mapDimensions,
+      terrainCells: Number(panel.dataset.terrainCells),
+      spawnCount: Number(panel.dataset.spawnCount),
+      goalCell: panel.dataset.goalCell,
+      pointerEvents: getComputedStyle(panel).pointerEvents,
+      width: canvas.getBoundingClientRect().width,
+      height: canvas.getBoundingClientRect().height,
+    } : null;
+  })()`);
+  if (!initialMinimap || initialMinimap.mapId !== "single-spawn" || initialMinimap.dimensions !== "28x54"
+    || initialMinimap.terrainCells !== 0 || initialMinimap.spawnCount !== 1 || initialMinimap.goalCell !== "14,53"
+    || initialMinimap.pointerEvents !== "none") {
+    throw new Error(`Initial single-spawn minimap did not match selected map: ${JSON.stringify(initialMinimap)}`);
   }
   const visualState = await evaluate(`(() => {
     const game = window.__towerDefenceGameState;
@@ -340,6 +362,8 @@ async function main() {
       const selectedRect = selected.getBoundingClientRect();
       const waveElement = document.querySelector('#start-wave-button');
       const autoElement = document.querySelector('#auto-button');
+      const minimapPanel = document.querySelector('#minimap-panel');
+      const minimap = rect(minimapPanel);
       const wave = rect(waveElement);
       const auto = rect(autoElement);
       const towerLayouts = [];
@@ -377,6 +401,14 @@ async function main() {
         horizontalPageOverflow: document.documentElement.scrollWidth > innerWidth,
         touchAction: getComputedStyle(tray).touchAction,
         actionsVisible: wave.width > 0 && auto.width > 0 && wave.bottom <= innerHeight && auto.bottom <= innerHeight,
+        minimap: {
+          ...minimap,
+          mapId: minimapPanel.dataset.mapId,
+          dimensions: minimapPanel.dataset.mapDimensions,
+          pointerEvents: getComputedStyle(minimapPanel).pointerEvents,
+          panelBelowTray: minimap.bottom <= rect(footer).y - 4,
+          clearOfActions: minimap.right < Math.min(wave.x, auto.x) - 4 || minimap.bottom < Math.min(wave.y, auto.y) - 4,
+        },
         waveControls: {
           sameSize: Math.abs(wave.width - auto.width) < 0.5 && Math.abs(wave.height - auto.height) < 0.5,
           sameEdges: Math.abs(wave.x - auto.x) < 0.5 && Math.abs(wave.right - auto.right) < 0.5,
@@ -389,6 +421,10 @@ async function main() {
     if (layout.card.width < 70 || layout.card.width > 85 || layout.card.height < 85 || layout.card.height > 105
       || (viewport.width < 600 && !layout.trayScrollable) || !layout.selectedCardVisible || layout.horizontalPageOverflow
       || layout.touchAction !== "pan-x" || !layout.actionsVisible
+      || layout.minimap.width < (viewport.width < 600 ? 116 : 160)
+      || layout.minimap.width > (viewport.width < 600 ? 150 : 200)
+      || !layout.minimap.panelBelowTray || !layout.minimap.clearOfActions || layout.minimap.pointerEvents !== "none"
+      || layout.minimap.mapId !== "single-spawn" || layout.minimap.dimensions !== "28x54"
       || !layout.waveControls.sameSize || !layout.waveControls.sameEdges || !layout.waveControls.sameRadius
       || layout.towerLayouts.some((tower) => tower.panel.width <= 0 || tower.upgrade.width < 92 || tower.sell.width < 104
         || tower.info.width < 30 || tower.info.width > 36 || tower.upgradeClip || tower.sellClip
@@ -481,9 +517,16 @@ async function main() {
     const game = window.__towerDefenceGameState;
     return { mapId: game.map.id, gold: game.gold, startingGold: game.map.startingGold, lives: game.lives, wave: game.currentWave, active: game.waveActive, enemies: game.enemies.length, towers: game.towers.length, auto: game.autoRun };
   })()`);
+  const minimapAfterReset = await evaluate(`(() => ({
+    towers: document.querySelector('#minimap-panel')?.dataset.towerCount,
+    enemies: document.querySelector('#minimap-panel')?.dataset.enemyCount,
+  }))()`);
   if (resetRunState.mapId !== 'single-spawn' || resetRunState.gold !== resetRunState.startingGold || resetRunState.lives !== 10
     || resetRunState.wave !== 1 || resetRunState.active || resetRunState.enemies !== 0 || resetRunState.towers !== 0 || resetRunState.auto) {
     throw new Error(`Restart Current Map did not reset the same run: ${JSON.stringify(resetRunState)}`);
+  }
+  if (minimapAfterReset.towers !== "0" || minimapAfterReset.enemies !== "0") {
+    throw new Error(`Minimap retained stale markers after restart: ${JSON.stringify(minimapAfterReset)}`);
   }
   const inputCandidate = await evaluate(`(() => {
     const game = window.__towerDefenceGameState;
@@ -618,6 +661,37 @@ async function main() {
   if (!autoToggledOn || !autoToggledOff || !waveStarted) {
     throw new Error(`Mobile HUD button taps failed: ${JSON.stringify({ autoToggledOn, autoToggledOff, waveStarted })}`);
   }
+  await delay(250);
+  const minimapEnemyBeforeMove = await evaluate(`(() => {
+    const panel = document.querySelector('#minimap-panel');
+    const canvas = document.querySelector('#game-minimap');
+    const pixels = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+    let redPixels = 0;
+    let hash = 2166136261;
+    for (let index = 0; index < pixels.length; index += 4) {
+      if (pixels[index] > 180 && pixels[index + 1] < 130 && pixels[index + 2] < 150) redPixels += 1;
+      hash = Math.imul(hash ^ pixels[index], 16777619);
+    }
+    return { enemies: Number(panel.dataset.enemyCount), towers: Number(panel.dataset.towerCount), redPixels, hash: hash >>> 0 };
+  })()`);
+  await delay(300);
+  const minimapEnemyAfterMove = await evaluate(`(() => {
+    const panel = document.querySelector('#minimap-panel');
+    const canvas = document.querySelector('#game-minimap');
+    const pixels = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+    let redPixels = 0;
+    let hash = 2166136261;
+    for (let index = 0; index < pixels.length; index += 4) {
+      if (pixels[index] > 180 && pixels[index + 1] < 130 && pixels[index + 2] < 150) redPixels += 1;
+      hash = Math.imul(hash ^ pixels[index], 16777619);
+    }
+    return { enemies: Number(panel.dataset.enemyCount), redPixels, hash: hash >>> 0 };
+  })()`);
+  if (minimapEnemyBeforeMove.enemies < 1 || minimapEnemyBeforeMove.redPixels < 1
+    || minimapEnemyAfterMove.enemies < 1 || minimapEnemyAfterMove.redPixels < 1
+    || minimapEnemyBeforeMove.hash === minimapEnemyAfterMove.hash) {
+    throw new Error(`Minimap enemy dots were absent or did not move: ${JSON.stringify({ minimapEnemyBeforeMove, minimapEnemyAfterMove })}`);
+  }
   await command("Emulation.setTouchEmulationEnabled", { enabled: false });
   await command("Emulation.setDeviceMetricsOverride", { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
   const desktopProbe = await evaluate(`(() => {
@@ -646,7 +720,7 @@ async function main() {
     pan: { distance: Number(panDistance.toFixed(2)), action: panResult.state.lastAction, towersUnchanged: panResult.towers === towersBeforePan },
     pinch: { radiusBefore: radiusBeforePinch, radiusAfter: pinchResult.state.cameraRadius, action: pinchResult.state.lastAction, towersUnchanged: pinchResult.towers === towersBeforePan },
     traySwipe: { scrollLeft: traySwipe.scrollLeft, touchAction: traySwipe.touchAction, cameraUnchanged: true },
-    buildCardTap, autoToggledOn, autoToggledOff, waveStarted,
+    buildCardTap, autoToggledOn, autoToggledOff, waveStarted, minimapEnemyBeforeMove, minimapEnemyAfterMove,
     desktopMousePan: { distance: Number(desktopPanDistance.toFixed(2)), action: desktopPan.lastAction, towersUnchanged: true },
   };
   const inputSurfaceAudit = await evaluate(`(() => {
@@ -676,7 +750,7 @@ async function main() {
   let returnedToMapSelect = false;
   for (let attempt = 0; attempt < 100; attempt += 1) {
     returnedToMapSelect = await evaluate(`(() => !!document.querySelector('.map-select-screen')
-      && !document.querySelector('#game3d') && !window.__towerDefenceGameState)()`);
+      && !document.querySelector('#game3d') && !document.querySelector('#minimap-panel') && !window.__towerDefenceGameState)()`);
     if (returnedToMapSelect) break;
     await delay(50);
   }
@@ -685,9 +759,11 @@ async function main() {
     startEnabled: !document.querySelector('#start-selected-map').disabled,
     canvasCount: document.querySelectorAll('#game3d').length,
     gameStateAvailable: !!window.__towerDefenceGameState,
+    minimapCount: document.querySelectorAll('#minimap-panel, #game-minimap').length,
   }))()`);
   if (!returnedToMapSelect || mapSelectAfterReturn.selectedMap !== "single-spawn"
-    || !mapSelectAfterReturn.startEnabled || mapSelectAfterReturn.canvasCount !== 0 || mapSelectAfterReturn.gameStateAvailable) {
+    || !mapSelectAfterReturn.startEnabled || mapSelectAfterReturn.canvasCount !== 0 || mapSelectAfterReturn.gameStateAvailable
+    || mapSelectAfterReturn.minimapCount !== 0) {
     throw new Error(`Return to Map Select did not cleanly end the run: ${JSON.stringify({ returnedToMapSelect, mapSelectAfterReturn })}`);
   }
   await evaluate(`(() => {
@@ -718,10 +794,28 @@ async function main() {
     active: window.__towerDefenceGameState?.waveActive,
     auto: window.__towerDefenceGameState?.autoRun,
     canvasCount: document.querySelectorAll('#game3d').length,
+    minimapCount: document.querySelectorAll('#minimap-panel, #game-minimap').length,
   }))()`);
   if (!newMapRunReady || restartedMapState.mapId !== "three-spawns" || restartedMapState.wave !== 1
-    || restartedMapState.active || restartedMapState.auto || restartedMapState.canvasCount !== 1) {
+    || restartedMapState.active || restartedMapState.auto || restartedMapState.canvasCount !== 1 || restartedMapState.minimapCount !== 2) {
     throw new Error(`Starting a newly selected map after returning failed: ${JSON.stringify(restartedMapState)}`);
+  }
+  const newMapMinimap = await evaluate(`(() => {
+    const panel = document.querySelector('#minimap-panel');
+    return panel ? {
+      mapId: panel.dataset.mapId,
+      dimensions: panel.dataset.mapDimensions,
+      terrainCells: Number(panel.dataset.terrainCells),
+      spawnCount: Number(panel.dataset.spawnCount),
+      goalCell: panel.dataset.goalCell,
+      towers: panel.dataset.towerCount,
+      enemies: panel.dataset.enemyCount,
+    } : null;
+  })()`);
+  if (!newMapMinimap || newMapMinimap.mapId !== "three-spawns" || newMapMinimap.dimensions !== "48x82"
+    || newMapMinimap.terrainCells !== 478 || newMapMinimap.spawnCount !== 3 || newMapMinimap.goalCell !== "24,81"
+    || newMapMinimap.towers !== "0" || newMapMinimap.enemies !== "0") {
+    throw new Error(`Three-spawn minimap did not rebuild cleanly: ${JSON.stringify(newMapMinimap)}`);
   }
   const resetNavigation = { returnedToMapSelect, mapSelectAfterReturn, awaitingExplicitStart, restartedMapState };
   if (process.env.SAVE_COMPACT_HUD_SCREENSHOTS === "1") {
@@ -743,8 +837,8 @@ async function main() {
   console.log(JSON.stringify({
     mapSelectLayouts: responsiveLayouts,
     defenderVisualHeights: visualHeights,
-    gameHudLayouts: layouts.map(({ viewport, hudHeight, card, visibleCards, trayScrollable, actionsVisible, waveControls, towerLayouts }) => ({
-      viewport, hudHeight, card, visibleCards, trayScrollable, actionsVisible, waveControls,
+    gameHudLayouts: layouts.map(({ viewport, hudHeight, card, visibleCards, trayScrollable, actionsVisible, waveControls, minimap, towerLayouts }) => ({
+      viewport, hudHeight, card, visibleCards, trayScrollable, actionsVisible, waveControls, minimap,
       towerLayouts: towerLayouts.map(({ type, level, panel, stats, actions, upgrade, info, sell, upgradeClip, sellClip }) => ({
         type, level, panel, stats, actions, upgrade, info, sell, upgradeClip, sellClip,
       })),
