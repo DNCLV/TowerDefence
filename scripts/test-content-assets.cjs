@@ -207,6 +207,14 @@ async function main() {
   }
   if (!Number.isFinite(result.sceneTriangles)) throw new Error("Scene triangle telemetry was not populated.");
   await evaluate("window.__towerDefenceUi.selectTower(); window.__towerDefenceUi.chooseBuildUnit('sovereign')");
+  await evaluate(`(() => {
+    const ui = window.__towerDefenceUi;
+    for (const towerId of [${visualState.placedIds[0]}, ${visualState.placedIds[5]}]) {
+      ui.selectTower(towerId);
+      document.querySelector('#upgrade-button').click();
+      document.querySelector('#upgrade-button').click();
+    }
+  })()`);
   const layouts = [];
   const screenshots = [];
   for (const viewport of [{ width: 360, height: 800 }, { width: 390, height: 844 }, { width: 1280, height: 900 }]) {
@@ -227,8 +235,34 @@ async function main() {
       }).length;
       const selected = document.querySelector('#build-sovereign-button');
       const selectedRect = selected.getBoundingClientRect();
-      const wave = rect(document.querySelector('#start-wave-button'));
-      const auto = rect(document.querySelector('#auto-button'));
+      const waveElement = document.querySelector('#start-wave-button');
+      const autoElement = document.querySelector('#auto-button');
+      const wave = rect(waveElement);
+      const auto = rect(autoElement);
+      const towerLayouts = [];
+      for (const [type, id] of ${JSON.stringify([
+        ["Wizard L3", visualState.placedIds[0]],
+        ["Knight L3", visualState.placedIds[5]],
+        ["Battlemage", visualState.placedIds[15]],
+        ["Sovereign L3", visualState.placedIds[24]],
+      ])}) {
+        window.__towerDefenceUi.selectTower(id);
+        const panel = document.querySelector('#tower-panel');
+        const identity = panel.querySelector('.tower-identity');
+        const stats = panel.querySelector('#tower-sovereign-profiles:not([hidden])') ?? panel.querySelector('.tower-stats');
+        const actions = panel.querySelector('.tower-actions');
+        const upgrade = panel.querySelector('.upgrade-button');
+        const info = panel.querySelector('.upgrade-info-button');
+        const sell = panel.querySelector('.sell-button');
+        towerLayouts.push({
+          type,
+          level: panel.querySelector('#tower-level').textContent.trim(),
+          panel: rect(panel), identity: rect(identity), stats: rect(stats), actions: rect(actions),
+          upgrade: rect(upgrade), info: rect(info), sell: rect(sell),
+          upgradeClip: upgrade.scrollWidth > upgrade.clientWidth + 1,
+          sellClip: sell.scrollWidth > sell.clientWidth + 1,
+        });
+      }
       return {
         viewport: { width: innerWidth, height: innerHeight },
         hudHeight: rect(footer).height,
@@ -240,11 +274,24 @@ async function main() {
         horizontalPageOverflow: document.documentElement.scrollWidth > innerWidth,
         touchAction: getComputedStyle(tray).touchAction,
         actionsVisible: wave.width > 0 && auto.width > 0 && wave.bottom <= innerHeight && auto.bottom <= innerHeight,
+        waveControls: {
+          sameSize: Math.abs(wave.width - auto.width) < 0.5 && Math.abs(wave.height - auto.height) < 0.5,
+          sameEdges: Math.abs(wave.x - auto.x) < 0.5 && Math.abs(wave.right - auto.right) < 0.5,
+          sameRadius: getComputedStyle(waveElement).borderRadius === getComputedStyle(autoElement).borderRadius,
+          width: wave.width, height: wave.height, radius: getComputedStyle(waveElement).borderRadius,
+        },
+        towerLayouts,
       };
     })()`);
     if (layout.card.width < 70 || layout.card.width > 85 || layout.card.height < 85 || layout.card.height > 105
       || (viewport.width < 600 && !layout.trayScrollable) || !layout.selectedCardVisible || layout.horizontalPageOverflow
       || layout.touchAction !== "pan-x" || !layout.actionsVisible
+      || !layout.waveControls.sameSize || !layout.waveControls.sameEdges || !layout.waveControls.sameRadius
+      || layout.towerLayouts.some((tower) => tower.panel.width <= 0 || tower.upgrade.width < 92 || tower.sell.width < 104
+        || tower.info.width < 30 || tower.info.width > 36 || tower.upgradeClip || tower.sellClip
+        || tower.upgrade.right > tower.info.x + 1 || tower.info.right > tower.sell.x + 1
+        || tower.actions.right > tower.panel.right + 1
+        || (viewport.width <= 520 && (tower.actions.top < tower.stats.bottom - 1 || tower.actions.left < tower.panel.left - 1)))
       || (viewport.width < 400 && (layout.visibleCards < 3 || layout.visibleCards > 4))) {
       throw new Error(`Compact HUD layout failed at ${viewport.width}x${viewport.height}: ${JSON.stringify(layout)}`);
     }
@@ -285,7 +332,15 @@ async function main() {
       screenshots.push(path.join(screenshotDirectory, fileName));
     }
   }
-  console.log(JSON.stringify({ ...result, visualState, newTypeCounts, groundInstances, responsiveLayouts: layouts, futureUnitHudHeight, screenshots, runtimeFilesServed: paths.length }, null, 2));
+  console.log(JSON.stringify({
+    responsiveLayouts: layouts.map(({ viewport, hudHeight, card, visibleCards, trayScrollable, actionsVisible, waveControls, towerLayouts }) => ({
+      viewport, hudHeight, card, visibleCards, trayScrollable, actionsVisible, waveControls,
+      towerLayouts: towerLayouts.map(({ type, level, panel, stats, actions, upgrade, info, sell, upgradeClip, sellClip }) => ({
+        type, level, panel, stats, actions, upgrade, info, sell, upgradeClip, sellClip,
+      })),
+    })),
+    futureUnitHudHeight, screenshots, runtimeFilesServed: paths.length,
+  }, null, 2));
 }
 
 main().catch((error) => { console.error(error); process.exitCode = 1; }).finally(async () => {

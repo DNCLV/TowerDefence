@@ -1174,57 +1174,129 @@ canvas { display: block; width: 100% !important; height: 100% !important; touch-
 #build-sovereign-profiles > span small { font-size: 6px; white-space: nowrap; }
 .tower-panel {
   display: grid;
-  grid-template-columns: minmax(82px, .75fr) minmax(0, 2fr) minmax(116px, 1fr);
+  grid-template-columns: minmax(80px, .7fr) minmax(140px, 1.3fr) minmax(226px, 1.8fr);
   grid-template-rows: auto auto;
   align-items: center;
-  gap: 3px 7px;
+  gap: 3px 8px;
   padding: 5px 7px 3px;
   border-radius: 7px;
 }
-.tower-identity { grid-column: 1; grid-row: 1 / span 2; gap: 5px; padding-right: 12px; }
+.tower-identity { grid-column: 1; grid-row: 1 / span 2; gap: 5px; min-width: 0; padding-right: 12px; }
 .tower-portrait { flex-basis: 28px; width: 28px; height: 32px; }
 .tower-name { font-size: 9px; }
 .tower-level { font-size: 7px; }
 .panel-close { top: 2px; right: 2px; width: 18px; height: 18px; font-size: 12px; }
-.tower-stats { grid-column: 2; grid-row: 1; gap: 2px; margin: 0; }
+.tower-stats { grid-column: 2; grid-row: 1; min-width: 0; gap: 2px; margin: 0; }
 .tower-stats span,
 .tower-combat-stats span { padding: 3px 4px; font-size: 6px; }
 .tower-stats strong,
 .tower-combat-stats strong { margin-top: 1px; font-size: 8px; }
-.tower-combat-stats { grid-column: 2; grid-row: 2; gap: 2px; margin: 0; }
-.tower-actions { grid-column: 3; grid-row: 1; gap: 3px; }
-.tower-actions .action-button { min-height: 28px; padding-inline: 2px; font-size: 7px; }
-.upgrade-info-button { flex-basis: 23px; min-height: 28px; }
+.tower-combat-stats { grid-column: 2; grid-row: 2; min-width: 0; gap: 2px; margin: 0; }
+.tower-actions {
+  grid-column: 3;
+  grid-row: 1 / span 2;
+  grid-template-columns: minmax(128px, 1.15fr) minmax(104px, .85fr);
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.upgrade-action-wrap {
+  display: grid;
+  grid-template-columns: minmax(92px, 1fr) 32px;
+  align-items: stretch;
+  gap: 4px;
+  min-width: 0;
+}
+.tower-actions .action-button {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 35px;
+  padding-inline: 5px;
+  font-size: 8px;
+  letter-spacing: .035em;
+  white-space: nowrap;
+}
+.tower-actions .upgrade-button { min-width: 92px; }
+.tower-actions .sell-button { min-width: 104px; }
+.upgrade-info-button {
+  flex: none;
+  width: 32px;
+  min-width: 32px;
+  min-height: 35px;
+  padding: 0;
+  font-size: 14px;
+}
 .tower-message { grid-column: 3; grid-row: 2; min-height: 8px; padding: 0; font-size: 6px; }
+.tower-message:empty { display: none; }
 .tower-sovereign-profiles { grid-column: 2; grid-row: 1 / span 2; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px; }
 .tower-sovereign-profiles > span { padding: 3px 2px; font-size: 6px; }
 .tower-sovereign-profiles > span small { font-size: 6px; }
-.bottom-actions {
+.wave-controls {
   grid-column: 2;
   grid-row: 1;
   position: static;
-  display: flex;
-  width: 100%;
-  flex-direction: column;
-  justify-content: center;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: repeat(2, 36px);
+  align-content: center;
+  justify-content: stretch;
+  width: 82px;
+  height: 100%;
   gap: 5px;
   margin: 0;
 }
-.bottom-actions .action-button {
+.wave-controls .action-button {
+  box-sizing: border-box;
   width: 100%;
+  min-width: 0;
+  height: 36px;
   min-height: 36px;
+  max-height: 36px;
   padding: 0 3px;
   border-radius: 6px;
   font-size: 7px;
   letter-spacing: .035em;
+  white-space: nowrap;
 }
-.bottom-actions .try-again-button { min-height: 31px; }
+.wave-controls .try-again-button { min-height: 36px; }
+
+@media (max-width: 520px) {
+  .tower-panel {
+    grid-template-columns: minmax(72px, .58fr) minmax(0, 1.42fr);
+    grid-template-rows: auto auto auto auto;
+    gap: 3px 6px;
+    padding-inline: 5px;
+  }
+  .tower-identity { grid-column: 1; grid-row: 1 / span 2; padding-right: 8px; }
+  .tower-stats { grid-column: 2; grid-row: 1; }
+  .tower-combat-stats { grid-column: 2; grid-row: 2; }
+  .tower-sovereign-profiles { grid-column: 2; grid-row: 1 / span 2; }
+  .tower-actions {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    grid-template-columns: minmax(0, 1fr) 34px minmax(0, 1fr);
+    gap: 5px;
+    padding-top: 2px;
+  }
+  .upgrade-action-wrap {
+    grid-column: 1 / span 2;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 34px;
+    gap: 5px;
+  }
+  .upgrade-action-wrap .upgrade-button { grid-column: 1; }
+  .upgrade-action-wrap .upgrade-info-button { grid-column: 2; width: 34px; min-width: 34px; }
+  .tower-actions .sell-button { grid-column: 3; min-width: 0; }
+  .tower-actions .upgrade-button { min-width: 0; }
+  .tower-message { grid-column: 1 / -1; grid-row: 4; min-height: 8px; }
+}
 
 @media (max-width: 380px) {
   .bottom-hud-bar { grid-template-columns: minmax(0, 1fr) 78px; padding-inline: 6px; column-gap: 6px; }
-  .tower-panel { grid-template-columns: minmax(72px, .7fr) minmax(0, 1.7fr) minmax(104px, .95fr); gap: 3px 4px; padding-inline: 5px; }
+  .wave-controls { width: 78px; }
   .tower-name { font-size: 8px; }
-  .tower-actions .action-button { font-size: 6px; }
+  .tower-actions .action-button { font-size: 7px; }
 }
 @media (min-width: 440px) {
   .bottom-hud-bar { grid-template-rows: 98px auto; min-height: 0; }

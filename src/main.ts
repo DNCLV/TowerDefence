@@ -132,7 +132,7 @@ ui.innerHTML = `
     <div id="tower-message" class="tower-message" aria-live="polite"></div>
   </section>
 
-      <div class="bottom-actions">
+  <div class="wave-controls bottom-actions" aria-label="Wave controls">
     <button id="start-wave-button" class="action-button start-wave-button" type="button">START WAVE</button>
     <button id="auto-button" class="action-button auto-button" type="button">AUTO: OFF</button>
     <button id="try-again-button" class="action-button try-again-button" type="button" hidden>TRY AGAIN</button>
