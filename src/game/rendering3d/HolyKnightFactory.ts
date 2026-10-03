@@ -21,6 +21,12 @@ export class HolyKnightFactory {
 
   get ready(): boolean { return this.template !== undefined; }
 
+  dispose(): void {
+    this.template?.dispose();
+    this.template = undefined;
+    this.rawBounds = undefined;
+  }
+
   async load(): Promise<void> {
     const path = DEFENDER_VISUAL_CONFIG["holy-knight"].assetPath;
     const resolvedPath = resolveAssetUrl(path);

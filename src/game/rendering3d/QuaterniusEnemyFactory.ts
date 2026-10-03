@@ -45,6 +45,14 @@ export class QuaterniusEnemyFactory {
   getAssetPath(type: EnemyType): string { return ENEMY_VISUAL_CONFIG[type].assetPath; }
   getLoadedAssetPath(type: EnemyType): string | undefined { return this.loadedAssetPaths.get(type); }
 
+  dispose(): void {
+    this.templates.forEach((template) => template.dispose());
+    this.templates.clear();
+    this.loadedAssetPaths.clear();
+    this.healthBack.dispose();
+    this.healthFront.dispose();
+  }
+
   async load(): Promise<void> {
     await Promise.all((Object.keys(ENEMY_VISUAL_CONFIG) as EnemyType[]).map(async (type) => {
       const config = ENEMY_VISUAL_CONFIG[type];

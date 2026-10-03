@@ -5,43 +5,66 @@ export interface DefenderVisualDefinition {
   debugLabel: string;
   assetPath: string;
   fallbackAssetPath?: string;
-  /** Explicit per-model scale, tuned from that model's measured GLB bounds. */
+  /** Vertical scale derived from the measured source GLB height. */
   modelScale: number;
+  /** Optional horizontal normalization to keep a model within one map cell. */
+  modelScaleX?: number;
+  modelScaleZ?: number;
+  sourceBounds: { width: number; height: number; depth: number };
+  targetVisualHeight: number;
+  targetFootprint?: { width: number; depth: number };
   rotationY: number;
   primitiveFallback: "wizard" | "knight" | "green-archer" | "battlemage" | "sovereign";
 }
 
-/** One canonical visual mapping for every currently playable defender ID. */
+function normalizedVisual(
+  sourceBounds: DefenderVisualDefinition["sourceBounds"],
+  targetVisualHeight: number,
+  targetFootprint?: { width: number; depth: number },
+): Pick<DefenderVisualDefinition, "sourceBounds" | "targetVisualHeight" | "targetFootprint" | "modelScale" | "modelScaleX" | "modelScaleZ"> {
+  return {
+    sourceBounds,
+    targetVisualHeight,
+    targetFootprint,
+    modelScale: targetVisualHeight / sourceBounds.height,
+    modelScaleX: targetFootprint ? targetFootprint.width / sourceBounds.width : undefined,
+    modelScaleZ: targetFootprint ? targetFootprint.depth / sourceBounds.depth : undefined,
+  };
+}
+
+/** Measured bounds below are from the actual final runtime GLBs, in source model units. */
 export const DEFENDER_VISUAL_CONFIG: Record<DefenderType, DefenderVisualDefinition> = {
   "blue-wizard": {
     displayName: "Blue Wizard", debugLabel: "WIZARD",
     assetPath: "/assets/models/defenders/blue-wizard.glb",
-    modelScale: 1.13 * 0.75, rotationY: 0, primitiveFallback: "wizard",
+    ...normalizedVisual({ width: 1.31395, height: 1.89845, depth: 1.08782 }, 1.89845 * (1.13 * 0.75)),
+    rotationY: 0, primitiveFallback: "wizard",
   },
   "holy-knight": {
     displayName: "Holy Knight", debugLabel: "KNIGHT",
     assetPath: "/assets/models/defenders/holy-knight.glb",
-    modelScale: 1.13 * 0.75, rotationY: 0, primitiveFallback: "knight",
+    ...normalizedVisual({ width: 1.45042, height: 1.89834, depth: 1.10309 }, 1.89834 * (1.13 * 0.75)),
+    rotationY: 0, primitiveFallback: "knight",
   },
   "green-archer": {
     displayName: "Green Archer", debugLabel: "ARCHER",
     assetPath: "/assets/models/defenders/optimized/green-archer.glb",
     fallbackAssetPath: "/assets/models/defenders/green-archer.glb",
-    // Optimized GLB bounds: 0.985 × 1.897 × 0.841. Keep its footprint below one tile.
-    modelScale: 0.75, rotationY: 0, primitiveFallback: "green-archer",
+    ...normalizedVisual({ width: 0.98466, height: 1.89733, depth: 0.84087 }, 1.518, { width: 0.8, depth: 0.8 }),
+    rotationY: 0, primitiveFallback: "green-archer",
   },
   battlemage: {
     displayName: "Battlemage", debugLabel: "BATTLEMAGE",
     assetPath: "/assets/models/defenders/optimized/battlemage.glb",
     fallbackAssetPath: "/assets/models/defenders/battlemage.glb",
-    // Bounds: 1.440 × 1.898 × 1.520; scale is reduced to keep the wide silhouette in-cell.
-    modelScale: 0.55, rotationY: 0, primitiveFallback: "battlemage",
+    ...normalizedVisual({ width: 1.44017, height: 1.89785, depth: 1.52045 }, 1.594, { width: 0.8, depth: 0.8 }),
+    rotationY: 0, primitiveFallback: "battlemage",
   },
   sovereign: {
     displayName: "Sovereign", debugLabel: "SOVEREIGN",
     assetPath: "/assets/models/defenders/optimized/sovereign.glb",
     fallbackAssetPath: "/assets/models/defenders/sovereign.glb",
-    // Source bounds: 1.27869 × 1.89875 × 1.1247; reduced to fit a defender cell.
-    modelScale: 0.62, rotationY: 0, primitiveFallback: "sovereign",
+    ...normalizedVisual({ width: 1.27846, height: 1.89844, depth: 1.12448 }, 1.747, { width: 0.8, depth: 0.8 }),
+    rotationY: 0, primitiveFallback: "sovereign",
   },
 };

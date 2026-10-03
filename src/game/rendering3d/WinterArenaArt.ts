@@ -81,38 +81,65 @@ export class WinterArenaArt {
     const texture = new DynamicTexture("snow-clearing-variation", { width: 512, height: 512 }, this.scene, true);
     const ctx = texture.getContext();
     ctx.fillStyle = "#e1e9ec"; ctx.fillRect(0, 0, 512, 512);
-    for (let i = 0; i < 18; i++) {
+    for (let i = 0; i < 22; i++) {
       const x = (i * 137 + 43) % 512, y = (i * 193 + 71) % 512;
       ctx.save(); ctx.translate(x, y); ctx.scale(1.6, 0.75);
       const gradient = ctx.createRadialGradient(0, 0, 2, 0, 0, 130);
-      gradient.addColorStop(0, i % 3 === 0 ? "rgba(244,249,249,0.58)" : "rgba(69,105,130,0.48)");
-      gradient.addColorStop(0.4, i % 3 === 0 ? "rgba(217,232,237,0.34)" : "rgba(100,137,159,0.3)");
+      gradient.addColorStop(0, i % 3 === 0 ? "rgba(250,253,253,0.23)" : "rgba(69,105,130,0.12)");
+      gradient.addColorStop(0.4, i % 3 === 0 ? "rgba(217,232,237,0.16)" : "rgba(100,137,159,0.09)");
       gradient.addColorStop(1, "rgba(150,180,196,0)");
       ctx.fillStyle = gradient; ctx.fillRect(-130, -130, 260, 260); ctx.restore();
+    }
+    // Fine, low-contrast grain adds snow surface breakup without competing with the grid.
+    for (let i = 0; i < 1400; i++) {
+      const x = (i * 97 + 17) % 512;
+      const y = (i * 151 + 43) % 512;
+      ctx.fillStyle = i % 4 === 0 ? "rgba(255,255,255,0.12)" : "rgba(64,103,128,0.035)";
+      ctx.fillRect(x, y, 1, 1);
     }
     texture.update(false);
     return texture;
   }
 
-  perimeter(): void {
-    // All banks stay beyond the grid. Split side walls leave the gate approaches open.
-    const runs = [
-      [this.width / 2, -0.9, this.width + 1, false],
-      [this.width / 2, this.depth + 0.9, this.width + 1, false],
-      [-0.9, 6.5, 13, true], [-0.9, 25.5, 13, true],
-      [this.width + 0.9, 6.5, 13, true], [this.width + 0.9, 25.5, 13, true],
-    ] as const;
-    runs.forEach(([x, z, length, vertical], run) => {
-      this.box(`terrain-bank-${run}`, x, 0.13, z, vertical ? 1.4 : length, 0.32, vertical ? length : 1.4, this.soil);
-      this.box(`terrain-snow-lip-${run}`, x, 0.30, z, vertical ? 1.3 : length, 0.10, vertical ? length : 1.3, this.frost);
-      const segments = Math.ceil(length / 6);
-      const segmentLength = length / segments;
-      for (let i = 0; i < segments; i++) {
-        const offset = -length / 2 + segmentLength * (i + 0.5);
-        this.fittedAsset("wall", `perimeter-${run}-${i}`, x + (vertical ? 0 : offset), z + (vertical ? offset : 0),
-          segmentLength + 0.035, 1.05, 0.48, vertical ? Math.PI / 2 : 0, this.stone);
+  perimeter(gates: Array<{ x: number; z: number; side: "north" | "south" | "east" | "west" }> = []): void {
+    // Open the decorative border exactly where the selected map's gates are located.
+    const boundaries = [
+      { horizontal: true, x: this.width / 2, z: -0.9, start: -0.5, end: this.width + 0.5, holes: gates.filter((gate) => gate.side === "north").map((gate) => gate.x) },
+      { horizontal: true, x: this.width / 2, z: this.depth + 0.9, start: -0.5, end: this.width + 0.5, holes: gates.filter((gate) => gate.side === "south").map((gate) => gate.x) },
+      { horizontal: false, x: -0.9, z: this.depth / 2, start: -0.5, end: this.depth + 0.5, holes: gates.filter((gate) => gate.side === "west").map((gate) => gate.z) },
+      { horizontal: false, x: this.width + 0.9, z: this.depth / 2, start: -0.5, end: this.depth + 0.5, holes: gates.filter((gate) => gate.side === "east").map((gate) => gate.z) },
+    ];
+    let run = 0;
+    for (const boundary of boundaries) {
+      const centers = boundary.holes.map((cell) => cell + 0.5).sort((a, b) => a - b);
+      const segments: Array<[number, number]> = [];
+      let cursor = boundary.start;
+      for (const center of centers) {
+        const gapStart = center - 1.15;
+        const gapEnd = center + 1.15;
+        if (gapStart > cursor) segments.push([cursor, gapStart]);
+        cursor = Math.max(cursor, gapEnd);
       }
-    });
+      if (cursor < boundary.end) segments.push([cursor, boundary.end]);
+      for (const [start, end] of segments) {
+        const length = end - start;
+        if (length < 0.8) continue;
+        const midpoint = (start + end) / 2;
+        const x = boundary.horizontal ? midpoint : boundary.x;
+        const z = boundary.horizontal ? boundary.z : midpoint;
+        this.box(`terrain-bank-${run}`, x, 0.13, z, boundary.horizontal ? length : 1.4, 0.32, boundary.horizontal ? 1.4 : length, this.soil);
+        this.box(`terrain-snow-lip-${run}`, x, 0.30, z, boundary.horizontal ? length : 1.3, 0.10, boundary.horizontal ? 1.3 : length, this.frost);
+        const pieces = Math.ceil(length / 6);
+        const pieceLength = length / pieces;
+        for (let index = 0; index < pieces; index += 1) {
+          const offset = start + pieceLength * (index + 0.5);
+          this.fittedAsset("wall", `perimeter-${run}-${index}`, boundary.horizontal ? offset : boundary.x,
+            boundary.horizontal ? boundary.z : offset, pieceLength + 0.035, 1.05, 0.48,
+            boundary.horizontal ? 0 : Math.PI / 2, this.stone);
+        }
+        run += 1;
+      }
+    }
     for (const [x, z] of [[-0.9, -0.9], [this.width + 0.9, -0.9], [-0.9, this.depth + 0.9], [this.width + 0.9, this.depth + 0.9]]) {
       this.fittedAsset("corner", `perimeter-corner-${x}-${z}`, x, z, 0.9, 1.45, 0.9, 0, this.stone);
       this.box(`corner-snow-${x}-${z}`, x, 1.49, z, 1, 0.12, 1, this.snow);
@@ -137,10 +164,11 @@ export class WinterArenaArt {
   clusters(theme: EnvironmentTheme, seed: number): TransformNode[] {
     const roots: TransformNode[] = [];
     // Twelve deliberate edge/corner pockets; the gate approaches at the middle of each short edge stay open.
+    const quarter = this.width / 4;
     const anchors = [
-      [7, -3.7], [18, -3.7], [30, -3.7], [41, -3.7],
-      [-3.7, 6], [-3.7, 26], [this.width + 3.7, 6], [this.width + 3.7, 26],
-      [7, this.depth + 3.7], [18, this.depth + 3.7], [30, this.depth + 3.7], [41, this.depth + 3.7],
+      [quarter, -3.7], [quarter * 2, -3.7], [quarter * 3, -3.7], [this.width - quarter, -3.7],
+      [-3.7, this.depth * 0.25], [-3.7, this.depth * 0.75], [this.width + 3.7, this.depth * 0.25], [this.width + 3.7, this.depth * 0.75],
+      [quarter, this.depth + 3.7], [quarter * 2, this.depth + 3.7], [quarter * 3, this.depth + 3.7], [this.width - quarter, this.depth + 3.7],
     ];
     const forest = [["tree", -0.72, 0], ["tree", 0.78, 0.5], ["rock", -0.1, 1.15], ["bush", 1.2, -0.95]] as const;
     const rocks = [["rock", -0.75, 0], ["rock", 0.75, 0.55], ["tree", 0.2, -1.05]] as const;

@@ -8,12 +8,18 @@ const [{ GameState }, enemyModule, waveModule, visualModule, towerModule, consta
   import("../src/core/GameConstants.ts"),
   import("../src/game/config/DefenderConfig.ts"),
 ]);
+const { MAPS } = await import("../src/game/config/MapConfig.ts");
+const { VISUAL_CONFIG } = await import("../src/game/rendering3d/VisualConfig.ts");
+const { findPath } = await import("../src/game/pathfinding/Pathfinder.ts");
+const { traceBoundary, smoothOutline, triangulate } = await import("../src/game/rendering3d/TerrainCliffRenderer.ts");
 const originalLog = console.log;
 const originalInfo = console.info;
 console.log = () => {};
 console.info = () => {};
 
 try {
+  const mapMetrics = [];
+  let totalTerrainFormations = 0;
   const { createEnemy } = enemyModule;
   const { ENEMY_VISUAL_CONFIG } = visualModule;
   const { getEnemyHpForWave, getEnemyHpMultiplier, getEnemyHpTier } = enemyModule;
@@ -25,6 +31,320 @@ try {
   const { createBasicTower, canTowerTargetEnemy, getTotalTowerInvestment, getTowerSellRefund } = towerModule;
   const { WORLD_UNITS_PER_CELL } = constantsModule;
   const { DEFENDER_CONFIG } = defenderModule;
+
+  for (const [mapId, expectedName, expectedGold, multiplier, expectedSpawnCells, expectedGoalCell, expectedWidth, expectedHeight] of [
+    ["single-spawn", "Open Field", 70, 1, [{ x: 20, y: 0 }], { x: 20, y: 79 }, 40, 80],
+    ["two-spawns", "Split Advance", 110, 1.5, [{ x: 14, y: 0 }, { x: 41, y: 0 }], { x: 28, y: 99 }, 56, 100],
+    ["three-spawns", "Triple Convergence", 150, 2, [{ x: 11, y: 0 }, { x: 35, y: 0 }, { x: 58, y: 0 }], { x: 35, y: 119 }, 70, 120],
+  ]) {
+    const mapState = new GameState(mapId);
+    const map = MAPS[mapId];
+    const expectedSpawnCount = expectedSpawnCells.length;
+    assert.equal(map.name, expectedName, `${mapId} uses its approved map name`);
+    assert.equal(mapState.gold, expectedGold, `${mapId} initializes its configured gold`);
+    assert.equal(map.width, expectedWidth, `${mapId} uses the redesigned map width`);
+    assert.equal(map.height, expectedHeight, `${mapId} uses the redesigned map height`);
+    assert.equal(mapState.layout.activeSpawns.length, expectedSpawnCount, `${mapId} has the configured entry count`);
+    assert.equal(mapState.spawnPaths.size, expectedSpawnCount, `${mapId} has a path from every entry`);
+    assert.deepEqual(map.layout.activeSpawns.map(({ gateCell }) => gateCell), expectedSpawnCells, `${mapId} spawn gate coordinates are fixed`);
+    assert.deepEqual(map.layout.castle.gateCell, expectedGoalCell, `${mapId} goal gate coordinate is fixed`);
+    const terrainKeys = new Set(map.terrain.map(({ x, y }) => `${x},${y}`));
+    const regionKeys = new Set(map.terrainRegions.flatMap((region) => region.cells.map(({ x, y }) => `${x},${y}`)));
+    assert.deepEqual(regionKeys, terrainKeys, `${mapId} visual terrain regions match the pathfinding terrain mask`);
+    assert.equal(terrainKeys.size, map.terrain.length, `${mapId} has no duplicate blocked cells`);
+    assert.ok(map.terrain.every(({ x, y }) => x >= 0 && x < map.width && y >= 0 && y < map.height), `${mapId} terrain stays within map bounds`);
+    if (map.terrain.length > 0) {
+      const sampleMountainCell = map.terrain[0];
+      assert.equal(mapState.grid.isBuildable(sampleMountainCell), false, `${mapId} mountain terrain blocks building`);
+      assert.equal(mapState.canPlaceBasicTower(sampleMountainCell), "invalid-cell", `${mapId} mountain footprint rejects tower placement`);
+    }
+    const reservedCells = new Set([
+      ...map.layout.activeSpawns.flatMap(({ gateCell, entryCell }) => [gateCell, entryCell]),
+      map.layout.castle.gateCell, map.layout.castle.approachCell,
+    ].map(({ x, y }) => `${x},${y}`));
+    for (const key of reservedCells) assert.equal(terrainKeys.has(key), false, `${mapId} terrain does not cover spawn/goal cells`);
+    const buildableCells = map.width * map.height - terrainKeys.size - reservedCells.size;
+    const buildableRatio = buildableCells / (map.width * map.height);
+    assert.ok(buildableRatio >= 0.75, `${mapId} preserves broad player-built maze space (${Math.round(buildableRatio * 100)}%)`);
+    if (mapId === "single-spawn") assert.equal(terrainKeys.size, 0, "Open Field has no internal terrain obstacles");
+    for (const spawn of mapState.layout.activeSpawns) assert.equal(mapState.grid.isBuildable(spawn.gateCell), false, `${mapId} protects spawn gate cells`);
+    assert.equal(mapState.grid.isBuildable(mapState.layout.castle.gateCell), false, `${mapId} protects the castle gate cell`);
+    mapMetrics.push({ mapId, dimensions: `${map.width}x${map.height}`, total: map.width * map.height,
+      spawnGates: map.layout.activeSpawns.map(({ id, gateCell }) => ({ id, ...gateCell })), goalGate: map.layout.castle.gateCell,
+      terrain: terrainKeys.size, reserved: reservedCells.size, buildable: buildableCells,
+      buildablePct: Number((buildableRatio * 100).toFixed(1)), blockedPct: Number((100 * (terrainKeys.size + reservedCells.size) / (map.width * map.height)).toFixed(1)),
+      terrainRegions: map.terrainRegions.map((region) => ({
+        id: region.id, cells: region.cells.length,
+        x: [Math.min(...region.cells.map(({ x }) => x)), Math.max(...region.cells.map(({ x }) => x))],
+        y: [Math.min(...region.cells.map(({ y }) => y)), Math.max(...region.cells.map(({ y }) => y))],
+      })) });
+    const terrainByKey = new Map(map.terrain.map((cell) => [`${cell.x},${cell.y}`, cell]));
+    const unvisited = new Set(terrainByKey.keys());
+    while (unvisited.size > 0) {
+      const first = unvisited.values().next().value;
+      const pending = [first], component = [];
+      unvisited.delete(first);
+      for (let index = 0; index < pending.length; index += 1) {
+        const cell = terrainByKey.get(pending[index]);
+        component.push(cell);
+        for (const [x, y] of [[cell.x - 1, cell.y], [cell.x + 1, cell.y], [cell.x, cell.y - 1], [cell.x, cell.y + 1]]) {
+          const key = `${x},${y}`;
+          if (unvisited.delete(key)) pending.push(key);
+        }
+      }
+      const outline = smoothOutline(traceBoundary(component));
+      const triangles = triangulate(outline);
+      assert.ok(outline.length >= 3 && triangles.length === (outline.length - 2) * 3,
+        `${mapId} terrain formation has a closed, filled plateau mesh outline`);
+      totalTerrainFormations += 1;
+    }
+    for (const spawn of mapState.layout.activeSpawns) {
+      const route = mapState.spawnPaths.get(spawn.id);
+      assert.ok(route && route.length > 1, `${mapId}/${spawn.id} has a valid route`);
+      assert.deepEqual(route[0], spawn.entryCell);
+      assert.deepEqual(route.at(-1), mapState.exit, "all routes reach the one shared castle approach");
+    }
+    if (expectedSpawnCount > 1) {
+      const routes = [...mapState.spawnPaths.values()];
+      const sharedCells = routes[0].filter((cell) => routes.slice(1).every((route) => route.some((candidate) => candidate.x === cell.x && candidate.y === cell.y)));
+      assert.ok(sharedCells.length >= (expectedSpawnCount === 2 ? 8 : 7), `${mapId} routes converge into a shared lower area`);
+    }
+    assert.equal(mapState.startWave(), true);
+    const scaledWaveOne = Math.max(1, Math.round(12 * multiplier));
+    assert.equal(mapState.enemiesRemaining, scaledWaveOne, `${mapId} applies its enemy count multiplier`);
+    mapState.update(0);
+    const initialSpawnCounts = new Map(mapState.layout.activeSpawns.map(({ id }) => [id, 0]));
+    const countedEnemies = new Set();
+    const recordSpawned = () => {
+      for (const enemy of mapState.enemies) {
+        if (countedEnemies.has(enemy.id)) continue;
+        countedEnemies.add(enemy.id);
+        const spawnId = mapState.layout.activeSpawns.find(({ entryCell }) => entryCell.x === enemy.path[0].x && entryCell.y === enemy.path[0].y)?.id;
+        assert.ok(spawnId, `${mapId} enemy starts on a configured entry route`);
+        initialSpawnCounts.set(spawnId, initialSpawnCounts.get(spawnId) + 1);
+        enemy.speed = 0;
+      }
+    };
+    recordSpawned();
+    for (let tick = 0; tick < 5; tick += 1) {
+      mapState.update(0.71);
+      recordSpawned();
+    }
+    const distributedCounts = [...initialSpawnCounts.values()];
+    assert.ok(Math.max(...distributedCounts) - Math.min(...distributedCounts) <= 1,
+      `${mapId} distributes its first spawns evenly across its entries`);
+  }
+  // Camera target/pan bounds are map-size-derived; verify every corner remains inside
+  // the existing fixed-angle camera safety envelope at all zoom stops and both layouts.
+  for (const map of Object.values(MAPS)) {
+    for (const radius of [VISUAL_CONFIG.minCameraRadius, VISUAL_CONFIG.defaultCameraRadius, VISUAL_CONFIG.maxCameraRadius]) {
+      const cameraExtent = radius + 1.5;
+      const offsetX = radius * Math.cos(VISUAL_CONFIG.defaultCameraAlpha) * Math.sin(VISUAL_CONFIG.defaultCameraBeta);
+      const offsetZ = radius * Math.sin(VISUAL_CONFIG.defaultCameraAlpha) * Math.sin(VISUAL_CONFIG.defaultCameraBeta);
+      for (const [targetX, targetZ] of [[0, 0], [map.width, 0], [0, map.height], [map.width, map.height]]) {
+        const cameraX = targetX + offsetX;
+        const cameraZ = targetZ + offsetZ;
+        assert.ok(cameraX >= -cameraExtent && cameraX <= map.width + cameraExtent, `${map.id} camera can reach a horizontal map corner`);
+        assert.ok(cameraZ >= -cameraExtent && cameraZ <= map.height + cameraExtent, `${map.id} camera can reach a vertical map corner`);
+        assert.ok(radius * Math.cos(VISUAL_CONFIG.defaultCameraBeta) >= 8.5, `${map.id} keeps the minimum safe camera height`);
+      }
+    }
+  }
+  // Collect configured ground routes deterministically without tower combat noise.
+  function collectSpawnRoutes(mapId, total) {
+    const state = new GameState(mapId);
+    state.waveActive = true;
+    state.spawnQueue = Array(total).fill("goblin");
+    state.toSpawn = total;
+    state.spawnTimer = 0;
+    state.nextMidLane = 0;
+    state.enemyMidLanes.clear();
+    const routes = [];
+    for (let tick = 0; routes.length < total && tick < total + 2; tick += 1) {
+      state.update(tick === 0 ? 0 : 0.66);
+      routes.push(...state.enemies.map((enemy) => enemy.path.map((cell) => ({ ...cell }))));
+      state.enemies = [];
+    }
+    assert.equal(routes.length, total, `${mapId} spawns all requested ground enemies`);
+    return { state, routes };
+  }
+  const { state: twoSpawnState, routes: twoSpawnRoutes } = collectSpawnRoutes("two-spawns", 20);
+  const twoOriginCounts = new Map(MAPS["two-spawns"].layout.activeSpawns.map(({ id }) => [id, 0]));
+  for (const route of twoSpawnRoutes) {
+    const spawn = MAPS["two-spawns"].layout.activeSpawns.find(({ entryCell }) => entryCell.x === route[0].x && entryCell.y === route[0].y);
+    assert.ok(spawn);
+    twoOriginCounts.set(spawn.id, twoOriginCounts.get(spawn.id) + 1);
+    assert.deepEqual(route.at(-1), twoSpawnState.exit, "both two-spawn fronts reach the shared goal");
+  }
+  assert.deepEqual([...twoOriginCounts.values()], [10, 10], "20 ground enemies split 10/10 across two spawns");
+  const [twoLeftRoute, twoRightRoute] = [twoSpawnRoutes[0], twoSpawnRoutes[1]];
+  let twoSharedSuffix = 0;
+  while (twoSharedSuffix < twoLeftRoute.length && twoSharedSuffix < twoRightRoute.length) {
+    const leftCell = twoLeftRoute[twoLeftRoute.length - 1 - twoSharedSuffix];
+    const rightCell = twoRightRoute[twoRightRoute.length - 1 - twoSharedSuffix];
+    if (leftCell.x !== rightCell.x || leftCell.y !== rightCell.y) break;
+    twoSharedSuffix += 1;
+  }
+  const twoMergeRoutePercent = 1 - twoSharedSuffix / ((twoLeftRoute.length + twoRightRoute.length) / 2);
+  assert.ok(twoMergeRoutePercent >= 0.72 && twoMergeRoutePercent <= 0.84,
+    `two-spawn fronts stay distinct for about three quarters of the route (${Math.round(twoMergeRoutePercent * 100)}%)`);
+  assert.ok(twoSharedSuffix >= 10, "two-spawn fronts share a substantial lower convergence area");
+  const twoDivider = MAPS["two-spawns"].terrainRegions.find(({ id }) => id === "central-split-ridge");
+  assert.ok(twoDivider && Math.max(...twoDivider.cells.map(({ y }) => y)) === MAPS["two-spawns"].finalLaneTarget.y - 1,
+    "two-spawn central ridge ends immediately before the y=75 merge");
+  assert.equal(MAPS["two-spawns"].finalLaneTarget.y / MAPS["two-spawns"].height, 0.75,
+    "two-spawn fronts remain split for 75% of the map length");
+  assert.ok(Array.from({ length: 27 }, (_, x) => x).filter((x) => twoSpawnState.grid.isBuildable({ x, y: 24 })).length >= 25,
+    "left two-spawn build region remains broad");
+  assert.ok(Array.from({ length: 27 }, (_, index) => index + 29).filter((x) => twoSpawnState.grid.isBuildable({ x, y: 24 })).length >= 25,
+    "right two-spawn build region remains broad");
+  assert.ok(twoSpawnState.canPlaceBasicTower({ x: 2, y: 24 }) === "placed", "left broad maze zone supports legal building");
+  assert.ok(twoSpawnState.canPlaceBasicTower({ x: 53, y: 24 }) === "placed", "right broad maze zone supports legal building");
+  const twoMazeState = new GameState("two-spawns");
+  twoMazeState.gold = 1000;
+  const twoWestBefore = twoMazeState.spawnPaths.get("spawn-north-west").map(({ x, y }) => `${x},${y}`).join("|");
+  const twoWestBlock = twoMazeState.spawnPaths.get("spawn-north-west").find(({ y, x }) => y >= 12 && y <= 20 && twoMazeState.grid.isBuildable({ x, y }));
+  assert.ok(twoWestBlock && twoMazeState.placeBasicTower(twoWestBlock) === "placed");
+  assert.notEqual(twoMazeState.spawnPaths.get("spawn-north-west").map(({ x, y }) => `${x},${y}`).join("|"), twoWestBefore,
+    "a legal tower redirects the west front");
+  const twoEastBefore = twoMazeState.spawnPaths.get("spawn-north-east").map(({ x, y }) => `${x},${y}`).join("|");
+  const twoEastBlock = twoMazeState.spawnPaths.get("spawn-north-east").find(({ y, x }) => y >= 12 && y <= 20 && twoMazeState.grid.isBuildable({ x, y }));
+  assert.ok(twoEastBlock && twoMazeState.placeBasicTower(twoEastBlock) === "placed");
+  assert.notEqual(twoMazeState.spawnPaths.get("spawn-north-east").map(({ x, y }) => `${x},${y}`).join("|"), twoEastBefore,
+    "a legal tower redirects the east front independently");
+
+  const { state: threeSpawnState, routes: threeSpawnRoutes } = collectSpawnRoutes("three-spawns", 30);
+  const threeMap = MAPS["three-spawns"];
+  const threeOriginCounts = new Map(MAPS["three-spawns"].layout.activeSpawns.map(({ id }) => [id, 0]));
+  const gateCounts = [0, 0];
+  const convergenceRoutePercentTotals = new Map();
+  for (const route of threeSpawnRoutes) {
+    const spawn = threeMap.layout.activeSpawns.find(({ entryCell }) => entryCell.x === route[0].x && entryCell.y === route[0].y);
+    assert.ok(spawn);
+    threeOriginCounts.set(spawn.id, threeOriginCounts.get(spawn.id) + 1);
+    const lane = spawn.id === "spawn-north-east" ? 1 : 0;
+    gateCounts[lane] += 1;
+    const opening = threeMap.convergenceOpenings[lane];
+    const gateRange = lane === 0 ? [25, 28] : [50, 53];
+    const gateIndex = route.findIndex(({ x, y }) => x >= gateRange[0] && x <= gateRange[1] && y >= 102 && y <= 105);
+    assert.ok(gateIndex >= 0,
+      `${spawn.id} ground route uses its controlled convergence opening`);
+    const routePercent = gateIndex / (route.length - 1) * 100;
+    const total = convergenceRoutePercentTotals.get(spawn.id) ?? { sum: 0, count: 0 };
+    total.sum += routePercent;
+    total.count += 1;
+    convergenceRoutePercentTotals.set(spawn.id, total);
+    assert.ok(route.every(({ x, y }) => y < 102 || y > 105 || (x >= gateRange[0] && x <= gateRange[1])),
+      `${spawn.id} cannot bypass the convergence shelf`);
+    assert.deepEqual(route.at(-1), threeSpawnState.exit, "three-spawn route reaches the shared castle approach");
+    assert.ok(route.some(({ x, y }) => x === threeMap.finalLaneTarget.x && y === threeMap.finalLaneTarget.y),
+      "three-spawn route traverses the configured final approach waypoint");
+    assert.ok(opening, "each controlled gate has a named center cell");
+  }
+  assert.deepEqual([...threeOriginCounts.values()], [10, 10, 10], "30 ground enemies distribute 10/10/10 across spawn origins");
+  assert.deepEqual(gateCounts, [20, 10], "left + center use one opening; right uses the other");
+  for (const y of [8, 20, 30]) {
+    for (const [startX, endX, laneName] of [[0, 22, "left"], [25, 45, "center"], [48, 69, "right"]]) {
+      const openCells = Array.from({ length: endX - startX + 1 }, (_, index) => startX + index)
+        .filter((x) => threeSpawnState.grid.isBuildable({ x, y })).length;
+      assert.ok(openCells >= 20, `${laneName} early maze zone remains broad at row ${y}`);
+    }
+  }
+  assert.ok(findPath(threeSpawnState.grid, { x: 11, y: 50 }, { x: 35, y: 50 }),
+    "left + center become one broad mid-front after the first divider");
+  assert.equal(findPath(threeSpawnState.grid, { x: 35, y: 50 }, { x: 58, y: 50 })?.some(({ y }) => y > 101), true,
+    "the right mid-front cannot join the west front before the controlled lower gates");
+  assert.ok(findPath(threeSpawnState.grid, { x: 26, y: 106 }, { x: 51, y: 106 }),
+    "both convergence openings enter one broad shared final field");
+  const westDivider = threeMap.terrainRegions.find(({ id }) => id === "west-center-divider");
+  const eastDivider = threeMap.terrainRegions.find(({ id }) => id === "center-east-divider");
+  assert.ok(westDivider && eastDivider);
+  const westDividerEnd = Math.max(...westDivider.cells.map(({ y }) => y));
+  const eastDividerEnd = Math.max(...eastDivider.cells.map(({ y }) => y));
+  assert.equal(westDividerEnd, 42, "three early fronts merge left + center at row 43 (35% of map length)");
+  assert.equal(eastDividerEnd, 101, "two mid-fronts stay divided to the convergence shelf");
+  const threeRoutePhasePercentages = {
+    threeSeparateFronts: Number(((westDividerEnd + 1) / threeMap.height * 100).toFixed(1)),
+    twoMidFronts: Number(((eastDividerEnd - westDividerEnd) / threeMap.height * 100).toFixed(1)),
+    controlledConvergenceShelf: Number((4 / threeMap.height * 100).toFixed(1)),
+    oneSharedFinalField: Number(((threeMap.height - 106) / threeMap.height * 100).toFixed(1)),
+  };
+  const lowerBarriers = ["west-lower-funnel", "east-lower-funnel"].map((id) => threeMap.terrainRegions.find((region) => region.id === id));
+  assert.ok(lowerBarriers.every((region) => region && Math.min(...region.cells.map(({ y }) => y)) === 58
+    && Math.max(...region.cells.map(({ y }) => y)) === 101), "both lower vertical barriers continue down to the convergence shelf");
+  assert.deepEqual(threeMap.convergenceOpenings, [{ x: 26, y: 103 }, { x: 51, y: 103 }],
+    "the two gate centers stay at the approved lower convergence points");
+  for (const opening of threeMap.convergenceOpenings) {
+    for (let y = 102; y <= 105; y += 1) {
+      assert.equal(threeSpawnState.grid.isTerrain({ x: opening.x, y }), false, "the 4-cell gate remains open through the full shelf depth");
+    }
+  }
+  for (const spawn of threeMap.layout.activeSpawns) {
+    assert.ok(threeSpawnState.spawnPaths.get(spawn.id)?.length > 1, `${spawn.id} has a ground route to the common goal`);
+  }
+  const finalCandidates = [];
+  for (let y = 106; y < threeMap.height - 2; y += 1) for (let x = 0; x < threeMap.width; x += 1) {
+    if (threeSpawnState.canPlaceBasicTower({ x, y }) === "placed") finalCandidates.push({ x, y });
+  }
+  assert.ok(finalCandidates.length > 0, "3-spawn final shared field remains useful for maze building");
+
+  // Alternating half-width tower barriers create a 5-cell gap that snakes between both sides.
+  const mazeState = new GameState("three-spawns");
+  mazeState.gold = 10000;
+  const mazeRouteChanges = [];
+  const countTurns = (route) => route.reduce((turns, current, index) => {
+      if (index < 2) return turns;
+      const previous = route[index - 2], before = route[index - 1], next = current;
+      return turns + (before.x - previous.x !== next.x - before.x || before.y - previous.y !== next.y - before.y ? 1 : 0);
+    }, 0);
+  const lanes = [
+    { spawnId: "spawn-north-west", firstX: 0, lastX: 22, gaps: [5, 17, 8] },
+    { spawnId: "spawn-north", firstX: 25, lastX: 45, gaps: [40, 27, 36] },
+    { spawnId: "spawn-north-east", firstX: 48, lastX: 69, gaps: [51, 66, 55] },
+  ];
+  const turnsBefore = new Map(lanes.map(({ spawnId }) => [spawnId, countTurns(mazeState.spawnPaths.get(spawnId))]));
+  let successfulPlacements = 0;
+  for (const lane of lanes) {
+    for (const [rowIndex, y] of [8, 16, 24].entries()) {
+      for (let x = lane.firstX; x <= lane.lastX; x += 1) {
+        if (x === lane.gaps[rowIndex]) continue;
+        assert.equal(mazeState.placeBasicTower({ x, y }), "placed", `${lane.spawnId} maze barrier leaves a legal gap at row ${y}`);
+        successfulPlacements += 1;
+      }
+    }
+    const turnsAfter = countTurns(mazeState.spawnPaths.get(lane.spawnId));
+    const addedTurns = turnsAfter - turnsBefore.get(lane.spawnId);
+    assert.ok(addedTurns >= 3,
+      `${lane.spawnId} route gains at least three additional turns from player tower placements (${turnsBefore.get(lane.spawnId)} → ${turnsAfter})`);
+    mazeRouteChanges.push({ spawnId: lane.spawnId, turnsBefore: turnsBefore.get(lane.spawnId), turnsAfter, added: addedTurns });
+  }
+  assert.equal(successfulPlacements, 189);
+  assert.equal(mazeState.spawnPaths.size, 3, "all three routes remain valid after 189 legal maze placements");
+  mapMetrics.push({ mazeTurns: mazeRouteChanges });
+
+  const flyingState = new GameState("two-spawns");
+  flyingState.waveActive = true;
+  flyingState.spawnQueue = ["goblinRider"];
+  flyingState.toSpawn = 1;
+  flyingState.spawnTimer = 0;
+  flyingState.update(0);
+  const flyingEnemy = flyingState.enemies[0];
+  assert.equal(flyingEnemy.movementType, "flying");
+  assert.deepEqual(flyingEnemy.path, [flyingEnemy.path[0], flyingState.exit], "flying keeps a direct spawn-to-goal route over cliff terrain");
+
+  assert.deepEqual([MAPS["single-spawn"].startingGold, MAPS["two-spawns"].startingGold, MAPS["three-spawns"].startingGold], [70, 110, 150]);
+  for (const [mapId, multiplier] of [["single-spawn", 1], ["two-spawns", 1.5], ["three-spawns", 2]]) {
+    const special = new GameState(mapId);
+    special.wavesStarted = 34;
+    assert.equal(special.startWave(), true, `${mapId} keeps special Wave 35 startable`);
+    assert.equal(special.enemiesRemaining, Math.round(20 * multiplier) + Math.round(4 * multiplier) + Math.round(multiplier),
+      `${mapId} scales each type in the flying/commander special wave`);
+    special.resetGame("try-again");
+    special.wavesStarted = 49;
+    assert.equal(special.startWave(), true, `${mapId} keeps boss Wave 50 startable`);
+    assert.equal(special.enemiesRemaining, Math.round(multiplier), `${mapId} scales the boss-wave count without changing boss type`);
+    assert.equal(special.waveEnemyComposition.skeletonKing, Math.round(multiplier));
+  }
 
   const expected = {
     1: [12, 0, 0, 0], 2: [16, 0, 0, 0], 3: [14, 2, 0, 0], 4: [18, 2, 0, 0],
@@ -534,6 +854,14 @@ try {
   leakState.update(1);
   assert.equal(leakState.lives, 7, "one Giant leak removes three lives");
 
+  originalLog("Map maze-space metrics", mapMetrics);
+  originalLog("Grouped terrain meshes", { formations: totalTerrainFormations, meshes: totalTerrainFormations * 3 });
+  originalLog("3-spawn player-created turns", JSON.stringify(mazeRouteChanges));
+  originalLog("3-spawn phase lengths (% map height)", threeRoutePhasePercentages);
+  originalLog("3-spawn average route-to-gate percentages", [...convergenceRoutePercentTotals].map(([spawnId, value]) => ({
+    spawnId, percent: Number((value.sum / value.count).toFixed(1)),
+  })));
+  originalLog("Two-spawn independent-route percentage", Number((twoMergeRoutePercent * 100).toFixed(1)));
   originalLog("Enemy/wave tests passed: fixed waves, late threat snapshots, flying/Giant stacking, reward compression, active cap, archetype stats, repathing, targeting, and leaks.");
 } finally {
   console.log = originalLog;

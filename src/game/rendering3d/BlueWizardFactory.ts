@@ -33,6 +33,12 @@ export class BlueWizardFactory {
 
   get ready(): boolean { return this.template !== undefined; }
 
+  dispose(): void {
+    this.template?.dispose();
+    this.template = undefined;
+    this.rawBounds = undefined;
+  }
+
   async load(): Promise<void> {
     const path = DEFENDER_VISUAL_CONFIG["blue-wizard"].assetPath;
     const resolvedPath = resolveAssetUrl(path);

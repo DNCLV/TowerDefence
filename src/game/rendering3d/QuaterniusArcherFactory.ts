@@ -40,6 +40,14 @@ export class QuaterniusArcherFactory {
 
   get ready(): boolean { return this.template !== undefined; }
 
+  dispose(): void {
+    this.template?.dispose();
+    this.animationTemplate?.dispose();
+    this.template = undefined;
+    this.animationTemplate = undefined;
+    this.bowMaterial.dispose();
+  }
+
   async load(): Promise<void> {
     this.template = await SceneLoader.LoadAssetContainerAsync(resolveAssetUrl("assets/models/quaternius/"), "Female_Ranger.gltf", this.scene);
     try {

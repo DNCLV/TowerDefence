@@ -42,7 +42,7 @@ npm run dev
 - Game Over viser `TRY AGAIN`, som starter et helt nyt in-memory run uden browser-reload.
 - Towers kan bygges, vælges og opgraderes under en aktiv wave. Kun topology-ændringer udløser repath.
 - Hver enemy har sin egen rute. Ved en gyldig live-placement repathes aktive enemies fra deres aktuelle cell uden teleportering; der kan ikke bygges i en cell med en aktiv enemy.
-- Hvert nyt run vælger en castle og 2–5 aktive spawns fra faste candidates. Hvert spawn får egen BFS-rute og en fair del af wave-enemies; layout og distribution logges i konsollen.
+- Spilleren vælger nu mellem tre faste maps før spillet starter. Hvert map har én fælles castle, sine egne spawns/terrain og en BFS-rute pr. spawn.
 
 ## Naturlige næste skridt
 
@@ -59,6 +59,21 @@ The current implementation supersedes the earlier single-enemy/scaling notes abo
 - Enemy model paths, measured size tuning, ground contact, flight lift, HP-bar height, and per-archetype bounds guards live in `src/game/rendering3d/EnemyVisualConfig.ts`. Each GLB is cached once and cloned from its `AssetContainer`; failed loads use the sized primitive fallback.
 - The four runtime GLBs are in `public/assets/models/enemies/`; their source files remain unchanged in `3D/`.
 - Run the focused checks with `npm run test:enemy-waves`.
+
+## Map selection
+
+- Appen starter på en mobilvenlig **Choose Map**-skærm: **Open Field** (1 Spawn), **Split Advance** (2 Spawns) og **Triple Convergence** (3 Spawns).
+- `src/game/config/MapConfig.ts` definerer de tre faste, nord→syd-kort, deres build-blocking terræn, convergence-punkter, startgold, enemy-count multiplier og map previews.
+- Startværdierne er 70 / 110 / 150 gold og 1.0× / 1.5× / 2.0× enemy count. Enemy HP, speed, rewards og wave-typer ændres ikke af mapvalget.
+- Kortstørrelserne er 40×80, 56×100 og 70×120. Open Field har ingen interne blockers; Split Advance holder sine to ruter adskilt til y=75 (75% af kortets længde) før fælles approach.
+- Triple Convergence har tre brede topzoner, en 3→2 overgang ved række 43, to brede mid-fronts og to fire-cellers convergence-åbninger før det fælles slutfelt. Ground paths bruger terrænet; flying enemies ignorerer det og fortsætter direkte mod castle.
+- Waves fordeles rundevis over kortets spawns; live maze-building repather ground enemies, og placement-validering beskytter ruter fra alle aktive spawns. `npm run test:enemy-waves` verificerer også store kort, de to convergence gates og maze-turns i alle tre 3-spawn startzoner.
+
+## Visual refinement
+
+- `src/game/rendering3d/DefenderVisualConfig.ts` records measured runtime GLB bounds and derives per-axis display scales from target heights/footprints. Battlemage is normalized to Wizard height; Sovereign is about 9% taller; model ground offsets and the selected-unit marker continue to use measured runtime bounds.
+- Choose Map is a CSS/SVG-only icy fantasy screen; map thumbnails use the map-config routes and spawn colors. 1 Spawn is preselected, cards carousel on narrow phones and display in three columns at wider widths, and Start uses a short fade before initializing the chosen map.
+- This pass changes no gameplay stats, cost, map topology, wave configuration, or camera controls. Browser layout/model checks run through `npm run test:content-assets` with Vite available; core regressions remain `npm run test:enemy-waves`.
 
 ## Content + combat-role milestone
 

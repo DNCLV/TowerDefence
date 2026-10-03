@@ -6,10 +6,80 @@ import { getTotalTowerInvestment, getTowerDps, getTowerLevelStats, getTowerSellR
 import { DEFENDER_CONFIG, DefenderType } from "./game/config/DefenderConfig";
 import { WORLD_UNITS_PER_CELL } from "./core/GameConstants";
 import { resolveAssetUrl } from "./core/AssetUrl";
+import { MAP_CHOICES, MapDefinition } from "./game/config/MapConfig";
 
+const app = document.querySelector<HTMLDivElement>("#app");
+if (!app) throw new Error("Missing #app root element");
+
+function renderMapPreview(map: MapDefinition): string {
+  const obstacles = map.previewObstaclePaths.map((path) => `<path class="map-preview-obstacle" d="${path}"/>`).join("");
+  const lanes = map.previewPaths.map((path) => `<path class="map-preview-route" d="${path}"/>`).join("");
+  const spawns = map.previewSpawnXs.map((x, index) => `<circle class="map-preview-spawn" style="--spawn-color:${map.previewSpawnColors[index]}" cx="${x}" cy="8" r="3.1"/>`).join("");
+  return `<svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" focusable="false"><g class="map-preview-obstacles">${obstacles}</g><g class="map-preview-routes">${lanes}</g>${spawns}<circle class="map-preview-goal" cx="${map.previewGoalX}" cy="92" r="4"/></svg>`;
+}
+
+let selectedMap: MapDefinition = MAP_CHOICES[0];
+let pendingRendererDisposal: Promise<void> = Promise.resolve();
+const mapSelect = document.createElement("main");
+mapSelect.className = "map-select-screen";
+mapSelect.innerHTML = `
+  <section class="map-select-panel" aria-labelledby="map-select-title">
+    <header class="map-select-heading">
+      <p class="map-select-eyebrow">WINTERMAUL · FIELD COMMAND</p>
+      <h1 id="map-select-title">CHOOSE MAP</h1>
+      <p class="map-select-tagline">DEFEND <i></i> ADAPT <i></i> SURVIVE</p>
+      <p class="map-select-intro">Choose the battlefield. Every road leads to the keep.</p>
+    </header>
+    <div class="map-choice-grid" role="group" aria-label="Choose a map">
+      ${MAP_CHOICES.map((map) => `<button class="map-choice-card" type="button" data-map-id="${map.id}" aria-pressed="false">
+        <span class="map-preview" aria-hidden="true">${renderMapPreview(map)}</span>
+        <span class="map-choice-copy"><strong>${map.name}</strong><small>${map.subtitle}</small><span>${map.description}</span></span>
+        <span class="map-choice-meta"><span class="map-economy">✦ ${map.startingGold} GOLD</span><span class="map-pressure">${map.enemyCountMultiplier === 1 ? "NORMAL" : map.enemyCountMultiplier < 2 ? "HIGH" : "EXTREME"} PRESSURE</span></span>
+      </button>`).join("")}
+    </div>
+    <footer class="map-select-footer"><span id="map-select-hint">1 Spawn · 70 Gold</span><button id="start-selected-map" type="button">START <span aria-hidden="true">→</span></button></footer>
+  </section>`;
+app.append(mapSelect);
+
+const mapStartButton = mapSelect.querySelector<HTMLButtonElement>("#start-selected-map")!;
+function selectMap(map: MapDefinition, card: HTMLButtonElement): void {
+  selectedMap = map;
+  mapSelect.querySelectorAll<HTMLButtonElement>(".map-choice-card").forEach((candidate) => {
+    const isSelected = candidate === card;
+    candidate.classList.toggle("is-selected", isSelected);
+    candidate.setAttribute("aria-pressed", String(isSelected));
+  });
+  mapSelect.querySelector<HTMLElement>("#map-select-hint")!.textContent = `${map.name} · ${map.startingGold} Gold`;
+}
+mapSelect.querySelectorAll<HTMLButtonElement>("[data-map-id]").forEach((card) => {
+  card.addEventListener("click", () => {
+    const map = MAP_CHOICES.find((choice) => choice.id === card.dataset.mapId);
+    if (!map) return;
+    selectMap(map, card);
+  });
+});
+selectMap(selectedMap, mapSelect.querySelector<HTMLButtonElement>(`[data-map-id="${selectedMap.id}"]`)!);
+mapStartButton.addEventListener("click", () => {
+  if (mapStartButton.disabled || mapSelect.classList.contains("is-starting")) return;
+  const mapToStart = selectedMap;
+  mapStartButton.disabled = true;
+  void pendingRendererDisposal.then(() => {
+    if (!mapSelect.isConnected) return;
+    mapSelect.classList.add("is-starting");
+    window.setTimeout(() => {
+      if (!mapSelect.isConnected) return;
+      mapSelect.remove();
+      startGame(mapToStart);
+    }, 260);
+  }).catch((error: unknown) => {
+    mapStartButton.disabled = false;
+    console.error("Could not dispose the previous map renderer.", error);
+  });
+});
+
+function startGame(map: MapDefinition): void {
 const canvas = document.createElement("canvas");
 canvas.id = "game3d";
-const app = document.querySelector<HTMLDivElement>("#app");
 app?.append(canvas);
 
 const ui = document.createElement("div");
@@ -36,11 +106,12 @@ ui.innerHTML = `
 
   <div id="reset-confirmation" class="reset-confirmation" role="dialog" aria-modal="true" aria-labelledby="reset-confirmation-title" hidden>
     <section class="reset-confirmation-card ui-panel">
-      <h2 id="reset-confirmation-title">Reset current run?</h2>
-      <p>Progress in this run will be lost.</p>
+      <h2 id="reset-confirmation-title">RESET RUN?</h2>
+      <p>What would you like to do?</p>
       <div class="reset-confirmation-actions">
+        <button id="confirm-reset-button" class="action-button confirm-reset-button" type="button">RESTART CURRENT MAP</button>
+        <button id="return-map-select-button" class="action-button return-map-select-button" type="button">RETURN TO MAP SELECT</button>
         <button id="cancel-reset-button" class="action-button" type="button">CANCEL</button>
-        <button id="confirm-reset-button" class="action-button confirm-reset-button" type="button">RESET</button>
       </div>
     </section>
   </div>
@@ -143,12 +214,12 @@ ui.innerHTML = `
 app?.append(ui);
 
 // UI pointer input is intentionally contained here and never reaches the canvas controls.
-for (const eventName of ["pointerdown", "pointerup", "pointermove", "click", "dblclick", "wheel", "touchstart", "touchmove", "touchend"]) {
+for (const eventName of ["pointerdown", "pointerup", "pointermove", "pointercancel", "lostpointercapture", "click", "dblclick", "wheel", "touchstart", "touchmove", "touchend", "touchcancel", "contextmenu"]) {
   ui.addEventListener(eventName, (event) => event.stopPropagation(), { passive: eventName === "wheel" || eventName.startsWith("touch") });
 }
 
-const gameState = new GameState();
-const renderer = new BabylonGameRenderer(canvas);
+const gameState = new GameState(map);
+const renderer = new BabylonGameRenderer(canvas, map);
 const navigation = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined;
 console.info("APPLICATION BOOT", { navigationType: navigation?.type ?? "unknown" });
 const debugParams = new URLSearchParams(window.location.search);
@@ -173,9 +244,17 @@ defenderChoicePanel.addEventListener("wheel", (event) => {
     event.preventDefault();
   }
 }, { passive: false });
-window.addEventListener("resize", updateBuildTrayOverflow, { passive: true });
-new ResizeObserver(updateBuildTrayOverflow).observe(defenderChoicePanel);
-new MutationObserver(updateBuildTrayOverflow).observe(defenderChoicePanel, { childList: true });
+const handleBuildTrayResize = (): void => updateBuildTrayOverflow();
+const buildTrayResizeObserver = new ResizeObserver(updateBuildTrayOverflow);
+const buildTrayMutationObserver = new MutationObserver(updateBuildTrayOverflow);
+window.addEventListener("resize", handleBuildTrayResize, { passive: true });
+buildTrayResizeObserver.observe(defenderChoicePanel);
+buildTrayMutationObserver.observe(defenderChoicePanel, { childList: true });
+const disposeBuildTrayObservers = (): void => {
+  window.removeEventListener("resize", handleBuildTrayResize);
+  buildTrayResizeObserver.disconnect();
+  buildTrayMutationObserver.disconnect();
+};
 requestAnimationFrame(updateBuildTrayOverflow);
 const waveValue = query<HTMLElement>("#stat-wave");
 const enemiesValue = query<HTMLElement>("#stat-enemies");
@@ -189,6 +268,7 @@ const resetMenuButton = query<HTMLButtonElement>("#reset-menu-button");
 const resetConfirmation = query<HTMLElement>("#reset-confirmation");
 const cancelResetButton = query<HTMLButtonElement>("#cancel-reset-button");
 const confirmResetButton = query<HTMLButtonElement>("#confirm-reset-button");
+const returnMapSelectButton = query<HTMLButtonElement>("#return-map-select-button");
 const tryAgainButton = query<HTMLButtonElement>("#try-again-button");
 const hpScalingWarning = query<HTMLElement>("#hp-scaling-warning");
 const towerPanel = query<HTMLElement>("#tower-panel");
@@ -224,6 +304,7 @@ let warningHideTimer: number | undefined;
 let selectedTowerId: number | undefined;
 let selectedBuildType: DefenderType | undefined = "blue-wizard";
 let selectionMessage = "";
+let resetMenuWasPaused = false;
 
 const cancelSellConfirmation = (): void => {
   if (sellConfirmationTimer !== undefined) window.clearTimeout(sellConfirmationTimer);
@@ -278,8 +359,7 @@ query<HTMLButtonElement>("#save-button").addEventListener("click", () => console
 query<HTMLButtonElement>("#load-button").addEventListener("click", () => console.info("Load not implemented yet"));
 pauseButton.addEventListener("click", () => {
   const paused = renderer.togglePause();
-  pauseButton.innerHTML = `<span aria-hidden="true">${paused ? "▶" : "Ⅱ"}</span>${paused ? "Resume" : "Pause"}`;
-  pauseButton.setAttribute("aria-pressed", String(paused));
+  renderPauseButton(paused);
 });
 speedButton.addEventListener("click", () => {
   const speed = renderer.toggleGameSpeed();
@@ -288,17 +368,33 @@ speedButton.addEventListener("click", () => {
   speedButton.setAttribute("aria-pressed", String(speed === 2));
 });
 resetMenuButton.addEventListener("click", openResetConfirmation);
-cancelResetButton.addEventListener("click", closeResetConfirmation);
+cancelResetButton.addEventListener("click", cancelResetMenu);
 resetConfirmation.addEventListener("click", (event) => {
-  if (event.target === resetConfirmation) closeResetConfirmation();
+  if (event.target === resetConfirmation) cancelResetMenu();
 });
 resetConfirmation.addEventListener("keydown", (event) => {
-  if (event.key === "Escape") closeResetConfirmation();
+  if (event.key === "Escape") {
+    event.preventDefault();
+    cancelResetMenu();
+    return;
+  }
+  if (event.key !== "Tab") return;
+  const buttons = [confirmResetButton, returnMapSelectButton, cancelResetButton];
+  const first = buttons[0];
+  const last = buttons[buttons.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
 });
 confirmResetButton.addEventListener("click", () => {
-  closeResetConfirmation();
+  closeResetConfirmation(false, false);
   resetRun();
 });
+returnMapSelectButton.addEventListener("click", returnToMapSelect);
 query<HTMLButtonElement>("#close-tower-panel").addEventListener("click", () => renderer.selectTower());
 sellButton.addEventListener("click", () => {
   const tower = gameState.towers.find((candidate) => candidate.id === selectedTowerId);
@@ -385,11 +481,11 @@ if (debugParams.get("enemyVisualDebug") === "1") {
       if (!route || route.length < 2) return [];
       const ghoul = createEnemy(-9101, "ghoul", route, 25);
       const wraith = createEnemy(-9102, "wraith", route, 25);
-      ghoul.x = 22;
-      ghoul.y = 15.5;
+      ghoul.x = gameState.grid.width * 0.38;
+      ghoul.y = gameState.grid.height * 0.55;
       ghoul.speed = 0;
-      wraith.x = 25;
-      wraith.y = 15.5;
+      wraith.x = gameState.grid.width * 0.62;
+      wraith.y = gameState.grid.height * 0.55;
       wraith.speed = 0;
       gameState.waveActive = false;
       gameState.enemies = [ghoul, wraith];
@@ -403,8 +499,8 @@ if (debugParams.get("enemyVisualDebug") === "1") {
       gameState.waveActive = false;
       gameState.enemies = types.map((type, index) => {
         const enemy = createEnemy(-9200 - index, type, route, 35);
-        enemy.x = 17 + index * 3.2;
-        enemy.y = 15.5;
+        enemy.x = gameState.grid.width * (0.12 + index * 0.15);
+        enemy.y = gameState.grid.height * 0.55;
         enemy.speed = 0;
         return enemy;
       });
@@ -426,10 +522,12 @@ if (debugParams.get("waveDebug") === "1") {
     createDenseTowerTestLayout: () => {
       gameState.gold = Math.max(gameState.gold, 1000);
       const ids: number[] = [];
+      const centerX = Math.floor(gameState.grid.width / 2);
+      const centerY = Math.floor(gameState.grid.height / 2);
       for (let radius = 0; radius <= 4 && ids.length < 20; radius += 1) {
-        for (let y = 12; y <= 20 && ids.length < 20; y += 1) {
-          for (let x = 35; x <= 43 && ids.length < 20; x += 1) {
-            if (Math.max(Math.abs(x - 39), Math.abs(y - 16)) !== radius) continue;
+        for (let y = Math.max(0, centerY - 5); y <= Math.min(gameState.grid.height - 1, centerY + 5) && ids.length < 20; y += 1) {
+          for (let x = Math.max(0, centerX - 5); x <= Math.min(gameState.grid.width - 1, centerX + 5) && ids.length < 20; x += 1) {
+            if (Math.max(Math.abs(x - centerX), Math.abs(y - centerY)) !== radius) continue;
             const result = gameState.placeBasicTower({ x, y }, ids.length % 2 ? "holy-knight" : "blue-wizard");
             if (result === "placed") ids.push(gameState.towers[gameState.towers.length - 1]!.id);
           }
@@ -440,6 +538,11 @@ if (debugParams.get("waveDebug") === "1") {
     selectionVisual: () => renderer.getSelectionVisualDebug(),
     projectCell: (cell: { x: number; y: number }) => renderer.getCellClientPosition(cell),
   };
+}
+
+if (debugParams.get("inputDebug") === "1") {
+  (window as Window & { __towerDefenceInputDebug?: () => ReturnType<BabylonGameRenderer["getInputDebugState"]> })
+    .__towerDefenceInputDebug = () => renderer.getInputDebugState();
 }
 
 function renderSelectedTower(state: GameState): void {
@@ -572,31 +675,80 @@ function showUpgradeTooltip(): void {
   upgradeTooltip.hidden = false;
 }
 
+function renderPauseButton(paused: boolean): void {
+  pauseButton.innerHTML = `<span aria-hidden="true">${paused ? "▶" : "Ⅱ"}</span>${paused ? "Resume" : "Pause"}`;
+  pauseButton.setAttribute("aria-pressed", String(paused));
+}
+
 function openResetConfirmation(): void {
+  if (!resetConfirmation.hidden) return;
+  resetMenuWasPaused = renderer.isPaused();
+  renderer.setPaused(true);
+  renderPauseButton(true);
   resetConfirmation.hidden = false;
-  cancelResetButton.focus();
+  confirmResetButton.focus();
 }
 
-function closeResetConfirmation(): void {
+function closeResetConfirmation(restorePreviousPause = true, returnFocus = true): void {
   resetConfirmation.hidden = true;
-  resetMenuButton.focus();
+  if (restorePreviousPause) {
+    renderer.setPaused(resetMenuWasPaused);
+    renderPauseButton(resetMenuWasPaused);
+  }
+  if (returnFocus && resetMenuButton.isConnected) resetMenuButton.focus();
 }
 
-function resetRun(): void {
+function cancelResetMenu(): void {
+  closeResetConfirmation(true, true);
+}
+
+function clearRunFeedback(): void {
   cancelSellConfirmation();
   activeWarningWave = undefined;
   if (warningHideTimer !== undefined) window.clearTimeout(warningHideTimer);
   warningHideTimer = undefined;
   hpScalingWarning.hidden = true;
   hpScalingWarning.classList.remove("is-visible", "is-hiding");
+}
+
+function resetRun(): void {
+  clearRunFeedback();
   renderer.resetRunPresentation();
   setSelection();
   gameState.resetGame("try-again");
-  pauseButton.innerHTML = '<span aria-hidden="true">Ⅱ</span>Pause';
-  pauseButton.setAttribute("aria-pressed", "false");
+  renderPauseButton(false);
   speedButton.textContent = "1×";
   speedButton.classList.remove("is-fast");
   speedButton.setAttribute("aria-pressed", "false");
+}
+
+function returnToMapSelect(): void {
+  closeResetConfirmation(false, false);
+  clearRunFeedback();
+  gameState.resetGame("try-again");
+  renderer.selectTower(undefined);
+  setSelection();
+  disposeBuildTrayObservers();
+  pendingRendererDisposal = renderer.dispose();
+  ui.remove();
+  canvas.remove();
+
+  const debugWindow = window as Window & {
+    __towerDefenceGameState?: GameState;
+    __towerDefenceUi?: object;
+    __towerDefenceInputDebug?: unknown;
+  };
+  delete debugWindow.__towerDefenceGameState;
+  delete debugWindow.__towerDefenceUi;
+  delete debugWindow.__towerDefenceInputDebug;
+
+  const selectedCard = mapSelect.querySelector<HTMLButtonElement>(`[data-map-id="${gameState.map.id}"]`);
+  if (!selectedCard) return;
+  selectMap(gameState.map, selectedCard);
+  mapStartButton.disabled = false;
+  mapSelect.classList.remove("is-starting");
+  app!.append(mapSelect);
+  selectedCard.focus({ preventScroll: true });
 }
 
 function renderHpScalingWarning(warning: GameState["hpTierWarning"]): void {
@@ -634,4 +786,5 @@ function defenderPortrait(type: DefenderType): string {
     case "battlemage": return resolveAssetUrl("assets/ui/defenders/battlemage.png");
     case "sovereign": return resolveAssetUrl("assets/ui/defenders/sovereign.png");
   }
+}
 }

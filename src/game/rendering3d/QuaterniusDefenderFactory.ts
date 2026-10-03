@@ -43,6 +43,17 @@ export class QuaterniusDefenderFactory {
   hasTemplate(type: DefenderType): boolean { return this.templates.has(type as ImportedDefenderType); }
   getLoadedAssetPath(type: DefenderType): string | undefined { return this.loadedPaths.get(type as ImportedDefenderType); }
 
+  dispose(): void {
+    this.templates.forEach((template) => template.dispose());
+    this.templates.clear();
+    this.loadedPaths.clear();
+    this.archerMaterial.dispose();
+    this.robeMaterial.dispose();
+    this.skinMaterial.dispose();
+    this.leatherMaterial.dispose();
+    this.arcaneMaterial.dispose();
+  }
+
   async load(): Promise<void> {
     const types = this.importedTypes;
     await Promise.all(types.map((type) => this.loadType(type)));
@@ -81,7 +92,11 @@ export class QuaterniusDefenderFactory {
     modelRoot.parent = bodyRoot;
     instance.rootNodes.forEach((node) => { node.parent = modelRoot; });
     const levelScale = VISUAL_CONFIG.towerLevelScaleMultipliers[level as 1 | 2 | 3] ?? 1;
-    modelRoot.scaling.setAll(definition.modelScale * levelScale);
+    modelRoot.scaling.set(
+      (definition.modelScaleX ?? definition.modelScale) * levelScale,
+      definition.modelScale * levelScale,
+      (definition.modelScaleZ ?? definition.modelScale) * levelScale,
+    );
     modelRoot.rotation.y = definition.rotationY;
 
     const meshes = root.getChildMeshes();
@@ -95,7 +110,7 @@ export class QuaterniusDefenderFactory {
     attackOrigin.position.set(0, (bounds?.height ?? 1) * 0.68, type === "green-archer" ? 0.18 : 0.2);
     instance.animationGroups.forEach((animation) => { animation.stop(); animation.dispose(); });
     this.reportResolution(type, this.loadedPaths.get(type), false);
-    this.recordInstance(id, type, level, this.loadedPaths.get(type), bounds);
+    this.recordInstance(id, type, level, this.loadedPaths.get(type), bounds, modelRoot.position.y);
     return {
       root, bodyRoot, attackOrigin, level,
       dispose: () => {
@@ -175,7 +190,7 @@ export class QuaterniusDefenderFactory {
     const attackOrigin = new TransformNode(`defender-attack-origin-${id}`, this.scene);
     attackOrigin.parent = bodyRoot;
     attackOrigin.position.set(0, type === "green-archer" ? 0.95 : type === "sovereign" ? 1.15 : 1.05, 0.18);
-    this.recordInstance(id, type, level, undefined, undefined);
+    this.recordInstance(id, type, level, undefined, undefined, 0);
     this.reportResolution(type, undefined, true);
     return {
       root, bodyRoot, attackOrigin, level,
@@ -195,12 +210,20 @@ export class QuaterniusDefenderFactory {
   }
 
   private recordInstance(id: number, type: ImportedDefenderType, level: number, assetPath: string | undefined,
-    bounds: { min: Vector3; max: Vector3 } | undefined): void {
+    bounds: { min: Vector3; max: Vector3 } | undefined, groundOffset: number): void {
     if (!this.debug) return;
     const instances = (window as Window & { __defenderVisualInstances?: object[] }).__defenderVisualInstances ??= [];
     instances.push({
       id, type, config: type, optimized: assetPath === DEFENDER_VISUAL_CONFIG[type].assetPath,
       assetPath: assetPath ?? null, primitiveFallback: assetPath === undefined, level,
+      sourceBounds: DEFENDER_VISUAL_CONFIG[type].sourceBounds,
+      scale: {
+        x: DEFENDER_VISUAL_CONFIG[type].modelScaleX ?? DEFENDER_VISUAL_CONFIG[type].modelScale,
+        y: DEFENDER_VISUAL_CONFIG[type].modelScale,
+        z: DEFENDER_VISUAL_CONFIG[type].modelScaleZ ?? DEFENDER_VISUAL_CONFIG[type].modelScale,
+      },
+      targetVisualHeight: DEFENDER_VISUAL_CONFIG[type].targetVisualHeight,
+      groundOffset,
       bounds: bounds ? {
         width: bounds.max.x - bounds.min.x, height: bounds.max.y - bounds.min.y,
         depth: bounds.max.z - bounds.min.z, minY: bounds.min.y,

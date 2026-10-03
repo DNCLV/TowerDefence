@@ -22,3 +22,16 @@ export function findPath(grid: Grid, start: Cell, goal: Cell): Cell[] | null {
   }
   return null;
 }
+
+/** Builds a route through required waypoints without duplicating joint cells. */
+export function findPathThrough(grid: Grid, start: Cell, waypoints: readonly Cell[]): Cell[] | null {
+  const route: Cell[] = [];
+  let current = start;
+  for (const waypoint of waypoints) {
+    const segment = findPath(grid, current, waypoint);
+    if (!segment) return null;
+    route.push(...(route.length ? segment.slice(1) : segment));
+    current = waypoint;
+  }
+  return route;
+}

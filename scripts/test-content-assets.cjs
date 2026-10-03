@@ -6,6 +6,7 @@ const os = require("node:os");
 const path = require("node:path");
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), "td-content-assets-"));
+const appUrl = process.env.TD_TEST_URL ?? "http://127.0.0.1:5173/";
 const pending = new Map();
 let chrome;
 let ownsChrome = false;
@@ -40,7 +41,7 @@ async function main() {
     "/assets/ui/defenders/sovereign.png",
   ];
   for (const assetPath of paths) {
-    const response = await fetch(`http://127.0.0.1:5173${assetPath}`);
+    const response = await fetch(new URL(assetPath.replace(/^\//, ""), appUrl));
     if (!response.ok) throw new Error(`Missing runtime asset: ${assetPath} (${response.status})`);
   }
 
@@ -64,9 +65,97 @@ async function main() {
   });
   await command("Runtime.enable");
   await command("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
-  await command("Page.navigate", { url: "http://127.0.0.1:5173/?waveDebug=1&defenderVisualDebug=1&enemyVisualDebug=1&enemyGroundDebug=1" });
+  await command("Emulation.setTouchEmulationEnabled", { enabled: true, configuration: "mobile" });
+  await command("Page.navigate", { url: `${appUrl}?waveDebug=1&inputDebug=1&defenderVisualDebug=1&enemyVisualDebug=1&enemyGroundDebug=1` });
   for (let attempt = 0; attempt < 100; attempt += 1) {
-    const loaded = await evaluate("(window.__enemyTemplateAudit?.length ?? 0) === 9 && (window.__defenderTemplateAudit?.length ?? 0) === 3 && !!window.__towerDefenceUi");
+    const ready = await evaluate("document.querySelectorAll('.map-choice-card').length === 3");
+    if (ready) break;
+    if (attempt === 99) {
+      const pageState = await evaluate(`({ url: location.href, title: document.title, body: document.body.innerText.slice(0, 800), app: document.querySelector('#app')?.innerHTML.slice(0, 800) })`);
+      throw new Error(`Choose Map screen did not load three map choices: ${JSON.stringify(pageState)}`);
+    }
+    await delay(100);
+  }
+  const responsiveLayouts = [];
+  for (const viewport of [{ width: 360, height: 800 }, { width: 390, height: 844 }, { width: 1365, height: 900 }]) {
+    await command("Emulation.setDeviceMetricsOverride", { ...viewport, deviceScaleFactor: 1, mobile: viewport.width < 500 });
+    responsiveLayouts.push(await evaluate(`(() => {
+      const app = document.querySelector('#app').getBoundingClientRect();
+      const grid = document.querySelector('.map-choice-grid');
+      const title = document.querySelector('#map-select-title').getBoundingClientRect();
+      const start = document.querySelector('#start-selected-map').getBoundingClientRect();
+      const selected = document.querySelector('.map-choice-card.is-selected').getBoundingClientRect();
+      const cardGrid = document.querySelector('.map-choice-grid');
+      const cards = [...document.querySelectorAll('.map-choice-card')];
+      const getCardRects = () => cards.map((card) => {
+        const rect = card.getBoundingClientRect();
+        return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+      });
+      const stableBefore = getCardRects();
+      const scrollBefore = { left: cardGrid.scrollLeft, top: cardGrid.scrollTop };
+      for (const id of ['single-spawn', 'two-spawns', 'three-spawns', 'single-spawn']) {
+        document.querySelector('.map-choice-card[data-map-id="' + id + '"]').click();
+      }
+      const stableAfter = getCardRects();
+      const maxCardShift = Math.max(...stableBefore.flatMap((before, index) =>
+        Object.keys(before).map((key) => Math.abs(before[key] - stableAfter[index][key]))));
+      const cardScrollStable = cardGrid.scrollLeft === scrollBefore.left && cardGrid.scrollTop === scrollBefore.top;
+      document.querySelector('.map-choice-card[data-map-id="single-spawn"]').click();
+      return {
+        viewport: [${viewport.width}, ${viewport.height}],
+        pageWidth: document.documentElement.scrollWidth,
+        viewportWidth: document.documentElement.clientWidth,
+        appWidth: app.width,
+        titleVisible: title.width > 0 && title.left >= app.left && title.right <= app.right,
+        selectedCardVisible: selected.width > 0 && selected.right > app.left && selected.left < app.right,
+        startVisible: start.width > 0 && start.bottom <= app.bottom,
+        gridFlow: getComputedStyle(grid).gridAutoFlow,
+        cardWidth: document.querySelector('.map-choice-card').getBoundingClientRect().width,
+        hasHorizontalCarousel: grid.scrollWidth > grid.clientWidth,
+        cardStability: { maxCardShift, cardScrollStable, before: stableBefore, after: stableAfter },
+      };
+    })()`));
+  }
+  if (responsiveLayouts.some((layout) => layout.pageWidth > layout.viewportWidth || !layout.titleVisible || !layout.selectedCardVisible || !layout.startVisible
+    || layout.cardStability.maxCardShift > 0.5 || !layout.cardStability.cardScrollStable)
+    || responsiveLayouts[0].gridFlow !== "column" || !responsiveLayouts[0].hasHorizontalCarousel || responsiveLayouts[0].cardWidth < 240
+    || responsiveLayouts[1].gridFlow !== "column" || !responsiveLayouts[1].hasHorizontalCarousel || responsiveLayouts[1].cardWidth < 240
+    || responsiveLayouts[2].gridFlow !== "row" || responsiveLayouts[2].hasHorizontalCarousel || responsiveLayouts[2].cardWidth >= responsiveLayouts[2].appWidth / 2) {
+    throw new Error(`Choose Map responsive layout failed: ${JSON.stringify(responsiveLayouts)}`);
+  }
+  await command("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+  const mapSelection = await evaluate(`(() => {
+    const start = document.querySelector('#start-selected-map');
+    if (start.disabled) throw new Error('START should be enabled for the preselected first map');
+    const first = document.querySelector('.map-choice-card[data-map-id="single-spawn"]');
+    if (first.getAttribute('aria-pressed') !== 'true') throw new Error('1 Spawn should be selected by default');
+    const checks = [...document.querySelectorAll('.map-choice-card')].map((card) => {
+      card.click();
+      return { id: card.dataset.mapId, selected: card.getAttribute('aria-pressed') === 'true', canStart: !start.disabled };
+    });
+    document.querySelector('.map-choice-card[data-map-id="single-spawn"]').click();
+    start.click();
+    return {
+      checks,
+      defaultMap: first.dataset.mapId,
+      mapNames: [...document.querySelectorAll('.map-choice-card .map-choice-copy strong')].map((node) => node.textContent.trim()),
+      previewPaths: [...document.querySelectorAll('.map-preview svg')].map((svg) => svg.querySelectorAll('.map-preview-route').length),
+      previewObstacles: [...document.querySelectorAll('.map-preview svg')].map((svg) => svg.querySelectorAll('.map-preview-obstacle').length),
+      threeSpawnColors: [...document.querySelectorAll('[data-map-id="three-spawns"] .map-preview-spawn')].map((node) => node.style.getPropertyValue('--spawn-color')),
+    };
+  })()`);
+  if (mapSelection.checks.length !== 3 || mapSelection.checks.some((choice) => !choice.selected || !choice.canStart)
+    || mapSelection.defaultMap !== "single-spawn"
+    || JSON.stringify(mapSelection.previewPaths) !== JSON.stringify([1, 2, 3])
+    || JSON.stringify(mapSelection.mapNames) !== JSON.stringify(["Open Field", "Split Advance", "Triple Convergence"])
+    || mapSelection.previewObstacles[0] !== 0 || mapSelection.previewObstacles[1] === 0 || mapSelection.previewObstacles[2] < 3
+    || new Set(mapSelection.threeSpawnColors).size !== 3) {
+    throw new Error(`Map selection flow failed: ${JSON.stringify(mapSelection)}`);
+  }
+  console.log("Choose Map responsive checks passed", JSON.stringify({ responsiveLayouts, mapSelection }));
+  if (process.env.TD_MAP_SELECT_ONLY === "1") return;
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const loaded = await evaluate("(window.__enemyTemplateAudit?.length ?? 0) === 9 && (window.__defenderTemplateAudit?.length ?? 0) === 3 && !!window.__towerDefenceUi && !!window.__towerDefenceInputDebug");
     if (loaded) break;
     if (attempt === 99) throw new Error("New enemy and defender GLB templates failed to load.");
     await delay(300);
@@ -169,8 +258,18 @@ async function main() {
   ]));
   if (newTypeInstances.length !== 15 || Object.values(newTypeCounts).some((count) => count !== 5)
     || newTypeInstances.some((asset) => !asset.optimized || asset.primitiveFallback || !asset.assetPath || asset.bounds.minY < -0.002
-      || asset.bounds.width >= 1 || asset.bounds.depth >= 1)) {
+      || asset.bounds.width >= 1 || asset.bounds.depth >= 1 || Math.abs(asset.bounds.minY) > 0.01 || !(asset.groundOffset > 0))) {
     throw new Error(`Defender GLB instance or bounds check failed: ${JSON.stringify(result.defenderInstances)}`);
+  }
+  const visualHeights = Object.fromEntries(["green-archer", "battlemage", "sovereign"].map((type) => {
+    const instances = newTypeInstances.filter((asset) => asset.type === type && asset.level === 1);
+    return [type, instances.reduce((sum, asset) => sum + asset.bounds.height, 0) / instances.length];
+  }));
+  const wizardReferenceHeight = 1.89845 * (1.13 * 0.75);
+  if (visualHeights["green-archer"] < wizardReferenceHeight * 0.93 || visualHeights["green-archer"] > wizardReferenceHeight * 0.96
+    || visualHeights.battlemage < wizardReferenceHeight * 0.97 || visualHeights.battlemage > wizardReferenceHeight * 1.02
+    || visualHeights.sovereign < wizardReferenceHeight * 1.07 || visualHeights.sovereign > wizardReferenceHeight * 1.12) {
+    throw new Error(`Defender visual heights are not roster-normalized: ${JSON.stringify(visualHeights)}`);
   }
   const typeToExpectedPath = {
     "green-archer": "/assets/models/defenders/optimized/green-archer.glb",
@@ -182,6 +281,10 @@ async function main() {
   }
   if (!result.selection.visible || !result.selection.markerVisible || result.selection.markerPosition.y <= 0.2) {
     throw new Error(`Selection ring/diamond failed for imported defender: ${JSON.stringify(result.selection)}`);
+  }
+  const selectedSovereignVisual = newTypeInstances.findLast((asset) => asset.id === visualState.placedIds[24]);
+  if (!selectedSovereignVisual || result.selection.markerPosition.y <= selectedSovereignVisual.bounds.maxY + 0.2) {
+    throw new Error(`Selection diamond intersects the Sovereign model: ${JSON.stringify({ selection: result.selection, visual: selectedSovereignVisual })}`);
   }
   if (visualState.archer.name !== "Green Archer" || visualState.archer.role !== "Anti-Air · 3× flying damage"
     || visualState.archer.damage !== "12" || visualState.archer.range !== "5.0 Tiles" || visualState.archer.cost !== "20 Gold") {
@@ -316,10 +419,315 @@ async function main() {
   if (Math.abs(futureUnitHudHeight - originalHudHeight) > 1) {
     throw new Error(`Adding future unit cards changed bottom HUD height: ${originalHudHeight} -> ${futureUnitHudHeight}`);
   }
+  const touch = async (type, points = []) => command("Input.dispatchTouchEvent", {
+    type,
+    touchPoints: points.map(({ x, y, id }) => ({ x, y, id, radiusX: 2, radiusY: 2, force: 1 })),
+    modifiers: 0,
+  });
+  const tap = async (x, y, id = 1) => {
+    await touch("touchStart", [{ x, y, id }]);
+    await delay(50);
+    await touch("touchEnd");
+    await delay(100);
+  };
+  // Verify the reset choices against a populated run, then restart before touch input tests.
+  await evaluate(`(() => {
+    const game = window.__towerDefenceGameState;
+    game.autoRun = true;
+    if (!game.waveActive) game.startWave();
+    document.querySelector('#reset-menu-button').click();
+  })()`);
+  const resetDialog = await evaluate(`(() => {
+    const dialog = document.querySelector('#reset-confirmation');
+    const canvas = document.querySelector('#game3d').getBoundingClientRect();
+    const hit = document.elementFromPoint(canvas.left + canvas.width / 2, canvas.top + canvas.height / 2);
+    return {
+      visible: !dialog.hidden,
+      title: dialog.querySelector('h2').textContent.trim(),
+      body: dialog.querySelector('p').textContent.trim(),
+      actions: [...dialog.querySelectorAll('button')].map((button) => button.textContent.trim()),
+      blocksBattlefield: !!hit?.closest('#reset-confirmation'),
+    };
+  })()`);
+  const resetBeforeCancel = await evaluate(`(() => {
+    const game = window.__towerDefenceGameState;
+    return { wave: game.currentWave, active: game.waveActive, enemies: game.enemiesRemaining, gold: game.gold, lives: game.lives, towers: game.towers.length, auto: game.autoRun };
+  })()`);
+  await delay(700);
+  const resetWhileOpen = await evaluate(`(() => {
+    const game = window.__towerDefenceGameState;
+    return { wave: game.currentWave, active: game.waveActive, enemies: game.enemiesRemaining, gold: game.gold, lives: game.lives, towers: game.towers.length, auto: game.autoRun };
+  })()`);
+  if (!resetDialog.visible || resetDialog.title !== 'RESET RUN?' || resetDialog.body !== 'What would you like to do?'
+    || resetDialog.actions.join('|') !== 'RESTART CURRENT MAP|RETURN TO MAP SELECT|CANCEL' || !resetDialog.blocksBattlefield
+    || JSON.stringify(resetBeforeCancel) !== JSON.stringify(resetWhileOpen)) {
+    throw new Error(`Reset menu failed to pause/block the run or show its three choices: ${JSON.stringify({ resetDialog, resetBeforeCancel, resetWhileOpen })}`);
+  }
+  await evaluate("document.querySelector('#cancel-reset-button').click()");
+  const afterCancel = await evaluate(`(() => {
+    const game = window.__towerDefenceGameState;
+    return { hidden: document.querySelector('#reset-confirmation').hidden, wave: game.currentWave, active: game.waveActive, gold: game.gold, lives: game.lives, towers: game.towers.length, auto: game.autoRun };
+  })()`);
+  if (!afterCancel.hidden || JSON.stringify({ wave: afterCancel.wave, active: afterCancel.active, gold: afterCancel.gold, lives: afterCancel.lives, towers: afterCancel.towers, auto: afterCancel.auto })
+    !== JSON.stringify({ wave: resetBeforeCancel.wave, active: resetBeforeCancel.active, gold: resetBeforeCancel.gold, lives: resetBeforeCancel.lives, towers: resetBeforeCancel.towers, auto: resetBeforeCancel.auto })) {
+    throw new Error(`Cancel changed the run instead of restoring it: ${JSON.stringify({ resetBeforeCancel, afterCancel })}`);
+  }
+  await evaluate(`(() => {
+    document.querySelector('#reset-menu-button').click();
+    document.querySelector('#confirm-reset-button').click();
+  })()`);
+  await delay(180);
+  const resetRunState = await evaluate(`(() => {
+    const game = window.__towerDefenceGameState;
+    return { mapId: game.map.id, gold: game.gold, startingGold: game.map.startingGold, lives: game.lives, wave: game.currentWave, active: game.waveActive, enemies: game.enemies.length, towers: game.towers.length, auto: game.autoRun };
+  })()`);
+  if (resetRunState.mapId !== 'single-spawn' || resetRunState.gold !== resetRunState.startingGold || resetRunState.lives !== 10
+    || resetRunState.wave !== 1 || resetRunState.active || resetRunState.enemies !== 0 || resetRunState.towers !== 0 || resetRunState.auto) {
+    throw new Error(`Restart Current Map did not reset the same run: ${JSON.stringify(resetRunState)}`);
+  }
+  const inputCandidate = await evaluate(`(() => {
+    const game = window.__towerDefenceGameState;
+    const ui = window.__towerDefenceUi;
+    game.gold = Math.max(game.gold, 5000);
+    ui.chooseBuildUnit('blue-wizard');
+    const canvas = document.querySelector('#game3d').getBoundingClientRect();
+    const topHud = document.querySelector('.top-hud-bar').getBoundingClientRect();
+    const bottomHud = document.querySelector('.bottom-hud-bar').getBoundingClientRect();
+    let firstBuildable;
+    let firstProjected;
+    const placementResults = {};
+    for (let y = 0; y < game.grid.height; y += 1) for (let x = 0; x < game.grid.width; x += 1) {
+      const cell = { x, y };
+      const result = game.canPlaceBasicTower(cell, 'blue-wizard');
+      placementResults[result] = (placementResults[result] ?? 0) + 1;
+      if (result !== 'placed') continue;
+      firstBuildable ??= cell;
+      const point = ui.projectCell(cell);
+      firstProjected ??= { cell, ...point };
+      if (point.x > canvas.left + 15 && point.x < canvas.right - 15
+        && point.y > topHud.bottom + 12 && point.y < bottomHud.top - 12) return { cell, ...point, canvas: { left: canvas.left, right: canvas.right, top: canvas.top, bottom: canvas.bottom }, topHud: { bottom: topHud.bottom }, bottomHud: { top: bottomHud.top } };
+    }
+    return { diagnostic: true, firstBuildable, firstProjected, placementResults, gold: game.gold, gameOver: game.gameOver, canvas: { left: canvas.left, right: canvas.right, top: canvas.top, bottom: canvas.bottom, width: canvas.width, height: canvas.height }, topHud: { bottom: topHud.bottom }, bottomHud: { top: bottomHud.top }, grid: { width: game.grid.width, height: game.grid.height } };
+  })()`);
+  if (inputCandidate.diagnostic) throw new Error(`Could not find an unobstructed buildable cell for touch input smoke test: ${JSON.stringify(inputCandidate)}`);
+  const towerCountBeforeTouch = await evaluate("window.__towerDefenceGameState.towers.length");
+  await tap(inputCandidate.x, inputCandidate.y);
+  const tapPlacement = await evaluate(`({
+    towerCount: window.__towerDefenceGameState.towers.length,
+    state: window.__towerDefenceInputDebug(),
+  })`);
+  if (tapPlacement.towerCount !== towerCountBeforeTouch + 1 || !tapPlacement.state.lastAction.includes("placed")) {
+    throw new Error(`Mobile tap failed to place a defender: ${JSON.stringify(tapPlacement)}`);
+  }
+  await tap(inputCandidate.x, inputCandidate.y);
+  const towerSelection = await evaluate("window.__towerDefenceUi.selectionVisual()");
+  if (towerSelection.selectedTowerId === undefined) {
+    throw new Error(`Mobile tap failed to select the occupied tower: ${JSON.stringify(towerSelection)}`);
+  }
+  const towerCountBeforeCancel = await evaluate("window.__towerDefenceGameState.towers.length");
+  await touch("touchStart", [{ x: inputCandidate.x, y: inputCandidate.y, id: 1 }]);
+  await delay(40);
+  await touch("touchCancel");
+  await delay(80);
+  const cancelResult = await evaluate(`({
+    towerCount: window.__towerDefenceGameState.towers.length,
+    selectedTowerId: window.__towerDefenceUi.selectionVisual().selectedTowerId,
+    state: window.__towerDefenceInputDebug(),
+  })`);
+  if (cancelResult.towerCount !== towerCountBeforeCancel || cancelResult.selectedTowerId !== towerSelection.selectedTowerId
+    || !cancelResult.state.lastAction.includes("cancelled")) {
+    throw new Error(`Cancelled touch was incorrectly treated as a tap: ${JSON.stringify(cancelResult)}`);
+  }
+  const cameraBeforePan = await evaluate("window.__towerDefenceInputDebug().cameraTarget");
+  const towersBeforePan = await evaluate("window.__towerDefenceGameState.towers.length");
+  await touch("touchStart", [{ x: inputCandidate.x, y: inputCandidate.y, id: 1 }]);
+  await delay(60);
+  await touch("touchMove", [{ x: inputCandidate.x + 70, y: inputCandidate.y + 8, id: 1 }]);
+  await delay(60);
+  await touch("touchEnd");
+  await delay(100);
+  const panResult = await evaluate(`({
+    state: window.__towerDefenceInputDebug(),
+    towers: window.__towerDefenceGameState.towers.length,
+  })`);
+  const panDistance = Math.hypot(panResult.state.cameraTarget.x - cameraBeforePan.x, panResult.state.cameraTarget.z - cameraBeforePan.z);
+  if (panDistance < 0.01 || panResult.towers !== towersBeforePan || panResult.state.gesture !== "PAN") {
+    throw new Error(`One-finger drag failed or placed a defender: ${JSON.stringify({ panDistance, panResult })}`);
+  }
+  const pinchStart = await evaluate("({ x: innerWidth / 2, y: (document.querySelector('.top-hud-bar').getBoundingClientRect().bottom + document.querySelector('.bottom-hud-bar').getBoundingClientRect().top) / 2 })");
+  const radiusBeforePinch = await evaluate("window.__towerDefenceInputDebug().cameraRadius");
+  await touch("touchStart", [{ x: pinchStart.x - 35, y: pinchStart.y, id: 1 }]);
+  await delay(40);
+  await touch("touchStart", [{ x: pinchStart.x - 35, y: pinchStart.y, id: 1 }, { x: pinchStart.x + 35, y: pinchStart.y, id: 2 }]);
+  await delay(60);
+  await touch("touchMove", [{ x: pinchStart.x - 60, y: pinchStart.y, id: 1 }, { x: pinchStart.x + 60, y: pinchStart.y, id: 2 }]);
+  await delay(60);
+  await touch("touchEnd");
+  await delay(100);
+  const pinchResult = await evaluate(`({ state: window.__towerDefenceInputDebug(), towers: window.__towerDefenceGameState.towers.length })`);
+  if (Math.abs(pinchResult.state.cameraRadius - radiusBeforePinch) < 0.01
+    || pinchResult.towers !== towersBeforePan || pinchResult.state.gesture !== "PINCH") {
+    throw new Error(`Two-finger pinch failed or placed a defender: ${JSON.stringify({ radiusBeforePinch, pinchResult })}`);
+  }
+  const trayBeforeSwipe = await evaluate(`(() => {
+    const tray = document.querySelector('.defender-choice-panel');
+    tray.scrollLeft = 0;
+    const rect = tray.getBoundingClientRect();
+    return { x: rect.right - 15, y: rect.top + rect.height / 2 };
+  })()`);
+  const cameraBeforeTraySwipe = await evaluate("window.__towerDefenceInputDebug().cameraTarget");
+  await touch("touchStart", [{ x: trayBeforeSwipe.x, y: trayBeforeSwipe.y, id: 1 }]);
+  await delay(60);
+  await touch("touchMove", [{ x: trayBeforeSwipe.x - 120, y: trayBeforeSwipe.y, id: 1 }]);
+  await delay(100);
+  await touch("touchEnd");
+  await delay(120);
+  const traySwipe = await evaluate(`({
+    scrollLeft: document.querySelector('.defender-choice-panel').scrollLeft,
+    touchAction: getComputedStyle(document.querySelector('.defender-choice-panel')).touchAction,
+    cameraTarget: window.__towerDefenceInputDebug().cameraTarget,
+  })`);
+  if (traySwipe.scrollLeft <= 0 || traySwipe.touchAction !== "pan-x"
+    || Math.hypot(traySwipe.cameraTarget.x - cameraBeforeTraySwipe.x, traySwipe.cameraTarget.z - cameraBeforeTraySwipe.z) > 0.01) {
+    throw new Error(`Build Units swipe did not stay isolated to the horizontal tray: ${JSON.stringify(traySwipe)}`);
+  }
+  const knightButton = await evaluate(`(() => {
+    const button = document.querySelector('#build-knight-button').getBoundingClientRect();
+    return { x: button.left + button.width / 2, y: button.top + button.height / 2 };
+  })()`);
+  await tap(knightButton.x, knightButton.y);
+  const buildCardTap = await evaluate(`({
+    pressed: document.querySelector('#build-knight-button').getAttribute('aria-pressed'),
+    buildMode: window.__towerDefenceInputDebug().buildMode,
+  })`);
+  if (buildCardTap.pressed !== "true" || !buildCardTap.buildMode.includes("holy-knight")) {
+    throw new Error(`Build Unit card touch did not select Knight: ${JSON.stringify(buildCardTap)}`);
+  }
+  const buttonTouchPoint = async (selector) => evaluate(`(() => {
+    const rect = document.querySelector('${selector}').getBoundingClientRect();
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+  })()`);
+  const autoPoint = await buttonTouchPoint("#auto-button");
+  await tap(autoPoint.x, autoPoint.y);
+  const autoToggledOn = await evaluate("window.__towerDefenceGameState.autoRun");
+  await tap(autoPoint.x, autoPoint.y);
+  const autoToggledOff = await evaluate("!window.__towerDefenceGameState.autoRun");
+  const wavePoint = await buttonTouchPoint("#start-wave-button");
+  await tap(wavePoint.x, wavePoint.y);
+  const waveStarted = await evaluate("window.__towerDefenceGameState.waveActive");
+  if (!autoToggledOn || !autoToggledOff || !waveStarted) {
+    throw new Error(`Mobile HUD button taps failed: ${JSON.stringify({ autoToggledOn, autoToggledOff, waveStarted })}`);
+  }
+  await command("Emulation.setTouchEmulationEnabled", { enabled: false });
+  await command("Emulation.setDeviceMetricsOverride", { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
+  const desktopProbe = await evaluate(`(() => {
+    const canvas = document.querySelector('#game3d').getBoundingClientRect();
+    return { x: canvas.left + canvas.width / 2, y: canvas.top + canvas.height / 2 };
+  })()`);
+  const desktopTargetBeforePan = await evaluate("window.__towerDefenceInputDebug().cameraTarget");
+  const desktopTowersBeforePan = await evaluate("window.__towerDefenceGameState.towers.length");
+  await command("Input.dispatchMouseEvent", { type: "mousePressed", x: desktopProbe.x, y: desktopProbe.y, button: "left", buttons: 1, clickCount: 1 });
+  await command("Input.dispatchMouseEvent", { type: "mouseMoved", x: desktopProbe.x + 50, y: desktopProbe.y + 4, button: "left", buttons: 1 });
+  await command("Input.dispatchMouseEvent", { type: "mouseReleased", x: desktopProbe.x + 50, y: desktopProbe.y + 4, button: "left", buttons: 0, clickCount: 1 });
+  await delay(100);
+  const desktopPan = await evaluate("window.__towerDefenceInputDebug()");
+  const desktopPanDistance = Math.hypot(
+    desktopPan.cameraTarget.x - desktopTargetBeforePan.x,
+    desktopPan.cameraTarget.z - desktopTargetBeforePan.z,
+  );
+  if (desktopPanDistance < 0.01 || await evaluate("window.__towerDefenceGameState.towers.length") !== desktopTowersBeforePan
+    || desktopPan.gesture !== "PAN") {
+    throw new Error(`Desktop mouse-pan regression failed: ${JSON.stringify({ desktopPanDistance, desktopPan })}`);
+  }
+  const mobileInput = {
+    tapPlacement: tapPlacement.state.lastAction,
+    towerSelection: towerSelection.selectedTowerId,
+    pointerCancel: { noPlacement: cancelResult.towerCount === towerCountBeforeCancel, selectionPreserved: cancelResult.selectedTowerId === towerSelection.selectedTowerId },
+    pan: { distance: Number(panDistance.toFixed(2)), action: panResult.state.lastAction, towersUnchanged: panResult.towers === towersBeforePan },
+    pinch: { radiusBefore: radiusBeforePinch, radiusAfter: pinchResult.state.cameraRadius, action: pinchResult.state.lastAction, towersUnchanged: pinchResult.towers === towersBeforePan },
+    traySwipe: { scrollLeft: traySwipe.scrollLeft, touchAction: traySwipe.touchAction, cameraUnchanged: true },
+    buildCardTap, autoToggledOn, autoToggledOff, waveStarted,
+    desktopMousePan: { distance: Number(desktopPanDistance.toFixed(2)), action: desktopPan.lastAction, towersUnchanged: true },
+  };
+  const inputSurfaceAudit = await evaluate(`(() => {
+    const canvas = document.querySelector('#game3d');
+    const rect = canvas.getBoundingClientRect();
+    return {
+      canvasTouchAction: getComputedStyle(canvas).touchAction,
+      trayTouchAction: getComputedStyle(document.querySelector('.defender-choice-panel')).touchAction,
+      buttonTouchAction: getComputedStyle(document.querySelector('#auto-button')).touchAction,
+      gameUiPointerEvents: getComputedStyle(document.querySelector('.game-ui')).pointerEvents,
+      appCornerOverlayPointerEvents: getComputedStyle(document.querySelector('#app'), '::before').pointerEvents,
+      battlefieldHitTarget: document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2).id,
+      resetOverlayHidden: document.querySelector('#reset-confirmation').hidden,
+    };
+  })()`);
+  if (inputSurfaceAudit.canvasTouchAction !== "none" || inputSurfaceAudit.trayTouchAction !== "pan-x"
+    || inputSurfaceAudit.buttonTouchAction !== "manipulation" || inputSurfaceAudit.gameUiPointerEvents !== "none"
+    || inputSurfaceAudit.appCornerOverlayPointerEvents !== "none" || inputSurfaceAudit.battlefieldHitTarget !== "game3d"
+    || !inputSurfaceAudit.resetOverlayHidden) {
+    throw new Error(`Battlefield/UI pointer-event layers are misconfigured: ${JSON.stringify(inputSurfaceAudit)}`);
+  }
+  await evaluate(`(() => {
+    window.__towerDefenceGameState.autoRun = true;
+    document.querySelector('#reset-menu-button').click();
+    document.querySelector('#return-map-select-button').click();
+  })()`);
+  let returnedToMapSelect = false;
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    returnedToMapSelect = await evaluate(`(() => !!document.querySelector('.map-select-screen')
+      && !document.querySelector('#game3d') && !window.__towerDefenceGameState)()`);
+    if (returnedToMapSelect) break;
+    await delay(50);
+  }
+  const mapSelectAfterReturn = await evaluate(`(() => ({
+    selectedMap: document.querySelector('.map-choice-card.is-selected')?.dataset.mapId,
+    startEnabled: !document.querySelector('#start-selected-map').disabled,
+    canvasCount: document.querySelectorAll('#game3d').length,
+    gameStateAvailable: !!window.__towerDefenceGameState,
+  }))()`);
+  if (!returnedToMapSelect || mapSelectAfterReturn.selectedMap !== "single-spawn"
+    || !mapSelectAfterReturn.startEnabled || mapSelectAfterReturn.canvasCount !== 0 || mapSelectAfterReturn.gameStateAvailable) {
+    throw new Error(`Return to Map Select did not cleanly end the run: ${JSON.stringify({ returnedToMapSelect, mapSelectAfterReturn })}`);
+  }
+  await evaluate(`(() => {
+    document.querySelector('.map-choice-card[data-map-id="three-spawns"]').click();
+  })()`);
+  await delay(300);
+  const awaitingExplicitStart = await evaluate(`(() => ({
+    selectedMap: document.querySelector('.map-choice-card.is-selected')?.dataset.mapId,
+    startEnabled: !document.querySelector('#start-selected-map').disabled,
+    canvasCount: document.querySelectorAll('#game3d').length,
+    gameStateAvailable: !!window.__towerDefenceGameState,
+  }))()`);
+  if (awaitingExplicitStart.selectedMap !== "three-spawns" || !awaitingExplicitStart.startEnabled
+    || awaitingExplicitStart.canvasCount !== 0 || awaitingExplicitStart.gameStateAvailable) {
+    throw new Error(`Returning to the map selector unexpectedly started a run: ${JSON.stringify(awaitingExplicitStart)}`);
+  }
+  await evaluate("document.querySelector('#start-selected-map').click()");
+  let newMapRunReady = false;
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    newMapRunReady = await evaluate(`(() => !!window.__towerDefenceGameState
+      && window.__towerDefenceGameState.map.id === "three-spawns")()`);
+    if (newMapRunReady) break;
+    await delay(100);
+  }
+  const restartedMapState = await evaluate(`(() => ({
+    mapId: window.__towerDefenceGameState?.map.id,
+    wave: window.__towerDefenceGameState?.currentWave,
+    active: window.__towerDefenceGameState?.waveActive,
+    auto: window.__towerDefenceGameState?.autoRun,
+    canvasCount: document.querySelectorAll('#game3d').length,
+  }))()`);
+  if (!newMapRunReady || restartedMapState.mapId !== "three-spawns" || restartedMapState.wave !== 1
+    || restartedMapState.active || restartedMapState.auto || restartedMapState.canvasCount !== 1) {
+    throw new Error(`Starting a newly selected map after returning failed: ${JSON.stringify(restartedMapState)}`);
+  }
+  const resetNavigation = { returnedToMapSelect, mapSelectAfterReturn, awaitingExplicitStart, restartedMapState };
   if (process.env.SAVE_COMPACT_HUD_SCREENSHOTS === "1") {
     const screenshotDirectory = path.resolve(__dirname, "../artifacts/compact-hud");
     fs.mkdirSync(screenshotDirectory, { recursive: true });
-    await command("Page.navigate", { url: "http://127.0.0.1:5173/" });
+    await command("Page.navigate", { url: appUrl });
     await delay(800);
     for (const viewport of [{ width: 360, height: 800 }, { width: 390, height: 844 }, { width: 1280, height: 900 }]) {
       await command("Emulation.setDeviceMetricsOverride", {
@@ -333,13 +741,18 @@ async function main() {
     }
   }
   console.log(JSON.stringify({
-    responsiveLayouts: layouts.map(({ viewport, hudHeight, card, visibleCards, trayScrollable, actionsVisible, waveControls, towerLayouts }) => ({
+    mapSelectLayouts: responsiveLayouts,
+    defenderVisualHeights: visualHeights,
+    gameHudLayouts: layouts.map(({ viewport, hudHeight, card, visibleCards, trayScrollable, actionsVisible, waveControls, towerLayouts }) => ({
       viewport, hudHeight, card, visibleCards, trayScrollable, actionsVisible, waveControls,
       towerLayouts: towerLayouts.map(({ type, level, panel, stats, actions, upgrade, info, sell, upgradeClip, sellClip }) => ({
         type, level, panel, stats, actions, upgrade, info, sell, upgradeClip, sellClip,
       })),
     })),
     futureUnitHudHeight, screenshots, runtimeFilesServed: paths.length,
+    mobileInput,
+    inputSurfaceAudit,
+    resetNavigation,
   }, null, 2));
 }
 
