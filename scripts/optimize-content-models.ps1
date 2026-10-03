@@ -1,0 +1,58 @@
+param([string[]]$Only = @())
+$ErrorActionPreference = 'Stop'
+
+# Same glTF Transform simplify/resize pipeline as optimize-enemy-models.ps1.
+# Source GLBs stay untouched; runtime originals are retained as per-model fallbacks.
+$projectRoot = Split-Path -Parent $PSScriptRoot
+$toolPackage = '@gltf-transform/cli@4.5.1'
+$cachedCli = Get-ChildItem (Join-Path $env:LOCALAPPDATA 'npm-cache\_npx\*\node_modules\.bin\gltf-transform.cmd') -ErrorAction SilentlyContinue | Select-Object -First 1
+$temporaryDirectory = Join-Path ([System.IO.Path]::GetTempPath()) ('tower-defence-content-opt-' + [guid]::NewGuid().ToString('N'))
+$models = @(
+  @{ Source = 'Undead Dragon'; Runtime = 'public\assets\models\enemies\undead-dragon.glb'; Optimized = 'public\assets\models\enemies\optimized\undead-dragon.glb'; Ratio = '0.14'; TextureLimit = 2048 },
+  @{ Source = 'Skeleton King'; Runtime = 'public\assets\models\enemies\skeleton-king.glb'; Optimized = 'public\assets\models\enemies\optimized\skeleton-king.glb'; Ratio = '0.11'; TextureLimit = 2048 },
+  @{ Source = 'Green Archer'; Runtime = 'public\assets\models\defenders\green-archer.glb'; Optimized = 'public\assets\models\defenders\optimized\green-archer.glb'; Ratio = '0.11'; TextureLimit = 1024 },
+  @{ Source = 'Battlemage'; Runtime = 'public\assets\models\defenders\battlemage.glb'; Optimized = 'public\assets\models\defenders\optimized\battlemage.glb'; Ratio = '0.075'; TextureLimit = 2048 },
+  @{ Source = 'Skeletal Commander Flying'; Runtime = 'public\assets\models\enemies\skeletal-commander.glb'; Optimized = 'public\assets\models\enemies\optimized\skeletal-commander.glb'; Ratio = '0.13'; TextureLimit = 2048 },
+  @{ Source = 'Soveign'; Runtime = 'public\assets\models\defenders\sovereign.glb'; Optimized = 'public\assets\models\defenders\optimized\sovereign.glb'; Ratio = '0.075'; TextureLimit = 2048 }
+)
+
+New-Item -ItemType Directory -Force -Path $temporaryDirectory | Out-Null
+try {
+  foreach ($model in $models) {
+    if ($Only.Count -gt 0 -and $model.Source -notin $Only) { continue }
+    $sourcePath = Join-Path $projectRoot "3D\$($model.Source).glb"
+    $runtimePath = Join-Path $projectRoot $model.Runtime
+    $optimizedPath = Join-Path $projectRoot $model.Optimized
+    $simplifiedPath = Join-Path $temporaryDirectory "$($model.Source -replace ' ', '-').glb"
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $runtimePath), (Split-Path -Parent $optimizedPath) | Out-Null
+
+    # Preserve an exact unoptimized runtime copy for the optimized-first fallback.
+    Copy-Item -LiteralPath $sourcePath -Destination $runtimePath -Force
+    if ($cachedCli) {
+      & $cachedCli.FullName simplify $sourcePath $simplifiedPath --ratio $model.Ratio --error 0.02
+    } else {
+      & npm exec --yes --package=$toolPackage -- gltf-transform simplify $sourcePath $simplifiedPath --ratio $model.Ratio --error 0.02
+    }
+    if ($LASTEXITCODE -ne 0) { throw "Geometry simplification failed for $($model.Source).glb" }
+
+    if ($model.TextureLimit -lt 2048) {
+      if ($cachedCli) {
+        & $cachedCli.FullName resize $simplifiedPath $optimizedPath --width $model.TextureLimit --height $model.TextureLimit --filter lanczos3
+      } else {
+        & npm exec --yes --package=$toolPackage -- gltf-transform resize $simplifiedPath $optimizedPath --width $model.TextureLimit --height $model.TextureLimit --filter lanczos3
+      }
+      if ($LASTEXITCODE -ne 0) { throw "Texture resize failed for $($model.Source).glb" }
+    } else {
+      Move-Item -LiteralPath $simplifiedPath -Destination $optimizedPath -Force
+    }
+    Write-Output "Optimized $($model.Source): $($model.Runtime) + $($model.Optimized)"
+  }
+} finally {
+  $resolvedTemp = [System.IO.Path]::GetFullPath($temporaryDirectory)
+  $expectedTempRoot = [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath())
+  $tempPathIsScoped = $resolvedTemp.StartsWith($expectedTempRoot, [System.StringComparison]::OrdinalIgnoreCase)
+  $tempFolderIsOurs = (Split-Path -Leaf $resolvedTemp).StartsWith('tower-defence-content-opt-')
+  if ($tempPathIsScoped -and $tempFolderIsOurs) {
+    Remove-Item -LiteralPath $resolvedTemp -Recurse -Force -ErrorAction SilentlyContinue
+  }
+}

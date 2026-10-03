@@ -6,9 +6,14 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:enemy-waves": "node --import ./scripts/register-ts-loader.mjs scripts/test-enemy-waves.mjs && node --import ./scripts/register-ts-loader.mjs scripts/test-content-combat.mjs",
+    "test:content-combat": "node --import ./scripts/register-ts-loader.mjs scripts/test-content-combat.mjs",
+    "test:content-assets": "node scripts/test-content-assets.cjs"
   },
   "dependencies": {
+    "@babylonjs/core": "^9.27.1",
+    "@babylonjs/loaders": "^9.27.1",
     "phaser": "^3.90.0"
   },
   "devDependencies": {

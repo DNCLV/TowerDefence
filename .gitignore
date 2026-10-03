@@ -1,3 +1,26 @@
+# Dependencies and generated build output
 node_modules/
 dist/
 .vite/
+coverage/
+
+# Local secrets; keep the documented template versionable if one is added
+.env
+.env.*
+!.env.example
+
+# Raw source art packs are not needed at runtime; optimized/runtime copies live in public/assets/
+/3D/
+/Quaternius/
+/Universal Animation Library\[Standard\]/
+
+# Local screenshots, browser runs, and temporary files
+/artifacts/
+/playwright-report/
+/test-results/
+*.log
+*.tmp
+*.temp
+*.swp
+.DS_Store
+Thumbs.db
