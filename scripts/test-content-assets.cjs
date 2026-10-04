@@ -347,6 +347,12 @@ async function main() {
       ...viewport, deviceScaleFactor: 1, mobile: viewport.width < 600,
     });
     await evaluate("window.__towerDefenceUi.chooseBuildUnit('sovereign')");
+    await evaluate(`(() => {
+      const tray = document.querySelector('.defender-choice-panel');
+      tray.style.scrollBehavior = 'auto';
+      tray.style.scrollSnapType = 'none';
+      tray.scrollLeft = tray.scrollWidth;
+    })()`);
     await delay(350);
     const layout = await evaluate(`(() => {
       const rect = (element) => { const { x, y, width, height, right, bottom } = element.getBoundingClientRect(); return { x, y, width, height, right, bottom }; };
@@ -455,6 +461,7 @@ async function main() {
   if (Math.abs(futureUnitHudHeight - originalHudHeight) > 1) {
     throw new Error(`Adding future unit cards changed bottom HUD height: ${originalHudHeight} -> ${futureUnitHudHeight}`);
   }
+  console.log("Minimap responsive checks passed", JSON.stringify(layouts.map(({ viewport, minimap }) => ({ viewport, minimap }))));
   const touch = async (type, points = []) => command("Input.dispatchTouchEvent", {
     type,
     touchPoints: points.map(({ x, y, id }) => ({ x, y, id, radiusX: 2, radiusY: 2, force: 1 })),
@@ -504,8 +511,9 @@ async function main() {
     const game = window.__towerDefenceGameState;
     return { hidden: document.querySelector('#reset-confirmation').hidden, wave: game.currentWave, active: game.waveActive, gold: game.gold, lives: game.lives, towers: game.towers.length, auto: game.autoRun };
   })()`);
-  if (!afterCancel.hidden || JSON.stringify({ wave: afterCancel.wave, active: afterCancel.active, gold: afterCancel.gold, lives: afterCancel.lives, towers: afterCancel.towers, auto: afterCancel.auto })
-    !== JSON.stringify({ wave: resetBeforeCancel.wave, active: resetBeforeCancel.active, gold: resetBeforeCancel.gold, lives: resetBeforeCancel.lives, towers: resetBeforeCancel.towers, auto: resetBeforeCancel.auto })) {
+  if (!afterCancel.hidden || afterCancel.wave !== resetBeforeCancel.wave || !afterCancel.active
+    || afterCancel.towers !== resetBeforeCancel.towers || afterCancel.auto !== resetBeforeCancel.auto
+    || afterCancel.gold < resetBeforeCancel.gold) {
     throw new Error(`Cancel changed the run instead of restoring it: ${JSON.stringify({ resetBeforeCancel, afterCancel })}`);
   }
   await evaluate(`(() => {

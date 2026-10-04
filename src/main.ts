@@ -260,7 +260,12 @@ defenderChoicePanel.addEventListener("wheel", (event) => {
     event.preventDefault();
   }
 }, { passive: false });
-const handleBuildTrayResize = (): void => updateBuildTrayOverflow();
+const handleBuildTrayResize = (): void => {
+  updateBuildTrayOverflow();
+  // ResizeObserver normally keeps the minimap dock in sync; this rAF fallback
+  // also handles viewport/orientation changes before the observer callback.
+  requestAnimationFrame(syncMinimapDock);
+};
 const buildTrayResizeObserver = new ResizeObserver(updateBuildTrayOverflow);
 const buildTrayMutationObserver = new MutationObserver(updateBuildTrayOverflow);
 window.addEventListener("resize", handleBuildTrayResize, { passive: true });
