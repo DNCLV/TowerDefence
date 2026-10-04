@@ -28,12 +28,6 @@ export interface MapDefinition {
   convergenceOpenings?: Cell[];
   /** Shared route waypoint after map-specific convergence. */
   finalLaneTarget?: Cell;
-  /** Simplified portrait preview route/obstacle paths in a normalized 100×100 SVG viewBox. */
-  previewPaths: string[];
-  previewObstaclePaths: string[];
-  previewSpawnXs: number[];
-  previewSpawnColors: string[];
-  previewGoalX: number;
 }
 
 const endpoint = (id: string, cell: Cell, side: PerimeterSide) => {
@@ -54,6 +48,12 @@ const rectangle = (id: string, x: number, y: number, width: number, height: numb
   cells: Array.from({ length: height }, (_, row) => Array.from({ length: width }, (_, column) => ({ x: x + column, y: y + row }))).flat(),
 });
 
+/** Joins adjoining rectangle parts into one terrain formation/plateau. */
+const formation = (id: string, ...parts: TerrainRegion[]): TerrainRegion => ({
+  id,
+  cells: [...new Map(parts.flatMap((part) => part.cells).map((cell) => [`${cell.x},${cell.y}`, cell])).values()],
+});
+
 const withTerrain = (...terrainRegions: TerrainRegion[]) => ({
   terrainRegions,
   terrain: [...new Map(terrainRegions.flatMap((region) => region.cells)
@@ -69,11 +69,11 @@ export const MAPS: Record<MapId, MapDefinition> = {
       castle: castleEndpoint("shared-castle", { x: 14, y: 53 }, "south"),
       activeSpawns: [endpoint("spawn-north", { x: 14, y: 0 }, "north")],
     },
-    ...withTerrain(),
+    ...withTerrain(
+      rectangle("left-mountain", 0, 9, 5, 36),
+      rectangle("right-mountain", 23, 9, 5, 36),
+    ),
     startingGold: 70, enemyCountMultiplier: 1,
-    previewPaths: ["M50 4 L50 96"],
-    previewObstaclePaths: [],
-    previewSpawnXs: [50], previewSpawnColors: ["#ff6b66"], previewGoalX: 50,
   },
   "two-spawns": {
     id: "two-spawns", name: "Split Advance", subtitle: "2 Spawns · Late merge", description: "Two open fronts stay apart until the final quarter.",
@@ -86,62 +86,48 @@ export const MAPS: Record<MapId, MapDefinition> = {
       ],
     },
     ...withTerrain(
-      // The full-width ridge prevents any cross-map shortcut until y=51 (75% of map length).
-      rectangle("central-split-ridge", 18, 0, 2, 51),
+      // Outer cliffs frame the two open lanes and join the lower funnel masses.
+      formation("left-side-funnel-mountain",
+        rectangle("left-side-cliff", 0, 0, 4, 51),
+        rectangle("lower-left-funnel", 0, 55, 11, 9),
+      ),
+      formation("right-side-funnel-mountain",
+        rectangle("right-side-cliff", 34, 0, 4, 51),
+        rectangle("lower-right-funnel", 27, 55, 11, 9),
+      ),
+      // The ridge and lower funnel masses are separated by eight completely open rows.
+      rectangle("central-split-ridge", 16, 0, 6, 47),
     ),
     startingGold: 110, enemyCountMultiplier: 1.5,
     finalLaneTarget: { x: 19, y: 51 },
-    previewPaths: [
-      "M25 4 L25 78 Q25 83 50 83 L50 96",
-      "M75 4 L75 78 Q75 83 50 83 L50 96",
-    ],
-    previewObstaclePaths: ["M47 4 L47 77 L53 77 L53 4Z"],
-    previewSpawnXs: [25, 75], previewSpawnColors: ["#ff6b66", "#69c5ff"], previewGoalX: 50,
   },
   "three-spawns": {
     id: "three-spawns", name: "Triple Convergence", subtitle: "3 Spawns · Three fronts to one", description: "Three open approaches become two broad fronts, then one shared goal lane.",
-    width: 48, height: 82,
+    width: 72, height: 110,
     layout: {
-      castle: castleEndpoint("shared-castle", { x: 24, y: 81 }, "south"),
+      castle: castleEndpoint("shared-castle", { x: 36, y: 109 }, "south"),
       activeSpawns: [
-        endpoint("spawn-north-west", { x: 7, y: 0 }, "north"),
-        endpoint("spawn-north", { x: 24, y: 0 }, "north"),
-        endpoint("spawn-north-east", { x: 40, y: 0 }, "north"),
+        endpoint("spawn-north-west", { x: 13, y: 0 }, "north"),
+        endpoint("spawn-north", { x: 36, y: 0 }, "north"),
+        endpoint("spawn-north-east", { x: 58, y: 0 }, "north"),
       ],
     },
     ...withTerrain(
-      // Three broad early fields. The west divider ends at row 28 (~35% of map height).
-      rectangle("west-center-divider", 15, 0, 2, 29),
-      // This divider keeps the joined west front and right front separate until the two gates.
-      rectangle("center-east-divider", 31, 0, 2, 70),
-      // Lower ridges guide the two fronts toward their own opening while retaining 6–14 cell
-      // build areas on either side; their northern ends remain passable for route choice.
-      rectangle("west-lower-funnel", 13, 40, 2, 30),
-      rectangle("east-lower-funnel", 39, 40, 2, 30),
-      // A continuous snowy shelf blocks bypassing around the convergence. Four-cell openings
-      // at x=17..20 and x=34..37 feed the single shared final field below.
-      rectangle("convergence-west-shelf", 0, 70, 17, 4),
-      rectangle("convergence-center-shelf", 21, 70, 13, 4),
-      rectangle("convergence-east-shelf", 38, 70, 10, 4),
+      // Seven exact rectangles make three broad 16-cell upper lanes and continuous outer edges.
+      rectangle("left-outer-wall", 0, 0, 5, 110),
+      rectangle("right-outer-wall", 67, 0, 5, 110),
+      rectangle("left-upper-divider", 21, 0, 7, 35),
+      rectangle("right-upper-divider", 44, 0, 7, 35),
+      // 38 cells = 61% of the 62-cell interior, leaving 12-cell routes on both sides.
+      rectangle("center-horizontal-plateau", 17, 50, 38, 18),
+      // Broad lower plateaus connect to the outer walls while preserving a 16-cell final gap.
+      rectangle("lower-left-plateau", 0, 88, 28, 14),
+      rectangle("lower-right-plateau", 44, 88, 28, 14),
     ),
     startingGold: 150, enemyCountMultiplier: 2,
-    convergenceOpenings: [{ x: 18, y: 71 }, { x: 35, y: 71 }],
-    finalLaneTarget: { x: 24, y: 77 },
-    previewPaths: [
-      "M16 4 L16 34 Q16 39 31 44 L37 83 L50 89 L50 96",
-      "M50 4 L50 38 L37 83 L50 89 L50 96",
-      "M83 4 L83 79 L74 83 L50 89 L50 96",
-    ],
-    previewObstaclePaths: [
-      "M31 4 L31 38 L34 38 L34 4Z",
-      "M65 4 L65 82 L68 82 L68 4Z",
-      "M28 49 L30 49 L30 84 L28 84Z",
-      "M81 49 L85 49 L85 84 L81 84Z",
-      "M0 85 L36 85 L36 89 L0 89Z",
-      "M42 85 L71 85 L71 89 L42 89Z",
-      "M77 85 L100 85 L100 89 L77 89Z",
-    ],
-    previewSpawnXs: [15, 51, 85], previewSpawnColors: ["#ff6b66", "#69aaff", "#69df9c"], previewGoalX: 51,
+    midLaneTargets: [{ x: 16, y: 76 }, { x: 55, y: 76 }],
+    convergenceOpenings: [{ x: 16, y: 76 }, { x: 55, y: 76 }],
+    finalLaneTarget: { x: 36, y: 105 },
   },
 };
 

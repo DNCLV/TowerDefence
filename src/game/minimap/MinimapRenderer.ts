@@ -1,12 +1,17 @@
 import type { Cell } from "../../core/types";
 import type { GameState } from "../GameState";
 import type { MapDefinition } from "../config/MapConfig";
+import { logicalMapPointToMinimap } from "./MinimapCoordinates";
 
 export interface MinimapCameraView {
   x: number;
   y: number;
   width: number;
   height: number;
+  cameraTargetWorldX?: number;
+  cameraTargetWorldZ?: number;
+  centerGridX?: number;
+  centerGridY?: number;
 }
 
 const UPDATE_INTERVAL_MS = 80;
@@ -20,6 +25,8 @@ export class MinimapRenderer {
   private latestState?: GameState;
   private latestCameraView?: MinimapCameraView;
   private lastDrawAt = Number.NEGATIVE_INFINITY;
+  private lastDebugSignature = "";
+  private readonly debugCameraView = new URLSearchParams(window.location.search).get("minimapDebug") === "1";
   private disposed = false;
 
   constructor(
@@ -184,21 +191,50 @@ export class MinimapRenderer {
   }
 
   private drawCameraView(view: MinimapCameraView, mapRect: { x: number; y: number; width: number; height: number }): void {
-    const x = mapRect.x + view.x / this.map.width * mapRect.width;
-    const y = mapRect.y + view.y / this.map.height * mapRect.height;
-    const width = view.width / this.map.width * mapRect.width;
-    const height = view.height / this.map.height * mapRect.height;
+    const topLeft = logicalMapPointToMinimap({ x: view.x, y: view.y }, this.map.width, this.map.height, mapRect);
+    const bottomRight = logicalMapPointToMinimap(
+      { x: view.x + view.width, y: view.y + view.height }, this.map.width, this.map.height, mapRect,
+    );
+    const width = bottomRight.x - topLeft.x;
+    const height = bottomRight.y - topLeft.y;
     this.context.strokeStyle = "rgba(255, 255, 255, 0.92)";
     this.context.lineWidth = 1.2;
     this.context.setLineDash([3, 2]);
-    this.context.strokeRect(x, y, width, height);
+    this.context.strokeRect(topLeft.x, topLeft.y, width, height);
     this.context.setLineDash([]);
+
+    const centerGridX = view.centerGridX ?? view.x + view.width / 2;
+    const centerGridY = view.centerGridY ?? view.y + view.height / 2;
+    const centerMinimap = logicalMapPointToMinimap(
+      { x: centerGridX, y: centerGridY }, this.map.width, this.map.height, mapRect,
+    );
+    this.canvas.dataset.cameraGridX = centerGridX.toFixed(2);
+    this.canvas.dataset.cameraGridY = centerGridY.toFixed(2);
+    this.canvas.dataset.cameraMinimapX = centerMinimap.x.toFixed(2);
+    this.canvas.dataset.cameraMinimapY = centerMinimap.y.toFixed(2);
+    this.canvas.dataset.cameraViewportWidth = view.width.toFixed(2);
+    this.canvas.dataset.cameraViewportHeight = view.height.toFixed(2);
+    if (view.cameraTargetWorldX !== undefined) this.canvas.dataset.cameraTargetWorldX = view.cameraTargetWorldX.toFixed(2);
+    if (view.cameraTargetWorldZ !== undefined) this.canvas.dataset.cameraTargetWorldZ = view.cameraTargetWorldZ.toFixed(2);
+
+    if (this.debugCameraView) {
+      const signature = [centerGridX, centerGridY, view.width, view.height].map((value) => Math.round(value * 2) / 2).join(":");
+      if (signature !== this.lastDebugSignature) {
+        this.lastDebugSignature = signature;
+        console.info("Minimap camera mapping", {
+          cameraTargetWorld: { x: view.cameraTargetWorldX, z: view.cameraTargetWorldZ },
+          logicalGrid: { x: centerGridX, y: centerGridY },
+          minimap: { x: centerMinimap.x, y: centerMinimap.y },
+          viewport: { x: topLeft.x, y: topLeft.y, width, height, gridWidth: view.width, gridHeight: view.height },
+          map: { width: this.map.width, height: this.map.height },
+        });
+      }
+    }
   }
 
   private cellToCanvas(cell: { x: number; y: number }, rect: { x: number; y: number; width: number; height: number }): { x: number; y: number } {
-    return {
-      x: rect.x + (cell.x + 0.5) / this.map.width * rect.width,
-      y: rect.y + (cell.y + 0.5) / this.map.height * rect.height,
-    };
+    return logicalMapPointToMinimap(
+      { x: cell.x + 0.5, y: cell.y + 0.5 }, this.map.width, this.map.height, rect,
+    );
   }
 }

@@ -7,16 +7,25 @@ import { DEFENDER_CONFIG, DefenderType } from "./game/config/DefenderConfig";
 import { WORLD_UNITS_PER_CELL } from "./core/GameConstants";
 import { resolveAssetUrl } from "./core/AssetUrl";
 import { MAP_CHOICES, MapDefinition } from "./game/config/MapConfig";
+import { getMapPreviewGeometry } from "./game/config/MapPreview";
 import { MinimapRenderer } from "./game/minimap/MinimapRenderer";
 
 const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) throw new Error("Missing #app root element");
 
 function renderMapPreview(map: MapDefinition): string {
-  const obstacles = map.previewObstaclePaths.map((path) => `<path class="map-preview-obstacle" d="${path}"/>`).join("");
-  const lanes = map.previewPaths.map((path) => `<path class="map-preview-route" d="${path}"/>`).join("");
-  const spawns = map.previewSpawnXs.map((x, index) => `<circle class="map-preview-spawn" style="--spawn-color:${map.previewSpawnColors[index]}" cx="${x}" cy="8" r="3.1"/>`).join("");
-  return `<svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" focusable="false"><g class="map-preview-obstacles">${obstacles}</g><g class="map-preview-routes">${lanes}</g>${spawns}<circle class="map-preview-goal" cx="${map.previewGoalX}" cy="92" r="4"/></svg>`;
+  const geometry = getMapPreviewGeometry(map);
+  const terrain = geometry.terrain.map(({ x, y, width, height }) =>
+    `<rect class="map-preview-terrain" data-terrain-rect="${x},${y},${width},${height}" x="${x}" y="${y}" width="${width}" height="${height}"/>`).join("");
+  const spawnColors = ["#ff6b66", "#69c5ff", "#69df9c"];
+  const spawns = geometry.spawns.map(({ id, cell }, index) =>
+    `<circle class="map-preview-spawn" data-spawn-id="${id}" data-cell-x="${cell.x}" data-cell-y="${cell.y}" style="--spawn-color:${spawnColors[index % spawnColors.length]}" cx="${cell.x + 0.5}" cy="${cell.y + 0.5}" r="0.36"/>`).join("");
+  return `<svg viewBox="0 0 ${geometry.width} ${geometry.height}" preserveAspectRatio="xMidYMid meet" focusable="false" data-grid-width="${geometry.width}" data-grid-height="${geometry.height}" data-terrain-cells="${map.terrain.length}">
+    <rect class="map-preview-field" x="0" y="0" width="${geometry.width}" height="${geometry.height}"/>
+    <g class="map-preview-terrain-regions">${terrain}</g>
+    <g class="map-preview-spawns">${spawns}</g>
+    <circle class="map-preview-goal" data-cell-x="${geometry.goal.x}" data-cell-y="${geometry.goal.y}" cx="${geometry.goal.x + 0.5}" cy="${geometry.goal.y + 0.5}" r="0.42"/>
+  </svg>`;
 }
 
 let selectedMap: MapDefinition = MAP_CHOICES[0];
@@ -568,6 +577,16 @@ if (debugParams.get("inputDebug") === "1") {
     .__towerDefenceInputDebug = () => renderer.getInputDebugState();
 }
 
+if (debugParams.get("minimapDebug") === "1") {
+  (window as Window & { __towerDefenceMinimapDebug?: {
+    setTarget: (logicalGridX: number, logicalGridY: number) => boolean;
+    snapshot: () => ReturnType<BabylonGameRenderer["getMinimapDebugState"]>;
+  } }).__towerDefenceMinimapDebug = {
+    setTarget: (logicalGridX, logicalGridY) => renderer.setMinimapDebugTarget(logicalGridX, logicalGridY),
+    snapshot: () => renderer.getMinimapDebugState(),
+  };
+}
+
 function renderSelectedTower(state: GameState): void {
   if (selectedTowerId === undefined) {
     towerPanel.hidden = true;
@@ -763,10 +782,12 @@ function returnToMapSelect(): void {
     __towerDefenceGameState?: GameState;
     __towerDefenceUi?: object;
     __towerDefenceInputDebug?: unknown;
+    __towerDefenceMinimapDebug?: unknown;
   };
   delete debugWindow.__towerDefenceGameState;
   delete debugWindow.__towerDefenceUi;
   delete debugWindow.__towerDefenceInputDebug;
+  delete debugWindow.__towerDefenceMinimapDebug;
 
   const selectedCard = mapSelect.querySelector<HTMLButtonElement>(`[data-map-id="${gameState.map.id}"]`);
   if (!selectedCard) return;

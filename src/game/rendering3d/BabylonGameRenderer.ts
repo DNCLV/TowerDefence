@@ -25,6 +25,7 @@ import { WinterArenaArt } from "./WinterArenaArt";
 import { TerrainCliffRenderer } from "./TerrainCliffRenderer";
 import { GameSpeedMultiplier, SimulationClock } from "../SimulationClock";
 import type { MinimapCameraView } from "../minimap/MinimapRenderer";
+import { groundFootprintToLogicalBounds, groundPointToLogicalMap } from "../minimap/MinimapCoordinates";
 import type { LinesMesh } from "@babylonjs/core";
 
 type TowerVisual = ArcherVisual | QuaterniusArcherVisual | BlueWizardVisual | HolyKnightVisual | QuaterniusDefenderVisual;
@@ -137,6 +138,7 @@ export class BabylonGameRenderer {
   private readonly activePointers = new Map<number, PointerPoint>();
   private pinchDistance = 0;
   private readonly inputDebug = new URLSearchParams(window.location.search).get("inputDebug") === "1";
+  private readonly minimapDebug = new URLSearchParams(window.location.search).get("minimapDebug") === "1";
   private inputDebugOverlay?: HTMLPreElement;
   private inputGestureLabel = "IDLE";
   private inputMovementDistance = 0;
@@ -350,18 +352,50 @@ export class BabylonGameRenderer {
   isPaused(): boolean { return this.simulationClock.isPaused; }
   setPaused(paused: boolean): void { this.simulationClock.setPaused(paused); }
 
-  /** Approximate ground-plane viewport for the display-only minimap; camera controls are unchanged. */
+  /** Projects the actual screen corners onto the ground, then maps those points to logical grid space. */
   getApproximateMinimapView(): MinimapCameraView {
-    const halfVerticalView = this.camera.radius * Math.tan(this.camera.fov / 2);
-    const aspect = this.engine.getRenderWidth() / Math.max(1, this.engine.getRenderHeight());
-    const groundDepthScale = Math.max(0.24, Math.cos(this.camera.beta));
-    const halfWidth = halfVerticalView * aspect;
-    const halfDepth = halfVerticalView / groundDepthScale;
+    const renderWidth = this.engine.getRenderWidth();
+    const renderHeight = this.engine.getRenderHeight();
+    const screenCorners = [
+      [0, 0], [renderWidth, 0], [renderWidth, renderHeight], [0, renderHeight],
+    ] as const;
+    const groundCorners = screenCorners
+      .map(([x, y]) => this.groundPointAtRenderPoint(x, y))
+      .filter((point): point is Vector3 => point !== undefined)
+      .map(({ x, z }) => ({ x, z }));
+    const center = this.groundPointAtRenderPoint(renderWidth / 2, renderHeight / 2) ?? this.camera.target;
+    const logicalCenter = groundPointToLogicalMap(center, TILE_SIZE_3D);
+    // If a backend cannot intersect one of the viewport rays with the ground plane,
+    // show the whole logical map rather than inventing a potentially mirrored box.
+    const bounds = groundCorners.length === screenCorners.length
+      ? groundFootprintToLogicalBounds(groundCorners, TILE_SIZE_3D)
+      : { x: 0, y: 0, width: this.map.width, height: this.map.height };
     return {
-      x: this.camera.target.x - halfWidth,
-      y: this.camera.target.z - halfDepth,
-      width: halfWidth * 2,
-      height: halfDepth * 2,
+      ...bounds,
+      cameraTargetWorldX: this.camera.target.x,
+      cameraTargetWorldZ: this.camera.target.z,
+      centerGridX: logicalCenter.x,
+      centerGridY: logicalCenter.y,
+    };
+  }
+
+  /** Debug-only camera positioning for reproducible top/center/bottom minimap checks. */
+  setMinimapDebugTarget(logicalGridX: number, logicalGridY: number): boolean {
+    if (!this.minimapDebug || !Number.isFinite(logicalGridX) || !Number.isFinite(logicalGridY)) return false;
+    this.camera.target.x = logicalGridX * TILE_SIZE_3D;
+    this.camera.target.z = logicalGridY * TILE_SIZE_3D;
+    this.clampCameraToMap();
+    this.camera.computeWorldMatrix();
+    return true;
+  }
+
+  getMinimapDebugState(): { targetWorld: { x: number; z: number }; logicalCenter: { x: number; y: number }; view: MinimapCameraView; map: { width: number; height: number } } {
+    const view = this.getApproximateMinimapView();
+    return {
+      targetWorld: { x: this.camera.target.x, z: this.camera.target.z },
+      logicalCenter: { x: view.centerGridX!, y: view.centerGridY! },
+      view,
+      map: { width: this.map.width, height: this.map.height },
     };
   }
 
@@ -1239,6 +1273,10 @@ export class BabylonGameRenderer {
     const bounds = this.canvas.getBoundingClientRect();
     const x = (clientX - bounds.left) * this.engine.getRenderWidth() / bounds.width;
     const y = (clientY - bounds.top) * this.engine.getRenderHeight() / bounds.height;
+    return this.groundPointAtRenderPoint(x, y);
+  }
+
+  private groundPointAtRenderPoint(x: number, y: number): Vector3 | undefined {
     const ray = this.scene.createPickingRay(x, y, Matrix.Identity(), this.camera);
     if (Math.abs(ray.direction.y) < 1e-5) return undefined;
     const distance = (this.camera.target.y - ray.origin.y) / ray.direction.y;

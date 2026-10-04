@@ -8,6 +8,8 @@ const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), "td-content-assets-"));
 const appUrl = process.env.TD_TEST_URL ?? "http://127.0.0.1:5173/";
 const pending = new Map();
+const browserErrors = [];
+const mapReviewScreenshots = [];
 let chrome;
 let ownsChrome = false;
 let socket;
@@ -27,6 +29,25 @@ async function evaluate(expression) {
   const response = await command("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true });
   if (response.exceptionDetails) throw new Error(JSON.stringify(response.exceptionDetails));
   return response.result?.value;
+}
+
+async function waitForChromePages(timeoutMs = 15000) {
+  const deadline = Date.now() + timeoutMs;
+  let lastError;
+  while (Date.now() < deadline) {
+    if (chrome?.exitCode !== null && chrome?.exitCode !== undefined) {
+      throw new Error(`Headless Chrome exited before DevTools became ready (code ${chrome.exitCode}).`);
+    }
+    try {
+      const response = await fetch("http://127.0.0.1:9255/json");
+      if (response.ok) return await response.json();
+      lastError = new Error(`Chrome DevTools returned HTTP ${response.status}.`);
+    } catch (error) {
+      lastError = error;
+    }
+    await delay(250);
+  }
+  throw new Error(`Headless Chrome DevTools did not become ready within ${timeoutMs} ms: ${lastError?.message ?? "unknown error"}`);
 }
 
 async function main() {
@@ -54,25 +75,28 @@ async function main() {
       "--remote-debugging-port=9255", `--user-data-dir=${profile}`, "about:blank",
     ], { windowsHide: true, stdio: "ignore" });
     ownsChrome = true;
-    await delay(1200);
-    pages = await (await fetch("http://127.0.0.1:9255/json")).json();
+    pages = await waitForChromePages();
   }
   socket = new WebSocket(pages.find((page) => page.type === "page").webSocketDebuggerUrl);
   await new Promise((resolve) => socket.addEventListener("open", resolve, { once: true }));
   socket.addEventListener("message", (event) => {
     const message = JSON.parse(event.data);
+    if (message.method === "Runtime.exceptionThrown" || message.method === "Log.entryAdded"
+      || message.method === "Network.loadingFailed") browserErrors.push(message);
     if (message.id && pending.has(message.id)) { pending.get(message.id)(message.result || message.error); pending.delete(message.id); }
   });
   await command("Runtime.enable");
+  await command("Log.enable");
+  await command("Network.enable");
   await command("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
   await command("Emulation.setTouchEmulationEnabled", { enabled: true, configuration: "mobile" });
-  await command("Page.navigate", { url: `${appUrl}?waveDebug=1&inputDebug=1&defenderVisualDebug=1&enemyVisualDebug=1&enemyGroundDebug=1` });
+  await command("Page.navigate", { url: `${appUrl}?waveDebug=1&inputDebug=1&minimapDebug=1&defenderVisualDebug=1&enemyVisualDebug=1&enemyGroundDebug=1` });
   for (let attempt = 0; attempt < 100; attempt += 1) {
     const ready = await evaluate("document.querySelectorAll('.map-choice-card').length === 3");
     if (ready) break;
     if (attempt === 99) {
       const pageState = await evaluate(`({ url: location.href, title: document.title, body: document.body.innerText.slice(0, 800), app: document.querySelector('#app')?.innerHTML.slice(0, 800) })`);
-      throw new Error(`Choose Map screen did not load three map choices: ${JSON.stringify(pageState)}`);
+      throw new Error(`Choose Map screen did not load three map choices: ${JSON.stringify({ pageState, browserErrors })}`);
     }
     await delay(100);
   }
@@ -123,6 +147,18 @@ async function main() {
     || responsiveLayouts[2].gridFlow !== "row" || responsiveLayouts[2].hasHorizontalCarousel || responsiveLayouts[2].cardWidth >= responsiveLayouts[2].appWidth / 2) {
     throw new Error(`Choose Map responsive layout failed: ${JSON.stringify(responsiveLayouts)}`);
   }
+  if (process.env.SAVE_THREE_SPAWN_LAYOUT_SCREENSHOTS === "1") {
+    await command("Emulation.setDeviceMetricsOverride", { width: 1365, height: 900, deviceScaleFactor: 1, mobile: false });
+    await evaluate(`document.querySelector('.map-choice-card[data-map-id="three-spawns"]').click()`);
+    await delay(250);
+    const screenshotDirectory = path.resolve(__dirname, "../artifacts/three-spawn-layout");
+    fs.mkdirSync(screenshotDirectory, { recursive: true });
+    const screenshot = await command("Page.captureScreenshot", { format: "png", fromSurface: true });
+    const fileName = "map-select-preview.png";
+    fs.writeFileSync(path.join(screenshotDirectory, fileName), Buffer.from(screenshot.data, "base64"));
+    mapReviewScreenshots.push(path.join(screenshotDirectory, fileName));
+    await evaluate(`document.querySelector('.map-choice-card[data-map-id="single-spawn"]').click()`);
+  }
   await command("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
   const mapSelection = await evaluate(`(() => {
     const start = document.querySelector('#start-selected-map');
@@ -141,17 +177,30 @@ async function main() {
       minimapAbsentBeforeStarting,
       defaultMap: first.dataset.mapId,
       mapNames: [...document.querySelectorAll('.map-choice-card .map-choice-copy strong')].map((node) => node.textContent.trim()),
-      previewPaths: [...document.querySelectorAll('.map-preview svg')].map((svg) => svg.querySelectorAll('.map-preview-route').length),
-      previewObstacles: [...document.querySelectorAll('.map-preview svg')].map((svg) => svg.querySelectorAll('.map-preview-obstacle').length),
+      previews: [...document.querySelectorAll('.map-preview svg')].map((svg) => ({
+        width: Number(svg.dataset.gridWidth),
+        height: Number(svg.dataset.gridHeight),
+        terrainCells: Number(svg.dataset.terrainCells),
+        terrainRectCells: [...svg.querySelectorAll('.map-preview-terrain')].reduce((sum, node) => sum + Number(node.getAttribute('width')) * Number(node.getAttribute('height')), 0),
+        terrainRects: svg.querySelectorAll('.map-preview-terrain').length,
+        routes: svg.querySelectorAll('.map-preview-route, .map-preview-obstacle, path').length,
+        spawns: [...svg.querySelectorAll('.map-preview-spawn')].map((node) => ({ x: Number(node.dataset.cellX), y: Number(node.dataset.cellY), color: node.style.getPropertyValue('--spawn-color') })),
+        goal: { x: Number(svg.querySelector('.map-preview-goal').dataset.cellX), y: Number(svg.querySelector('.map-preview-goal').dataset.cellY) },
+      })),
       threeSpawnColors: [...document.querySelectorAll('[data-map-id="three-spawns"] .map-preview-spawn')].map((node) => node.style.getPropertyValue('--spawn-color')),
     };
   })()`);
   if (mapSelection.checks.length !== 3 || mapSelection.checks.some((choice) => !choice.selected || !choice.canStart)
     || mapSelection.defaultMap !== "single-spawn"
     || !mapSelection.minimapAbsentBeforeStarting
-    || JSON.stringify(mapSelection.previewPaths) !== JSON.stringify([1, 2, 3])
     || JSON.stringify(mapSelection.mapNames) !== JSON.stringify(["Open Field", "Split Advance", "Triple Convergence"])
-    || mapSelection.previewObstacles[0] !== 0 || mapSelection.previewObstacles[1] === 0 || mapSelection.previewObstacles[2] < 3
+    || mapSelection.previews.some((preview) => preview.width <= 0 || preview.height <= 0 || preview.routes !== 0
+      || preview.terrainCells !== preview.terrainRectCells || preview.terrainRects < 0)
+    || JSON.stringify(mapSelection.previews.map(({ width, height }) => [width, height])) !== JSON.stringify([[28, 54], [38, 68], [72, 110]])
+    || JSON.stringify(mapSelection.previews.map(({ spawns }) => spawns.map(({ x, y }) => [x, y]))) !== JSON.stringify([[[14, 0]], [[9, 0], [28, 0]], [[13, 0], [36, 0], [58, 0]]])
+    || JSON.stringify(mapSelection.previews.map(({ goal }) => [goal.x, goal.y])) !== JSON.stringify([[14, 53], [19, 67], [36, 109]])
+    || JSON.stringify(mapSelection.previews.map(({ terrainCells }) => terrainCells)) !== JSON.stringify([360, 888, 2918])
+    || JSON.stringify(mapSelection.previews.map(({ terrainRects }) => terrainRects)) !== JSON.stringify([2, 5, 9])
     || new Set(mapSelection.threeSpawnColors).size !== 3) {
     throw new Error(`Map selection flow failed: ${JSON.stringify(mapSelection)}`);
   }
@@ -178,7 +227,7 @@ async function main() {
     } : null;
   })()`);
   if (!initialMinimap || initialMinimap.mapId !== "single-spawn" || initialMinimap.dimensions !== "28x54"
-    || initialMinimap.terrainCells !== 0 || initialMinimap.spawnCount !== 1 || initialMinimap.goalCell !== "14,53"
+    || initialMinimap.terrainCells !== 360 || initialMinimap.spawnCount !== 1 || initialMinimap.goalCell !== "14,53"
     || initialMinimap.pointerEvents !== "none") {
     throw new Error(`Initial single-spawn minimap did not match selected map: ${JSON.stringify(initialMinimap)}`);
   }
@@ -346,6 +395,8 @@ async function main() {
     await command("Emulation.setDeviceMetricsOverride", {
       ...viewport, deviceScaleFactor: 1, mobile: viewport.width < 600,
     });
+    // Let the viewport resize and the HUD/minimap ResizeObservers settle before assertions.
+    await delay(100);
     await evaluate("window.__towerDefenceUi.chooseBuildUnit('sovereign')");
     await evaluate(`(() => {
       const tray = document.querySelector('.defender-choice-panel');
@@ -820,10 +871,82 @@ async function main() {
       enemies: panel.dataset.enemyCount,
     } : null;
   })()`);
-  if (!newMapMinimap || newMapMinimap.mapId !== "three-spawns" || newMapMinimap.dimensions !== "48x82"
-    || newMapMinimap.terrainCells !== 478 || newMapMinimap.spawnCount !== 3 || newMapMinimap.goalCell !== "24,81"
+  if (!newMapMinimap || newMapMinimap.mapId !== "three-spawns" || newMapMinimap.dimensions !== "72x110"
+    || newMapMinimap.terrainCells !== 2918 || newMapMinimap.spawnCount !== 3 || newMapMinimap.goalCell !== "36,109"
     || newMapMinimap.towers !== "0" || newMapMinimap.enemies !== "0") {
     throw new Error(`Three-spawn minimap did not rebuild cleanly: ${JSON.stringify(newMapMinimap)}`);
+  }
+  if (process.env.SAVE_THREE_SPAWN_LAYOUT_SCREENSHOTS === "1") {
+    await command("Emulation.setDeviceMetricsOverride", { width: 1100, height: 1450, deviceScaleFactor: 1, mobile: false });
+    await delay(700);
+    const screenshot = await command("Page.captureScreenshot", { format: "png", fromSurface: true });
+    const screenshotDirectory = path.resolve(__dirname, "../artifacts/three-spawn-layout");
+    fs.mkdirSync(screenshotDirectory, { recursive: true });
+    const fileName = "gameplay-three-spawn.png";
+    fs.writeFileSync(path.join(screenshotDirectory, fileName), Buffer.from(screenshot.data, "base64"));
+    mapReviewScreenshots.push(path.join(screenshotDirectory, fileName));
+
+    const mapOverview = await evaluate(`(() => {
+      const canvas = document.querySelector('#game-minimap');
+      const rect = canvas.getBoundingClientRect();
+      return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+    })()`);
+    const overviewShot = await command("Page.captureScreenshot", {
+      format: "png", fromSurface: true,
+      clip: { ...mapOverview, scale: 1 },
+    });
+    fs.writeFileSync(path.join(screenshotDirectory, "gameplay-full-map-minimap.png"), Buffer.from(overviewShot.data, "base64"));
+
+    const minimapSamples = [];
+    const debugPositions = [
+      { name: "top", x: 36, y: 8 }, { name: "center", x: 36, y: 55 }, { name: "bottom", x: 36, y: 102 },
+      { name: "left", x: 8, y: 55 }, { name: "right", x: 64, y: 55 },
+    ];
+    for (const position of debugPositions) {
+      await evaluate(`window.__towerDefenceMinimapDebug.setTarget(${position.x}, ${position.y})`);
+      let sample;
+      for (let attempt = 0; attempt < 30; attempt += 1) {
+        sample = await evaluate(`(() => {
+          const debug = window.__towerDefenceMinimapDebug.snapshot();
+          const canvas = document.querySelector('#game-minimap');
+          return {
+            cameraTargetWorld: debug.targetWorld,
+            logicalGrid: debug.logicalCenter,
+            renderedGrid: { x: Number(canvas.dataset.cameraGridX), y: Number(canvas.dataset.cameraGridY) },
+            minimap: { x: Number(canvas.dataset.cameraMinimapX), y: Number(canvas.dataset.cameraMinimapY) },
+            viewport: { x: debug.view.x, y: debug.view.y, width: debug.view.width, height: debug.view.height, canvasHeight: canvas.getBoundingClientRect().height },
+            map: debug.map,
+          };
+        })()`);
+        if (Math.abs(sample.renderedGrid.x - position.x) < 1 && Math.abs(sample.renderedGrid.y - position.y) < 1) break;
+        await delay(100);
+      }
+      if (Math.abs(sample.logicalGrid.y - position.y) > 1.5 || Math.abs(sample.logicalGrid.x - position.x) > 1.5
+        || Math.abs(sample.renderedGrid.y - position.y) > 1 || Math.abs(sample.renderedGrid.x - position.x) > 1
+        || sample.map.width !== 72 || sample.map.height !== 110
+        || (position.name === "top" && sample.minimap.y >= sample.viewport.canvasHeight / 2)
+        || (position.name === "center" && Math.abs(sample.minimap.y - sample.viewport.canvasHeight / 2) > sample.viewport.canvasHeight * 0.12)
+        || (position.name === "bottom" && sample.minimap.y <= sample.viewport.canvasHeight / 2)) {
+        throw new Error(`Minimap ${position.name} camera placement failed: ${JSON.stringify(sample)}`);
+      }
+      minimapSamples.push({ ...position, ...sample });
+      if (position.name === "top" || position.name === "bottom") {
+        const debugShot = await command("Page.captureScreenshot", { format: "png", fromSurface: true });
+        fs.writeFileSync(path.join(screenshotDirectory, `gameplay-minimap-${position.name}.png`), Buffer.from(debugShot.data, "base64"));
+      }
+    }
+    if (!(minimapSamples[0].minimap.y < minimapSamples[2].minimap.y)
+      || !(minimapSamples[0].viewport.y < minimapSamples[2].viewport.y)
+      || !(minimapSamples[3].minimap.x < minimapSamples[4].minimap.x)
+      || !(minimapSamples[3].viewport.x < minimapSamples[4].viewport.x)) {
+      throw new Error(`Minimap viewport Y is mirrored: ${JSON.stringify(minimapSamples)}`);
+    }
+    mapReviewScreenshots.push(...[
+      path.join(screenshotDirectory, "gameplay-full-map-minimap.png"),
+      path.join(screenshotDirectory, "gameplay-minimap-top.png"),
+      path.join(screenshotDirectory, "gameplay-minimap-bottom.png"),
+    ]);
+    console.log("Minimap top/bottom camera checks passed", JSON.stringify(minimapSamples));
   }
   const resetNavigation = { returnedToMapSelect, mapSelectAfterReturn, awaitingExplicitStart, restartedMapState };
   if (process.env.SAVE_COMPACT_HUD_SCREENSHOTS === "1") {
@@ -851,7 +974,7 @@ async function main() {
         type, level, panel, stats, actions, upgrade, info, sell, upgradeClip, sellClip,
       })),
     })),
-    futureUnitHudHeight, screenshots, runtimeFilesServed: paths.length,
+    futureUnitHudHeight, screenshots, mapReviewScreenshots, runtimeFilesServed: paths.length,
     mobileInput,
     inputSurfaceAudit,
     resetNavigation,
