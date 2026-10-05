@@ -176,18 +176,22 @@ const archerAirDps = [];
 for (let level = 1; level <= 3; level += 1) {
   const stats = getTowerLevelStats(level, "green-archer");
   archerGroundDps.push(stats.damage * stats.fireRate);
-  archerAirDps.push(stats.damage * stats.fireRate * 3);
+  archerAirDps.push(stats.damage * stats.fireRate * 4);
   const ground = makeEnemy(10 + level, "goblin", 7, 5);
   const flying = makeEnemy(20 + level, "undeadDragon", 7, 5);
   const tower = atLevel("green-archer", level);
   assert.equal(canTowerTargetEnemy(tower, ground), true);
   assert.equal(canTowerTargetEnemy(tower, flying), true);
-  assert.equal(getTowerDamageAgainstEnemy(tower, ground), [12, 28, 65][level - 1]);
-  assert.equal(getTowerDamageAgainstEnemy(tower, flying), [36, 84, 195][level - 1]);
-  assert.equal(attack(atLevel("green-archer", level), [flying]).events[0].damageDealt, [36, 84, 195][level - 1]);
+  assert.equal(getTowerDamageAgainstEnemy(tower, ground), [6, 14, 33][level - 1]);
+  assert.equal(getTowerDamageAgainstEnemy(tower, flying), [48, 112, 260][level - 1]);
+  assert.equal(attack(atLevel("green-archer", level), [flying]).events[0].damageDealt, [48, 112, 260][level - 1]);
 }
-assert.deepEqual(archerGroundDps.map((value) => Number(value.toFixed(1))), [18, 46.2, 117]);
-assert.deepEqual(archerAirDps.map((value) => Number(value.toFixed(1))), [54, 138.6, 351]);
+assert.deepEqual(archerGroundDps.map((value) => Number((value * 0.5).toFixed(1))), [9, 23.1, 58.5]);
+assert.deepEqual(archerAirDps.map((value) => Number(value.toFixed(1))), [72, 184.8, 468]);
+const archerGroundTarget = makeEnemy(301, "goblin", 8, 5);
+const archerFlyingTarget = makeEnemy(302, "undeadDragon", 6, 5);
+const archerTargeting = attack(atLevel("green-archer", 1), [archerGroundTarget, archerFlyingTarget]);
+assert.equal(archerTargeting.events[0].targetEnemyId, archerFlyingTarget.id, "Archer prioritizes flying targets");
 assert.equal(canTowerTargetEnemy(atLevel("holy-knight", 1), makeEnemy(30, "undeadDragon", 6, 5)), false);
 assert.equal(canTowerTargetEnemy(atLevel("blue-wizard", 1), makeEnemy(31, "undeadDragon", 6, 5)), true);
 

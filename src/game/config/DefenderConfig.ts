@@ -25,6 +25,7 @@ export interface DefenderDefinition {
   roleLabel?: string;
   specializationLabel?: string;
   airDamageMultiplier?: number;
+  groundDamageMultiplier?: number;
   meleeDamageMultiplier?: number;
   splashDamageRatios?: readonly number[];
   /** Per-level, target-dependent stats for the Sovereign's single-target modes. */
@@ -71,8 +72,9 @@ export const DEFENDER_CONFIG: Record<DefenderType, DefenderDefinition> = {
     targetTypes: ["ground", "air"],
     buildCost: 20,
     roleLabel: "Anti-Air Specialist",
-    specializationLabel: "Anti-Air · 3× flying damage",
-    airDamageMultiplier: 3,
+    specializationLabel: "Anti-Air · 4× flying damage · reduced ground damage",
+    airDamageMultiplier: 4,
+    groundDamageMultiplier: 0.5,
     levels: [
       { level: 1, damage: 12, range: 5 * WORLD_UNITS_PER_CELL, fireRate: 1.5, upgradeCost: null },
       { level: 2, damage: 28, range: 5 * WORLD_UNITS_PER_CELL, fireRate: 1.65, upgradeCost: 35 },

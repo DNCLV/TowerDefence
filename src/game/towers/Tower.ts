@@ -116,7 +116,9 @@ export function getTowerAttackProfile(tower: Tower, enemy: Enemy): TowerAttackPr
 export function getTowerDamageAgainstEnemy(tower: Tower, enemy: Enemy, mode = getTowerAttackMode(tower, enemy)): number {
   if (tower.type === "sovereign") return getSovereignProfile(tower, enemy).damage;
   const config = DEFENDER_CONFIG[tower.type];
-  const targetMultiplier = enemy.movementType === "flying" ? (config.airDamageMultiplier ?? 1) : 1;
+  const targetMultiplier = enemy.movementType === "flying"
+    ? (config.airDamageMultiplier ?? 1)
+    : (config.groundDamageMultiplier ?? 1);
   const modeMultiplier = mode === "melee" ? (config.meleeDamageMultiplier ?? 1) : 1;
   return Math.round(tower.damage * targetMultiplier * modeMultiplier);
 }

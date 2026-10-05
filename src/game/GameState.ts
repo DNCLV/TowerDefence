@@ -421,6 +421,11 @@ export class GameState {
     const inRange = this.enemies.filter((enemy) => enemy.alive && enemy.hp > 0
       && canTowerTargetEnemy(tower, enemy) && isTowerInRange(tower, enemy));
     return inRange.sort((a, b) => {
+      // Archers are the dedicated anti-air tower: prefer flying targets
+      // whenever one is available in range.
+      if (tower.type === "green-archer" && a.movementType !== b.movementType) {
+        return a.movementType === "flying" ? -1 : 1;
+      }
       const remainingDifference = this.remainingDistanceToExit(a) - this.remainingDistanceToExit(b);
       // Different spawns have different route lengths, so raw path-index is not comparable.
       if (Math.abs(remainingDifference) > 0.05) return remainingDifference;
