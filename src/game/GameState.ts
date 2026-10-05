@@ -9,6 +9,7 @@ import { LEVEL_1 } from "./config/Level1";
 import { BALANCE } from "./config/BalanceConfig";
 import { RunLayout, RunSpawn } from "./map/RunLayout";
 import { MAPS, MapDefinition, MapId } from "./config/MapConfig";
+import { FactionDefinition, getFaction } from "./config/FactionConfig";
 import { ENEMY_CONFIG, EnemyType } from "./config/EnemyConfig";
 import { ENEMY_THREAT_WEIGHT, MAX_ACTIVE_WAVE_ENEMIES, countWaveComposition, createWaveSpawnQueue, getWaveComposition, getWaveGoldReward } from "./config/WaveConfig";
 
@@ -49,6 +50,10 @@ export interface WaveTelemetry {
 export class GameState {
   readonly grid: Grid;
   readonly map: MapDefinition;
+  /** Player-owned faction selection; multiplayer can later provide one per player/spawn. */
+  readonly faction: FactionDefinition;
+  readonly factionId: FactionDefinition["id"];
+  readonly availableUnits: readonly DefenderType[];
   layout!: RunLayout;
   readonly spawnPaths = new Map<string, Cell[]>();
   private readonly spawnPathVariants = new Map<string, Cell[][]>();
@@ -86,8 +91,11 @@ export class GameState {
   private resetCount = 0;
   private hpTierWarningSecondsRemaining = 0;
 
-  constructor(map: MapDefinition | MapId = "single-spawn") {
+  constructor(map: MapDefinition | MapId = "single-spawn", factionId: FactionDefinition["id"] = "arcane-kingdom") {
     this.map = typeof map === "string" ? MAPS[map] : map;
+    this.faction = getFaction(factionId);
+    this.factionId = this.faction.id;
+    this.availableUnits = this.faction.units;
     this.grid = new Grid(this.map.width, this.map.height);
     [
       ...this.map.terrain,
@@ -104,6 +112,7 @@ export class GameState {
   /** Checks a proposed build without changing economy, grid, or tower state. */
   canPlaceBasicTower(cell: Cell, type: DefenderType = "blue-wizard"): PlacementResult {
     if (this.gameOver) return "game-over";
+    if (!this.availableUnits.includes(type)) return "invalid-cell";
     if (!this.grid.isBuildable(cell) || this.layout.activeSpawns.some((spawn) => sameCell(cell, spawn.entryCell)) || sameCell(cell, this.exit)) return "invalid-cell";
     if (this.enemies.some((enemy) => enemy.alive && sameCell(this.enemyCurrentCell(enemy), cell))) return "enemy-occupied";
     if (this.gold < DEFENDER_CONFIG[type].buildCost) return "not-enough-gold";

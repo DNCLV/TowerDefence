@@ -7,6 +7,7 @@ import { DEFENDER_CONFIG, DefenderType } from "./game/config/DefenderConfig";
 import { WORLD_UNITS_PER_CELL } from "./core/GameConstants";
 import { resolveAssetUrl } from "./core/AssetUrl";
 import { MAP_CHOICES, MapDefinition } from "./game/config/MapConfig";
+import { FACTION_CHOICES, FactionDefinition } from "./game/config/FactionConfig";
 import { getMapPreviewGeometry } from "./game/config/MapPreview";
 import { MinimapRenderer } from "./game/minimap/MinimapRenderer";
 
@@ -29,7 +30,9 @@ function renderMapPreview(map: MapDefinition): string {
 }
 
 let selectedMap: MapDefinition = MAP_CHOICES[0];
+let selectedFaction: FactionDefinition = FACTION_CHOICES[0];
 let pendingRendererDisposal: Promise<void> = Promise.resolve();
+let factionSelect: HTMLElement | undefined;
 const mapSelect = document.createElement("main");
 mapSelect.className = "map-select-screen";
 mapSelect.innerHTML = `
@@ -69,25 +72,72 @@ mapSelect.querySelectorAll<HTMLButtonElement>("[data-map-id]").forEach((card) =>
   });
 });
 selectMap(selectedMap, mapSelect.querySelector<HTMLButtonElement>(`[data-map-id="${selectedMap.id}"]`)!);
+function renderFactionUnits(faction: FactionDefinition): string {
+  return faction.units.map((type) => {
+    const defender = DEFENDER_CONFIG[type];
+    const portrait = type === "blue-wizard" ? "wizard.png" : type === "holy-knight" ? "knight.png" : `${type}.png`;
+    return `<span class="faction-unit"><span class="faction-unit-portrait"><img src="${resolveAssetUrl(`assets/ui/defenders/${portrait}`)}" alt=""></span><strong>${defender.name.replace("Blue ", "")}</strong></span>`;
+  }).join("");
+}
+
+function showFactionSelect(map: MapDefinition): void {
+  factionSelect?.remove();
+  factionSelect = document.createElement("main");
+  factionSelect.className = "map-select-screen faction-select-screen";
+  factionSelect.innerHTML = `
+    <section class="map-select-panel faction-select-panel" aria-labelledby="faction-select-title">
+      <header class="map-select-heading">
+        <p class="map-select-eyebrow">${map.name.toUpperCase()} · COMMAND ALIGNMENT</p>
+        <h1 id="faction-select-title">CHOOSE FACTION</h1>
+        <p class="map-select-tagline">CHOOSE YOUR BANNER <i></i> SHAPE YOUR DEFENSE</p>
+        <p class="map-select-intro">Every faction brings a different answer to the enemy threat.</p>
+      </header>
+      <div class="faction-choice-grid" role="group" aria-label="Choose a faction">
+        ${FACTION_CHOICES.map((faction) => `<article class="faction-choice-card is-selected" data-faction-id="${faction.id}">
+          <div class="faction-card-crest" aria-hidden="true">✦</div>
+          <div class="faction-choice-copy"><strong>${faction.name}</strong><small>${faction.tagline}</small><p>${faction.description}</p></div>
+          <div class="faction-unit-heading">AVAILABLE UNITS</div>
+          <div class="faction-unit-list">${renderFactionUnits(faction)}</div>
+          <button class="faction-select-button" type="button" data-select-faction="${faction.id}">SELECT FACTION <span aria-hidden="true">→</span></button>
+        </article>`).join("")}
+      </div>
+      <footer class="map-select-footer"><span>${map.name} · ${map.startingGold} Gold</span><button id="back-to-map-select" type="button" class="setup-back-button">← BACK TO MAPS</button></footer>
+    </section>`;
+  app!.append(factionSelect);
+  const screen = factionSelect;
+  screen.querySelectorAll<HTMLButtonElement>("[data-select-faction]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const faction = FACTION_CHOICES.find((choice) => choice.id === button.dataset.selectFaction);
+      if (!faction || screen.classList.contains("is-starting")) return;
+      selectedFaction = faction;
+      button.disabled = true;
+      screen.classList.add("is-starting");
+      window.setTimeout(() => {
+        if (!screen.isConnected) return;
+        screen.remove();
+        factionSelect = undefined;
+        startGame(map, faction);
+      }, 260);
+    });
+  });
+  screen.querySelector<HTMLButtonElement>("#back-to-map-select")?.addEventListener("click", () => {
+    screen.remove();
+    factionSelect = undefined;
+    mapStartButton.disabled = false;
+    mapSelect.classList.remove("is-starting");
+    app!.append(mapSelect);
+  });
+}
+
 mapStartButton.addEventListener("click", () => {
   if (mapStartButton.disabled || mapSelect.classList.contains("is-starting")) return;
   const mapToStart = selectedMap;
   mapStartButton.disabled = true;
-  void pendingRendererDisposal.then(() => {
-    if (!mapSelect.isConnected) return;
-    mapSelect.classList.add("is-starting");
-    window.setTimeout(() => {
-      if (!mapSelect.isConnected) return;
-      mapSelect.remove();
-      startGame(mapToStart);
-    }, 260);
-  }).catch((error: unknown) => {
-    mapStartButton.disabled = false;
-    console.error("Could not dispose the previous map renderer.", error);
-  });
+  mapSelect.remove();
+  showFactionSelect(mapToStart);
 });
 
-function startGame(map: MapDefinition): void {
+function startGame(map: MapDefinition, faction: FactionDefinition): void {
 const canvas = document.createElement("canvas");
 canvas.id = "game3d";
 app?.append(canvas);
@@ -144,31 +194,15 @@ ui.innerHTML = `
     <section class="build-unit-section" aria-label="Build units">
       <div class="bottom-section-heading"><span>BUILD UNITS</span></div>
   <nav class="defender-choice-panel" aria-label="Choose defender to build">
-    <button id="build-wizard-button" class="defender-choice is-selected" type="button" aria-label="Select Blue Wizard" aria-pressed="true">
-      <span class="unit-portrait-frame"><img src="${resolveAssetUrl("assets/ui/defenders/wizard.png")}" alt="" draggable="false"></span>
-      <span class="unit-card-copy"><strong id="wizard-build-name">Wizard</strong><small id="wizard-build-cost" class="unit-card-cost"></small></span>
-      <span class="unit-card-selection">SELECTED</span>
-    </button>
-    <button id="build-knight-button" class="defender-choice" type="button" aria-label="Select Holy Knight" aria-pressed="false">
-      <span class="unit-portrait-frame"><img src="${resolveAssetUrl("assets/ui/defenders/knight.png")}" alt="" draggable="false"></span>
-      <span class="unit-card-copy"><strong id="knight-build-name">Knight</strong><small id="knight-build-cost" class="unit-card-cost"></small></span>
-      <span class="unit-card-selection">SELECTED</span>
-    </button>
-    <button id="build-archer-button" class="defender-choice" type="button" aria-label="Select Green Archer" aria-pressed="false">
-      <span class="unit-portrait-frame"><img src="${resolveAssetUrl("assets/ui/defenders/green-archer.png")}" alt="" draggable="false"></span>
-      <span class="unit-card-copy"><strong>Archer</strong><small class="unit-card-cost"></small></span>
-      <span class="unit-card-selection">SELECTED</span>
-    </button>
-    <button id="build-battlemage-button" class="defender-choice" type="button" aria-label="Select Battlemage" aria-pressed="false">
-      <span class="unit-portrait-frame"><img src="${resolveAssetUrl("assets/ui/defenders/battlemage.png")}" alt="" draggable="false"></span>
-      <span class="unit-card-copy"><strong>Battlemage</strong><small class="unit-card-cost"></small></span>
-      <span class="unit-card-selection">SELECTED</span>
-    </button>
-    <button id="build-sovereign-button" class="defender-choice" type="button" aria-label="Select Sovereign" aria-pressed="false">
-      <span class="unit-portrait-frame"><img src="${resolveAssetUrl("assets/ui/defenders/sovereign.png")}" alt="" draggable="false"></span>
-      <span class="unit-card-copy"><strong>Sovereign</strong><small class="unit-card-cost"></small></span>
-      <span class="unit-card-selection">SELECTED</span>
-    </button>
+    ${faction.units.map((type, index) => {
+      const defender = DEFENDER_CONFIG[type];
+      const portrait = type === "blue-wizard" ? "wizard.png" : type === "holy-knight" ? "knight.png" : `${type}.png`;
+      return `<button id="build-${type}-button" class="defender-choice${index === 0 ? " is-selected" : ""}" type="button" aria-label="Select ${defender.name}" aria-pressed="${index === 0}">
+        <span class="unit-portrait-frame"><img src="${resolveAssetUrl(`assets/ui/defenders/${portrait}`)}" alt="" draggable="false"></span>
+        <span class="unit-card-copy"><strong>${defender.name.replace("Blue ", "")}</strong><small class="unit-card-cost">${defender.buildCost}</small></span>
+        <span class="unit-card-selection">SELECTED</span>
+      </button>`;
+    }).join("")}
   </nav>
     </section>
     <section class="tower-info-section" aria-label="Selected tower and actions">
@@ -233,7 +267,7 @@ for (const eventName of ["pointerdown", "pointerup", "pointermove", "pointercanc
   ui.addEventListener(eventName, (event) => event.stopPropagation(), { passive: eventName === "wheel" || eventName.startsWith("touch") });
 }
 
-const gameState = new GameState(map);
+const gameState = new GameState(map, faction.id);
 const renderer = new BabylonGameRenderer(canvas, map);
 const navigation = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined;
 console.info("APPLICATION BOOT", { navigationType: navigation?.type ?? "unknown" });
@@ -333,7 +367,7 @@ let sellConfirmationTimer: number | undefined;
 let activeWarningWave: number | undefined;
 let warningHideTimer: number | undefined;
 let selectedTowerId: number | undefined;
-let selectedBuildType: DefenderType | undefined = "blue-wizard";
+let selectedBuildType: DefenderType | undefined = faction.units[0];
 let selectionMessage = "";
 let resetMenuWasPaused = false;
 
@@ -343,11 +377,6 @@ const cancelSellConfirmation = (): void => {
   pendingSellTowerId = undefined;
 };
 
-for (const [selector, type] of [
-  ["#wizard-build-cost", "blue-wizard"], ["#knight-build-cost", "holy-knight"],
-  ["#build-archer-button .unit-card-cost", "green-archer"], ["#build-battlemage-button .unit-card-cost", "battlemage"],
-  ["#build-sovereign-button .unit-card-cost", "sovereign"],
-] as const) query<HTMLElement>(selector).textContent = String(DEFENDER_CONFIG[type].buildCost);
 query<HTMLElement>("#tower-fire-rate").parentElement!.firstChild!.textContent = "Attack Speed ";
 
 const setSelection = (towerId?: number): void => {
@@ -358,18 +387,9 @@ const setSelection = (towerId?: number): void => {
   renderSelectedTower(gameState);
 };
 
-const wizardBuildButton = query<HTMLButtonElement>("#build-wizard-button");
-const knightBuildButton = query<HTMLButtonElement>("#build-knight-button");
-const archerBuildButton = query<HTMLButtonElement>("#build-archer-button");
-const battlemageBuildButton = query<HTMLButtonElement>("#build-battlemage-button");
-const sovereignBuildButton = query<HTMLButtonElement>("#build-sovereign-button");
-const buildButtons: Record<DefenderType, HTMLButtonElement> = {
-  "blue-wizard": wizardBuildButton,
-  "holy-knight": knightBuildButton,
-  "green-archer": archerBuildButton,
-  battlemage: battlemageBuildButton,
-  sovereign: sovereignBuildButton,
-};
+const buildButtons = Object.fromEntries(faction.units.map((type) => [
+  type, query<HTMLButtonElement>(`#build-${type}-button`),
+])) as Record<DefenderType, HTMLButtonElement>;
 const chooseBuildType = (type: DefenderType): void => {
   selectedBuildType = type;
   renderer.setBuildDefenderType(type);
@@ -380,11 +400,7 @@ const chooseBuildType = (type: DefenderType): void => {
   buildButtons[type].scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
   if (selectedTowerId === undefined) renderBuildUnitInfo();
 };
-wizardBuildButton.addEventListener("click", () => chooseBuildType("blue-wizard"));
-knightBuildButton.addEventListener("click", () => chooseBuildType("holy-knight"));
-archerBuildButton.addEventListener("click", () => chooseBuildType("green-archer"));
-battlemageBuildButton.addEventListener("click", () => chooseBuildType("battlemage"));
-sovereignBuildButton.addEventListener("click", () => chooseBuildType("sovereign"));
+for (const type of faction.units) buildButtons[type].addEventListener("click", () => chooseBuildType(type));
 
 query<HTMLButtonElement>("#save-button").addEventListener("click", () => console.info("Save not implemented yet"));
 query<HTMLButtonElement>("#load-button").addEventListener("click", () => console.info("Load not implemented yet"));
