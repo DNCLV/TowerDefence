@@ -34,8 +34,8 @@ export class QuaterniusEnemyFactory {
     private readonly shadows: ShadowGenerator,
     private readonly castEnemyShadows = false,
   ) {
-    this.healthBack = this.material("enemyHealthBack", new Color3(0.035, 0.025, 0.03));
-    this.healthFront = this.material("enemyHealthFront", new Color3(0.88, 0.10, 0.12));
+    this.healthBack = this.material("enemyHealthBack", new Color3(0.24, 0.28, 0.26));
+    this.healthFront = this.material("enemyHealthFront", new Color3(0.16, 0.88, 0.28));
   }
 
   get ready(): boolean { return this.templates.size === Object.keys(ENEMY_VISUAL_CONFIG).length; }
@@ -186,8 +186,8 @@ export class QuaterniusEnemyFactory {
     healthFill.position.set(0, config.hpBarOffsetY, -0.01);
     healthFill.billboardMode = Mesh.BILLBOARDMODE_ALL;
     healthFill.material = this.healthFront;
-    healthBack.setEnabled(false);
-    healthFill.setEnabled(false);
+    healthBack.setEnabled(true);
+    healthFill.setEnabled(true);
 
     if (this.castEnemyShadows) {
       meshes.filter((mesh) => mesh !== healthBack && mesh !== healthFill)

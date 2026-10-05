@@ -41,8 +41,8 @@ export class EnemyMeshFactory {
     this.leather = this.createMaterial("goblinLeather", new Color3(0.2, 0.11, 0.06));
     this.metal = this.createMaterial("goblinMetal", new Color3(0.33, 0.36, 0.37));
     this.darkCloth = this.createMaterial("goblinDarkCloth", new Color3(0.08, 0.09, 0.1));
-    this.healthBack = this.createMaterial("enemyHealthBack", new Color3(0.035, 0.025, 0.03), true);
-    this.healthFront = this.createMaterial("enemyHealthFront", new Color3(0.88, 0.10, 0.12), true);
+    this.healthBack = this.createMaterial("enemyHealthBack", new Color3(0.24, 0.28, 0.26), true);
+    this.healthFront = this.createMaterial("enemyHealthFront", new Color3(0.16, 0.88, 0.28), true);
   }
 
   create(id: number, type: EnemyType = "goblin"): GoblinVisual {
@@ -79,8 +79,8 @@ export class EnemyMeshFactory {
     const barLocalHeight = visualConfig.hpBarOffsetY / fallbackScale;
     healthBack.position.y = barLocalHeight;
     healthFill.position.y = barLocalHeight;
-    healthBack.setEnabled(false);
-    healthFill.setEnabled(false);
+    healthBack.setEnabled(true);
+    healthFill.setEnabled(true);
 
     if (this.castEnemyShadows) {
       root.getChildMeshes().filter((mesh) => mesh !== healthBack && mesh !== healthFill)

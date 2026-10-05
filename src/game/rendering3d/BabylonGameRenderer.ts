@@ -827,11 +827,8 @@ export class BabylonGameRenderer {
 
     if (this.disableHpBars) return;
     const hpRatio = Math.max(0, Math.min(1, enemy.hp / enemy.maxHp));
-    const damaged = hpRatio < 0.999;
-    if (visual.healthBack.isEnabled() !== damaged) {
-      visual.healthBack.setEnabled(damaged);
-      visual.healthFill.setEnabled(damaged);
-    }
+    if (!visual.healthBack.isEnabled()) visual.healthBack.setEnabled(true);
+    if (!visual.healthFill.isEnabled()) visual.healthFill.setEnabled(true);
     if (Math.abs(visual.lastHpRatio - hpRatio) < 0.0001) return;
     visual.lastHpRatio = hpRatio;
     visual.healthFill.scaling.x = hpRatio;
