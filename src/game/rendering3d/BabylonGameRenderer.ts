@@ -25,7 +25,7 @@ import { WinterArenaArt } from "./WinterArenaArt";
 import { TerrainCliffRenderer } from "./TerrainCliffRenderer";
 import { GameSpeedMultiplier, SimulationClock } from "../SimulationClock";
 import type { MinimapCameraView } from "../minimap/MinimapRenderer";
-import { groundFootprintToLogicalBounds, groundPointToLogicalMap } from "../minimap/MinimapCoordinates";
+import { groundPointToLogicalMap } from "../minimap/MinimapCoordinates";
 import type { LinesMesh } from "@babylonjs/core";
 
 type TowerVisual = ArcherVisual | QuaterniusArcherVisual | BlueWizardVisual | HolyKnightVisual | QuaterniusDefenderVisual;
@@ -352,23 +352,32 @@ export class BabylonGameRenderer {
   isPaused(): boolean { return this.simulationClock.isPaused; }
   setPaused(paused: boolean): void { this.simulationClock.setPaused(paused); }
 
-  /** Projects the actual screen corners onto the ground, then maps those points to logical grid space. */
+  /** Projects the visible ground footprint into logical grid space for the minimap. */
   getApproximateMinimapView(): MinimapCameraView {
     const renderWidth = this.engine.getRenderWidth();
     const renderHeight = this.engine.getRenderHeight();
-    const screenCorners = [
-      [0, 0], [renderWidth, 0], [renderWidth, renderHeight], [0, renderHeight],
-    ] as const;
-    const groundCorners = screenCorners
-      .map(([x, y]) => this.groundPointAtRenderPoint(x, y))
-      .filter((point): point is Vector3 => point !== undefined)
-      .map(({ x, z }) => ({ x, z }));
-    const center = this.groundPointAtRenderPoint(renderWidth / 2, renderHeight / 2) ?? this.camera.target;
-    const logicalCenter = groundPointToLogicalMap(center, TILE_SIZE_3D);
-    // If a backend cannot intersect one of the viewport rays with the ground plane,
-    // show the whole logical map rather than inventing a potentially mirrored box.
-    const bounds = groundCorners.length === screenCorners.length
-      ? groundFootprintToLogicalBounds(groundCorners, TILE_SIZE_3D)
+    // The camera target is the actual center of the view. Using the center ray here
+    // made the minimap susceptible to backend ray/projection differences and could
+    // mirror the marker horizontally at the fixed RTS camera angle.
+    const logicalCenter = groundPointToLogicalMap(this.camera.target, TILE_SIZE_3D);
+    const horizontalEdge = [
+      this.groundPointAtRenderPoint(0, renderHeight / 2),
+      this.groundPointAtRenderPoint(renderWidth, renderHeight / 2),
+    ].filter((point): point is Vector3 => point !== undefined);
+    const verticalEdge = [
+      this.groundPointAtRenderPoint(renderWidth / 2, 0),
+      this.groundPointAtRenderPoint(renderWidth / 2, renderHeight),
+    ].filter((point): point is Vector3 => point !== undefined);
+    // Fixed alpha/beta means screen-horizontal maps to world X and
+    // screen-vertical maps to world Z. Mid-edge intersections avoid the
+    // perspective overestimate caused by taking the outer bounds of corners.
+    const bounds = horizontalEdge.length === 2 && verticalEdge.length === 2
+      ? {
+        x: Math.min(horizontalEdge[0].x, horizontalEdge[1].x) / TILE_SIZE_3D,
+        y: Math.min(verticalEdge[0].z, verticalEdge[1].z) / TILE_SIZE_3D,
+        width: Math.abs(horizontalEdge[1].x - horizontalEdge[0].x) / TILE_SIZE_3D,
+        height: Math.abs(verticalEdge[1].z - verticalEdge[0].z) / TILE_SIZE_3D,
+      }
       : { x: 0, y: 0, width: this.map.width, height: this.map.height };
     return {
       ...bounds,
