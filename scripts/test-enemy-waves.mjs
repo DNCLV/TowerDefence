@@ -44,7 +44,7 @@ try {
   const { ENEMY_VISUAL_CONFIG } = visualModule;
   const { getEnemyHpForWave, getEnemyHpMultiplier, getEnemyHpTier } = enemyModule;
   const {
-    ENEMY_THREAT_WEIGHT, MAX_ACTIVE_WAVE_ENEMIES, getWaveComposition, createWaveSpawnQueue,
+    ENEMY_THREAT_WEIGHT, MAX_ACTIVE_WAVE_ENEMIES, MIN_SPAWN_INTERVAL, getWaveComposition, createWaveSpawnQueue,
     countWaveComposition, getWaveSpawnInterval, getWaveThreatBudget, getWaveRewardMultiplier,
     getWaveGoldReward,
   } = waveModule;
@@ -767,7 +767,7 @@ try {
     if (wave % 7 === 0) {
       assert.equal(snapshot.counts.ghoul + snapshot.counts.wraith, 0, `flying-focused wave ${wave} excludes new ground enemies`);
     }
-    assert.ok(composition.spawnInterval >= 0.29, `wave ${wave} respects the safe spawn floor`);
+    assert.ok(composition.spawnInterval >= MIN_SPAWN_INTERVAL, `wave ${wave} respects the safe spawn floor`);
   }
   assert.ok(Math.abs(getWaveThreatBudget(116) - 342.2) < 1e-9);
   assert.equal(getWaveComposition(116).totalThreat >= 340, true, "wave 116 should meet the late-game threat target");
@@ -790,7 +790,7 @@ try {
     [1, 1, 0.75, 0.75, 0.5, 0.5, 0.35, 0.35],
   );
   assert.deepEqual([1, 30, 31, 60, 61, 100, 101].map((wave) => getWaveGoldReward(3, wave)), [3, 3, 2, 2, 2, 2, 1]);
-  assert.deepEqual([1, 30, 60, 100, 150, 200].map((wave) => Number(getWaveSpawnInterval(wave).toFixed(2))), [0.7, 0.55, 0.42, 0.34, 0.29, 0.29]);
+  assert.deepEqual([1, 30, 60, 100, 150, 200].map((wave) => Number(getWaveSpawnInterval(wave).toFixed(2))), [0.5, 0.4, 0.32, 0.26, 0.22, 0.22]);
   assert.ok(getWaveComposition(100).totalThreat > getWaveComposition(20).totalThreat * 3, "late waves do not collapse to early-wave threat");
 
   const hpTierSnapshots = [
@@ -838,7 +838,7 @@ try {
   const wave45TotalHp = keys.reduce((total, type) => total + wave45Counts[type] * wave45EnemyHp[type], 0);
   assert.deepEqual(keys.map((type) => wave45Counts[type]), [25, 8, 5, 0, 10, 2], "wave 45 includes new enemies in deterministic threat mix");
   assert.equal(wave45Composition.threatBudget, 115);
-  assert.equal(Number(wave45Composition.spawnInterval.toFixed(3)), 0.485);
+  assert.equal(Number(wave45Composition.spawnInterval.toFixed(3)), 0.36);
   assert.equal(wave45TotalHp, 237600);
   originalInfo("Wave 45 HP regression", {
     counts: wave45Counts,
@@ -862,7 +862,7 @@ try {
   assert.deepEqual(keys.map((type) => getEnemyHpForWave(type, 48)), [2400, 8800, 2560, 48000, 7200, 11200]);
   assert.deepEqual(countWaveComposition(getWaveComposition(48)), { goblin: 27, goblinBrute: 9, goblinRider: 5, giantGoblin: 0, ghoul: 10, wraith: 2, undeadDragon: 0, skeletonKing: 0, skeletalCommander: 0 });
   assert.equal(getWaveComposition(48).totalThreat, 122);
-  assert.equal(Number(getWaveComposition(48).spawnInterval.toFixed(3)), 0.472);
+  assert.equal(Number(getWaveComposition(48).spawnInterval.toFixed(3)), 0.352);
 
   const expectedTierWarnings = [[10, 11, 2], [20, 21, 4], [30, 31, 8], [40, 41, 16], [50, 51, 32], [60, 61, 64]];
   for (const [wave, nextWave, nextMultiplier] of expectedTierWarnings) {
@@ -969,6 +969,28 @@ try {
   }
   assert.equal(cappedState.enemies.length, MAX_ACTIVE_WAVE_ENEMIES, "queued flying units fill, but never exceed, the active model cap");
   assert.equal(cappedState.toSpawn, 100 - MAX_ACTIVE_WAVE_ENEMIES, "the cap staggers units rather than deleting wave enemies");
+
+  const threeSpawnWave = new GameState("three-spawns");
+  threeSpawnWave.waveActive = true;
+  threeSpawnWave.spawnQueue = Array(30).fill("goblin");
+  threeSpawnWave.toSpawn = 30;
+  threeSpawnWave.waveSpawnInterval = 0.3;
+  for (let tick = 0; tick < 10; tick += 1) {
+    threeSpawnWave.update(tick === 0 ? 0 : 0.3);
+    for (const enemy of threeSpawnWave.enemies) enemy.speed = 0;
+  }
+  const spawnIds = threeSpawnWave.layout.activeSpawns.map(({ id }) => id);
+  const originCounts = new Map(spawnIds.map((id) => [id, 0]));
+  for (const enemy of threeSpawnWave.enemies) {
+    const origin = threeSpawnWave.layout.activeSpawns.find(({ entryCell }) =>
+      entryCell.x === enemy.path[0].x && entryCell.y === enemy.path[0].y)?.id;
+    assert.ok(origin);
+    originCounts.set(origin, originCounts.get(origin) + 1);
+  }
+  assert.deepEqual([...originCounts.values()], [10, 10, 10], "three-spawn waves distribute mobs evenly");
+  assert.deepEqual(threeSpawnWave.enemies.slice(0, 3).map((enemy) => enemy.path[0]),
+    threeSpawnWave.layout.activeSpawns.map(({ entryCell }) => entryCell),
+    "three-spawn waves start one mob at each front in the same spawn tick");
 
   // Damage regression: a level-1 Knight defeats these targets using its configured 55 damage.
   for (const [type, hp, expectedKnightHits] of [["goblin", 150, 3], ["goblinBrute", 550, 10], ["giantGoblin", 3000, 55]]) {

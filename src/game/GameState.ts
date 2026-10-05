@@ -73,6 +73,7 @@ export class GameState {
   private spawnTimer = 0;
   private spawnQueue: EnemyType[] = [];
   private spawnQueueCursor = 0;
+  private spawnRoundRobinCursor = 0;
   private wavesStarted = 0;
   private waveEnemyCount = 0;
   private waveEnemyComposition: Record<EnemyType, number> = { goblin: 0, goblinBrute: 0, goblinRider: 0, giantGoblin: 0, ghoul: 0, wraith: 0, undeadDragon: 0, skeletonKing: 0, skeletalCommander: 0 };
@@ -176,6 +177,7 @@ export class GameState {
     };
     this.spawnQueue = createWaveSpawnQueue(composition);
     this.spawnQueueCursor = 0;
+    this.spawnRoundRobinCursor = 0;
     this.toSpawn = this.spawnQueue.length;
     this.spawnTimer = 0;
     this.waveSpawnInterval = composition.spawnInterval ?? 0.65;
@@ -207,7 +209,7 @@ export class GameState {
       totalThreat: composition.totalThreat,
       spawnInterval: Number(this.waveSpawnInterval.toFixed(3)),
       rewardMultiplier: composition.rewardMultiplier,
-      activeEnemyCap: MAX_ACTIVE_WAVE_ENEMIES,
+      activeEnemyCap: MAX_ACTIVE_WAVE_ENEMIES * this.layout.activeSpawns.length,
       enemyTypes: ENEMY_CONFIG,
     });
     this.waveGoldAtStart = this.gold;
@@ -254,6 +256,7 @@ export class GameState {
     this.spawnTimer = 0;
     this.spawnQueue = [];
     this.spawnQueueCursor = 0;
+    this.spawnRoundRobinCursor = 0;
     this.wavesStarted = 0;
     this.waveEnemyCount = 0;
     this.waveEnemyComposition = { goblin: 0, goblinBrute: 0, goblinRider: 0, giantGoblin: 0, ghoul: 0, wraith: 0, undeadDragon: 0, skeletonKing: 0, skeletalCommander: 0 };
@@ -281,9 +284,13 @@ export class GameState {
     }
     this.attackEvents.length = 0;
     this.spawnTimer -= deltaSeconds;
-    if (this.toSpawn > 0 && this.spawnTimer <= 0 && this.enemies.length < MAX_ACTIVE_WAVE_ENEMIES) {
-      for (const spawn of this.layout.activeSpawns) {
-        if (this.toSpawn <= 0 || this.enemies.length >= MAX_ACTIVE_WAVE_ENEMIES) break;
+    const activeEnemyCap = MAX_ACTIVE_WAVE_ENEMIES * this.layout.activeSpawns.length;
+    if (this.toSpawn > 0 && this.spawnTimer <= 0 && this.enemies.length < activeEnemyCap) {
+      let spawnedThisTick = 0;
+      const spawnCount = this.layout.activeSpawns.length;
+      for (let offset = 0; offset < spawnCount; offset += 1) {
+        if (this.toSpawn <= 0 || this.enemies.length >= activeEnemyCap) break;
+        const spawn = this.layout.activeSpawns[(this.spawnRoundRobinCursor + offset) % spawnCount];
         const type = this.spawnQueue[this.spawnQueueCursor];
         if (!type) break;
         const isFlying = ENEMY_CONFIG[type].movementType === "flying";
@@ -296,8 +303,12 @@ export class GameState {
         const enemy = createEnemy(this.nextEnemyId++, type, route, this.currentWave);
         this.enemies.push(enemy);
         this.toSpawn -= 1;
+        spawnedThisTick += 1;
       }
-      this.spawnTimer = this.waveSpawnInterval;
+      if (spawnedThisTick > 0) {
+        this.spawnRoundRobinCursor = (this.spawnRoundRobinCursor + spawnedThisTick) % spawnCount;
+        this.spawnTimer = this.waveSpawnInterval;
+      }
     }
     const survivors: Enemy[] = [];
     for (const enemy of this.enemies) {

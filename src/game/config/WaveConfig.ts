@@ -20,7 +20,7 @@ export const ENEMY_THREAT_WEIGHT: Record<EnemyType, number> = Object.fromEntries
   Object.values(ENEMY_CONFIG).map(({ id, threatWeight }) => [id, threatWeight]),
 ) as Record<EnemyType, number>;
 
-/** High-poly GLBs are staggered so even an overwhelmed run has a bounded scene cost. */
+/** High-poly GLBs are staggered per active spawn so multi-front maps can flood fairly. */
 export const MAX_ACTIVE_WAVE_ENEMIES = 16;
 
 const FIXED_WAVES: Record<number, readonly WaveEntry[]> = {
@@ -50,13 +50,13 @@ const FIXED_WAVES: Record<number, readonly WaveEntry[]> = {
 };
 
 const SPAWN_INTERVAL_MILESTONES = [
-  { wave: 1, seconds: 0.70 },
-  { wave: 30, seconds: 0.55 },
-  { wave: 60, seconds: 0.42 },
-  { wave: 100, seconds: 0.34 },
-  { wave: 150, seconds: 0.29 },
+  { wave: 1, seconds: 0.50 },
+  { wave: 30, seconds: 0.40 },
+  { wave: 60, seconds: 0.32 },
+  { wave: 100, seconds: 0.26 },
+  { wave: 150, seconds: 0.22 },
 ] as const;
-export const MIN_SPAWN_INTERVAL = 0.29;
+export const MIN_SPAWN_INTERVAL = 0.22;
 
 export function getWaveSpawnInterval(wave: number): number {
   const target = Math.max(1, wave);
