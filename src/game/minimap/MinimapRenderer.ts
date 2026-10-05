@@ -104,7 +104,9 @@ export class MinimapRenderer {
       width: Math.max(1, rect.width - MAP_INSET_PX * 2),
       height: Math.max(1, rect.height - MAP_INSET_PX * 2),
     };
-    this.context.drawImage(this.staticLayer, mapRect.x, mapRect.y, mapRect.width, mapRect.height);
+    // The fixed RTS camera presents world-X right-to-left on screen. Mirror the
+    // static map so terrain and live markers use the same visual orientation.
+    this.context.drawImage(this.staticLayer, mapRect.x + mapRect.width, mapRect.y, -mapRect.width, mapRect.height);
     this.context.save();
     this.context.beginPath();
     this.context.rect(mapRect.x, mapRect.y, mapRect.width, mapRect.height);
@@ -191,9 +193,10 @@ export class MinimapRenderer {
   }
 
   private drawCameraView(view: MinimapCameraView, mapRect: { x: number; y: number; width: number; height: number }): void {
-    const topLeft = logicalMapPointToMinimap({ x: view.x, y: view.y }, this.map.width, this.map.height, mapRect);
+    const mirroredViewX = this.map.width - view.x - view.width;
+    const topLeft = this.mapPointToCanvas({ x: mirroredViewX, y: view.y }, mapRect);
     const bottomRight = logicalMapPointToMinimap(
-      { x: view.x + view.width, y: view.y + view.height }, this.map.width, this.map.height, mapRect,
+      { x: mirroredViewX + view.width, y: view.y + view.height }, this.map.width, this.map.height, mapRect,
     );
     const width = bottomRight.x - topLeft.x;
     const height = bottomRight.y - topLeft.y;
@@ -205,9 +208,7 @@ export class MinimapRenderer {
 
     const centerGridX = view.centerGridX ?? view.x + view.width / 2;
     const centerGridY = view.centerGridY ?? view.y + view.height / 2;
-    const centerMinimap = logicalMapPointToMinimap(
-      { x: centerGridX, y: centerGridY }, this.map.width, this.map.height, mapRect,
-    );
+    const centerMinimap = this.mapPointToCanvas({ x: this.map.width - centerGridX, y: centerGridY }, mapRect);
     this.canvas.dataset.cameraGridX = centerGridX.toFixed(2);
     this.canvas.dataset.cameraGridY = centerGridY.toFixed(2);
     this.canvas.dataset.cameraMinimapX = centerMinimap.x.toFixed(2);
@@ -233,8 +234,10 @@ export class MinimapRenderer {
   }
 
   private cellToCanvas(cell: { x: number; y: number }, rect: { x: number; y: number; width: number; height: number }): { x: number; y: number } {
-    return logicalMapPointToMinimap(
-      { x: cell.x + 0.5, y: cell.y + 0.5 }, this.map.width, this.map.height, rect,
-    );
+    return this.mapPointToCanvas({ x: this.map.width - cell.x - 0.5, y: cell.y + 0.5 }, rect);
+  }
+
+  private mapPointToCanvas(point: { x: number; y: number }, rect: { x: number; y: number; width: number; height: number }): { x: number; y: number } {
+    return logicalMapPointToMinimap(point, this.map.width, this.map.height, rect);
   }
 }
