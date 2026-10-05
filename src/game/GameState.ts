@@ -80,6 +80,9 @@ export class GameState {
   private spawnTimer = 0;
   private spawnQueue: EnemyType[] = [];
   private spawnQueueCursor = 0;
+  /** Each active spawn receives its own balanced copy of the wave queue. */
+  private readonly spawnQueuesBySpawn = new Map<string, EnemyType[]>();
+  private readonly spawnQueueCursorsBySpawn = new Map<string, number>();
   private spawnRoundRobinCursor = 0;
   private wavesStarted = 0;
   private waveEnemyCount = 0;
@@ -188,6 +191,7 @@ export class GameState {
     };
     this.spawnQueue = createWaveSpawnQueue(composition);
     this.spawnQueueCursor = 0;
+    this.buildSpawnQueuesBySpawn();
     this.spawnRoundRobinCursor = 0;
     this.spawnVariantCursors.clear();
     this.toSpawn = this.spawnQueue.length;
@@ -268,6 +272,8 @@ export class GameState {
     this.spawnTimer = 0;
     this.spawnQueue = [];
     this.spawnQueueCursor = 0;
+    this.spawnQueuesBySpawn.clear();
+    this.spawnQueueCursorsBySpawn.clear();
     this.spawnRoundRobinCursor = 0;
     this.spawnVariantCursors.clear();
     this.wavesStarted = 0;
@@ -304,12 +310,16 @@ export class GameState {
       for (let offset = 0; offset < spawnCount; offset += 1) {
         if (this.toSpawn <= 0 || this.enemies.length >= activeEnemyCap) break;
         const spawn = this.layout.activeSpawns[(this.spawnRoundRobinCursor + offset) % spawnCount];
-        const type = this.spawnQueue[this.spawnQueueCursor];
+        const spawnQueue = this.spawnQueuesBySpawn.get(spawn.id);
+        const queue = spawnQueue ?? this.spawnQueue;
+        const queueCursor = spawnQueue ? (this.spawnQueueCursorsBySpawn.get(spawn.id) ?? 0) : this.spawnQueueCursor;
+        const type = queue[queueCursor];
         if (!type) break;
         const isFlying = ENEMY_CONFIG[type].movementType === "flying";
         const groundRoute = isFlying ? null : this.nextSpawnRoute(spawn.id, spawn.entryCell);
         if (!isFlying && !groundRoute) continue;
-        this.spawnQueueCursor += 1;
+        if (spawnQueue) this.spawnQueueCursorsBySpawn.set(spawn.id, queueCursor + 1);
+        else this.spawnQueueCursor += 1;
         const route = isFlying
           ? [{ ...spawn.entryCell }, { ...this.exit }]
           : groundRoute!;
@@ -540,6 +550,18 @@ export class GameState {
   /** Land mobs always use the shortest open grid path to the castle. */
   private groundRoute(start: Cell): Cell[] | null {
     return findPath(this.grid, start, this.exit);
+  }
+
+  /** Distributes the same mixed wave queue across all active fronts. */
+  private buildSpawnQueuesBySpawn(): void {
+    this.spawnQueuesBySpawn.clear();
+    this.spawnQueueCursorsBySpawn.clear();
+    const spawns = this.layout.activeSpawns;
+    spawns.forEach((spawn) => this.spawnQueuesBySpawn.set(spawn.id, []));
+    this.spawnQueue.forEach((type, index) => {
+      const spawn = spawns[index % spawns.length];
+      this.spawnQueuesBySpawn.get(spawn.id)?.push(type);
+    });
   }
 
   private logLayout(): void {
