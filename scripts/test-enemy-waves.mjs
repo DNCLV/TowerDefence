@@ -111,8 +111,8 @@ try {
       const leftMountain = map.terrainRegions.find(({ id }) => id === "left-mountain");
       const rightMountain = map.terrainRegions.find(({ id }) => id === "right-mountain");
       assert.ok(leftMountain && rightMountain, "Open Field has exactly its two side mountain masses");
-      assert.deepEqual(cellBounds(leftMountain.cells), { minX: 0, maxX: 4, minY: 9, maxY: 44 });
-      assert.deepEqual(cellBounds(rightMountain.cells), { minX: 23, maxX: 27, minY: 9, maxY: 44 });
+      assert.deepEqual(cellBounds(leftMountain.cells), { minX: 0, maxX: 4, minY: 5, maxY: 26 });
+      assert.deepEqual(cellBounds(rightMountain.cells), { minX: 12, maxX: 16, minY: 5, maxY: 26 });
       assert.ok(mapState.grid.isBuildable({ x: 14, y: 27 }), "Open Field retains its open central build corridor");
       assert.ok(mapState.spawnPaths.get("spawn-north").every(({ x }) => x === 14), "the single-spawn route remains straight through the open center");
     }

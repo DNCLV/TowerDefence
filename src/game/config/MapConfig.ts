@@ -64,8 +64,9 @@ export const MAPS: Record<MapId, MapDefinition> = {
       activeSpawns: [endpoint("spawn-north", { x: 8, y: 0 }, "north")],
     },
     ...withTerrain(
-      rectangle("left-mountain", 0, 5, 3, 22),
-      rectangle("right-mountain", 14, 5, 3, 22),
+      // Narrow the central build corridor by two cells from each side.
+      rectangle("left-mountain", 0, 5, 5, 22),
+      rectangle("right-mountain", 12, 5, 5, 22),
     ),
     startingGold: 70, enemyCountMultiplier: 1,
   },
