@@ -10,7 +10,9 @@
     "preview:pages": "node scripts/serve-pages-subpath.mjs",
     "test:enemy-waves": "node --import ./scripts/register-ts-loader.mjs scripts/test-enemy-waves.mjs && node --import ./scripts/register-ts-loader.mjs scripts/test-content-combat.mjs",
     "test:content-combat": "node --import ./scripts/register-ts-loader.mjs scripts/test-content-combat.mjs",
-    "test:content-assets": "node scripts/test-content-assets.cjs"
+    "test:content-assets": "node scripts/test-content-assets.cjs",
+    "test:map-adjustments": "node --import ./scripts/register-ts-loader.mjs scripts/test-map-adjustments.mjs",
+    "test:shortest-routes": "node --import ./scripts/register-ts-loader.mjs scripts/test-shortest-routes.mjs"
   },
   "dependencies": {
     "@babylonjs/core": "^9.27.1",

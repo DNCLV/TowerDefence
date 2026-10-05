@@ -226,7 +226,7 @@ async function main() {
       height: canvas.getBoundingClientRect().height,
     } : null;
   })()`);
-  if (!initialMinimap || initialMinimap.mapId !== "single-spawn" || initialMinimap.dimensions !== "28x54"
+  if (!initialMinimap || initialMinimap.mapId !== "single-spawn" || initialMinimap.dimensions !== "17x32"
     || initialMinimap.terrainCells !== 360 || initialMinimap.spawnCount !== 1 || initialMinimap.goalCell !== "14,53"
     || initialMinimap.pointerEvents !== "none") {
     throw new Error(`Initial single-spawn minimap did not match selected map: ${JSON.stringify(initialMinimap)}`);
@@ -481,7 +481,7 @@ async function main() {
       || layout.minimap.width < (viewport.width < 600 ? 116 : 160)
       || layout.minimap.width > (viewport.width < 600 ? 150 : 200)
       || !layout.minimap.panelBelowTray || !layout.minimap.clearOfActions || layout.minimap.pointerEvents !== "none"
-      || layout.minimap.mapId !== "single-spawn" || layout.minimap.dimensions !== "28x54"
+      || layout.minimap.mapId !== "single-spawn" || layout.minimap.dimensions !== "17x32"
       || !layout.waveControls.sameSize || !layout.waveControls.sameEdges || !layout.waveControls.sameRadius
       || layout.towerLayouts.some((tower) => tower.panel.width <= 0 || tower.upgrade.width < 92 || tower.sell.width < 104
         || tower.info.width < 30 || tower.info.width > 36 || tower.upgradeClip || tower.sellClip
@@ -871,7 +871,7 @@ async function main() {
       enemies: panel.dataset.enemyCount,
     } : null;
   })()`);
-  if (!newMapMinimap || newMapMinimap.mapId !== "three-spawns" || newMapMinimap.dimensions !== "72x110"
+  if (!newMapMinimap || newMapMinimap.mapId !== "three-spawns" || newMapMinimap.dimensions !== "43x66"
     || newMapMinimap.terrainCells !== 2918 || newMapMinimap.spawnCount !== 3 || newMapMinimap.goalCell !== "36,109"
     || newMapMinimap.towers !== "0" || newMapMinimap.enemies !== "0") {
     throw new Error(`Three-spawn minimap did not rebuild cleanly: ${JSON.stringify(newMapMinimap)}`);

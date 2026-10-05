@@ -22,12 +22,6 @@ export interface MapDefinition {
   terrainRegions: TerrainRegion[];
   startingGold: number;
   enemyCountMultiplier: number;
-  /** Optional route choices; each selected cell is a controlled opening in the terrain. */
-  midLaneTargets?: Cell[];
-  /** Named openings that connect map-specific ground fronts into the shared final field. */
-  convergenceOpenings?: Cell[];
-  /** Shared route waypoint after map-specific convergence. */
-  finalLaneTarget?: Cell;
 }
 
 const endpoint = (id: string, cell: Cell, side: PerimeterSide) => {
@@ -60,74 +54,67 @@ const withTerrain = (...terrainRegions: TerrainRegion[]) => ({
     .map((cell) => [`${cell.x},${cell.y}`, cell])).values()],
 });
 
-/** Fixed battlefields sized for portrait play, with broad player-built maze fields. */
+/** Compact battlefields: each axis is about 60% of the original size. */
 export const MAPS: Record<MapId, MapDefinition> = {
   "single-spawn": {
     id: "single-spawn", name: "Open Field", subtitle: "1 Spawn · Open sandbox", description: "A clear snowfield. Build the entire maze yourself.",
-    width: 28, height: 54,
+    width: 17, height: 32,
     layout: {
-      castle: castleEndpoint("shared-castle", { x: 14, y: 53 }, "south"),
-      activeSpawns: [endpoint("spawn-north", { x: 14, y: 0 }, "north")],
+      castle: castleEndpoint("shared-castle", { x: 8, y: 31 }, "south"),
+      activeSpawns: [endpoint("spawn-north", { x: 8, y: 0 }, "north")],
     },
     ...withTerrain(
-      rectangle("left-mountain", 0, 9, 5, 36),
-      rectangle("right-mountain", 23, 9, 5, 36),
+      rectangle("left-mountain", 0, 5, 3, 22),
+      rectangle("right-mountain", 14, 5, 3, 22),
     ),
     startingGold: 70, enemyCountMultiplier: 1,
   },
   "two-spawns": {
     id: "two-spawns", name: "Split Advance", subtitle: "2 Spawns · Late merge", description: "Two open fronts stay apart until the final quarter.",
-    width: 38, height: 68,
+    width: 23, height: 41,
     layout: {
-      castle: castleEndpoint("shared-castle", { x: 19, y: 67 }, "south"),
+      castle: castleEndpoint("shared-castle", { x: 11, y: 40 }, "south"),
       activeSpawns: [
-        endpoint("spawn-north-west", { x: 9, y: 0 }, "north"),
-        endpoint("spawn-north-east", { x: 28, y: 0 }, "north"),
+        endpoint("spawn-north-west", { x: 6, y: 0 }, "north"),
+        endpoint("spawn-north-east", { x: 17, y: 0 }, "north"),
       ],
     },
     ...withTerrain(
-      // Outer cliffs frame the two open lanes and join the lower funnel masses.
+      // Outer cliffs frame the two lanes and join the lower funnel masses.
       formation("left-side-funnel-mountain",
-        rectangle("left-side-cliff", 0, 0, 4, 51),
-        rectangle("lower-left-funnel", 0, 55, 11, 9),
+        rectangle("left-side-cliff", 0, 0, 3, 31),
+        rectangle("lower-left-funnel", 0, 33, 7, 6),
       ),
       formation("right-side-funnel-mountain",
-        rectangle("right-side-cliff", 34, 0, 4, 51),
-        rectangle("lower-right-funnel", 27, 55, 11, 9),
+        rectangle("right-side-cliff", 20, 0, 3, 31),
+        rectangle("lower-right-funnel", 16, 33, 7, 6),
       ),
-      // The ridge and lower funnel masses are separated by eight completely open rows.
-      rectangle("central-split-ridge", 16, 0, 6, 47),
+      rectangle("central-split-ridge", 10, 0, 3, 29),
     ),
     startingGold: 110, enemyCountMultiplier: 1.5,
-    finalLaneTarget: { x: 19, y: 51 },
   },
   "three-spawns": {
     id: "three-spawns", name: "Triple Convergence", subtitle: "3 Spawns · Three fronts to one", description: "Three open approaches become two broad fronts, then one shared goal lane.",
-    width: 72, height: 110,
+    width: 43, height: 66,
     layout: {
-      castle: castleEndpoint("shared-castle", { x: 36, y: 109 }, "south"),
+      castle: castleEndpoint("shared-castle", { x: 21, y: 65 }, "south"),
       activeSpawns: [
-        endpoint("spawn-north-west", { x: 13, y: 0 }, "north"),
-        endpoint("spawn-north", { x: 36, y: 0 }, "north"),
-        endpoint("spawn-north-east", { x: 58, y: 0 }, "north"),
+        endpoint("spawn-north-west", { x: 8, y: 0 }, "north"),
+        endpoint("spawn-north", { x: 21, y: 0 }, "north"),
+        endpoint("spawn-north-east", { x: 35, y: 0 }, "north"),
       ],
     },
     ...withTerrain(
-      // Seven exact rectangles make three broad 16-cell upper lanes and continuous outer edges.
-      rectangle("left-outer-wall", 0, 0, 5, 110),
-      rectangle("right-outer-wall", 67, 0, 5, 110),
-      rectangle("left-upper-divider", 21, 0, 7, 35),
-      rectangle("right-upper-divider", 44, 0, 7, 35),
-      // 38 cells = 61% of the 62-cell interior, leaving 12-cell routes on both sides.
-      rectangle("center-horizontal-plateau", 17, 50, 38, 18),
-      // Broad lower plateaus connect to the outer walls while preserving a 16-cell final gap.
-      rectangle("lower-left-plateau", 0, 88, 28, 14),
-      rectangle("lower-right-plateau", 44, 88, 28, 14),
+      // Three upper lanes, a central plateau, then two routes into the final gap.
+      rectangle("left-outer-wall", 0, 0, 3, 66),
+      rectangle("right-outer-wall", 40, 0, 3, 66),
+      rectangle("left-upper-divider", 13, 0, 4, 21),
+      rectangle("right-upper-divider", 26, 0, 4, 21),
+      rectangle("center-horizontal-plateau", 10, 30, 23, 11),
+      rectangle("lower-left-plateau", 0, 53, 17, 8),
+      rectangle("lower-right-plateau", 26, 53, 17, 8),
     ),
     startingGold: 150, enemyCountMultiplier: 2,
-    midLaneTargets: [{ x: 16, y: 76 }, { x: 55, y: 76 }],
-    convergenceOpenings: [{ x: 16, y: 76 }, { x: 55, y: 76 }],
-    finalLaneTarget: { x: 36, y: 105 },
   },
 };
 

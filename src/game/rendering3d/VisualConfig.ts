@@ -2,6 +2,8 @@ import { Color3 } from "@babylonjs/core";
 
 /** Presentation-only tuning values; changing these never affects GameState coordinates or stats. */
 export const VISUAL_CONFIG = {
+  /** Rendered character size only; grid occupancy and combat ranges stay unchanged. */
+  unitVisualScaleMultiplier: 1.5,
   allyScaleMultiplier: 2.295,
   /** Presentation-only breathing room inside a tile; logical footprint stays one grid cell. */
   defenderVisualScaleMultiplier: 0.75,
@@ -36,7 +38,7 @@ export const VISUAL_CONFIG = {
   defaultCameraAlpha: Math.PI / 2,
   defaultCameraTargetX: 39,
   minCameraRadius: 13.5,
-  maxCameraRadius: 38,
+  maxCameraRadius: 70,
   cameraPanSpeed: 1,
   cameraPanZoomMultiplier: 0.18,
   desktopDragThreshold: 8,

@@ -2,7 +2,7 @@ import { Cell, cellKey, sameCell } from "../core/types";
 import { WORLD_UNITS_PER_CELL } from "../core/GameConstants";
 import { Enemy, createEnemy, getEnemyHpForWave, getEnemyHpMultiplier, getEnemyHpTier } from "./enemies/Enemy";
 import { Grid } from "./grid/Grid";
-import { findPath, findPathThrough } from "./pathfinding/Pathfinder";
+import { findPath } from "./pathfinding/Pathfinder";
 import { Tower, TowerAttackMode, canTowerTargetEnemy, createBasicTower, getTowerAttackProfile, getTowerLevelStats, getTowerSellRefund, getTowerSplashRatio, isTowerInRange, upgradeTower } from "./towers/Tower";
 import { DEFENDER_CONFIG, DefenderType } from "./config/DefenderConfig";
 import { LEVEL_1 } from "./config/Level1";
@@ -82,8 +82,6 @@ export class GameState {
   private enemiesLeaked = 0;
   private resetCount = 0;
   private hpTierWarningSecondsRemaining = 0;
-  private nextMidLane = 0;
-  private readonly enemyMidLanes = new Map<number, number>();
 
   constructor(map: MapDefinition | MapId = "single-spawn") {
     this.map = typeof map === "string" ? MAPS[map] : map;
@@ -108,9 +106,8 @@ export class GameState {
     if (this.gold < DEFENDER_CONFIG[type].buildCost) return "not-enough-gold";
 
     this.grid.setBlocked(cell, true);
-    const lanes = this.map.midLaneTargets?.map((_, index) => index) ?? [undefined];
-    const pathExists = this.layout.activeSpawns.every((spawn) => lanes.every((lane) => this.groundRoute(spawn.entryCell, lane) !== null))
-      && this.enemies.every((enemy) => !enemy.alive || enemy.movementType === "flying" || findPath(this.grid, this.enemyCurrentCell(enemy), this.exit) !== null);
+    const pathExists = this.layout.activeSpawns.every((spawn) => this.groundRoute(spawn.entryCell) !== null)
+      && this.enemies.every((enemy) => !enemy.alive || enemy.movementType === "flying" || this.shortestRouteForEnemy(enemy) !== null);
     this.grid.setBlocked(cell, false);
     return pathExists ? "placed" : "blocks-path";
   }
@@ -179,8 +176,6 @@ export class GameState {
     };
     this.spawnQueue = createWaveSpawnQueue(composition);
     this.spawnQueueCursor = 0;
-    this.nextMidLane = 0;
-    this.enemyMidLanes.clear();
     this.toSpawn = this.spawnQueue.length;
     this.spawnTimer = 0;
     this.waveSpawnInterval = composition.spawnInterval ?? 0.65;
@@ -259,8 +254,6 @@ export class GameState {
     this.spawnTimer = 0;
     this.spawnQueue = [];
     this.spawnQueueCursor = 0;
-    this.nextMidLane = 0;
-    this.enemyMidLanes.clear();
     this.wavesStarted = 0;
     this.waveEnemyCount = 0;
     this.waveEnemyComposition = { goblin: 0, goblinBrute: 0, goblinRider: 0, giantGoblin: 0, ghoul: 0, wraith: 0, undeadDragon: 0, skeletonKing: 0, skeletalCommander: 0 };
@@ -294,27 +287,13 @@ export class GameState {
         const type = this.spawnQueue[this.spawnQueueCursor];
         if (!type) break;
         const isFlying = ENEMY_CONFIG[type].movementType === "flying";
-        let midLane: number | undefined;
-        let groundRoute: Cell[] | null = null;
-        if (!isFlying) {
-          const laneCount = this.map.midLaneTargets?.length ?? 0;
-          midLane = laneCount > 0 ? this.nextMidLane % laneCount : undefined;
-          groundRoute = this.groundRoute(spawn.entryCell, midLane);
-          if (!groundRoute && laneCount > 1) {
-            midLane = (midLane! + 1) % laneCount;
-            groundRoute = this.groundRoute(spawn.entryCell, midLane);
-          }
-          if (!groundRoute) continue;
-        }
+        const groundRoute = isFlying ? null : this.groundRoute(spawn.entryCell);
+        if (!isFlying && !groundRoute) continue;
         this.spawnQueueCursor += 1;
         const route = isFlying
           ? [{ ...spawn.entryCell }, { ...this.exit }]
           : groundRoute!;
         const enemy = createEnemy(this.nextEnemyId++, type, route, this.currentWave);
-        if (!isFlying && midLane !== undefined) {
-          this.enemyMidLanes.set(enemy.id, midLane);
-          this.nextMidLane = (midLane + 1) % (this.map.midLaneTargets?.length ?? 1);
-        }
         this.enemies.push(enemy);
         this.toSpawn -= 1;
       }
@@ -334,8 +313,6 @@ export class GameState {
       survivors.push(enemy);
     }
     this.enemies = survivors;
-    const activeEnemyIds = new Set(survivors.map((enemy) => enemy.id));
-    for (const enemyId of this.enemyMidLanes.keys()) if (!activeEnemyIds.has(enemyId)) this.enemyMidLanes.delete(enemyId);
     if (this.lives <= 0) {
       console.info("GAME OVER - waiting for TRY AGAIN", {
         wave: this.currentWave,
@@ -347,13 +324,12 @@ export class GameState {
       this.waveActive = false;
       this.toSpawn = 0;
       this.enemies = [];
-      this.enemyMidLanes.clear();
     } else if (this.toSpawn === 0 && this.enemies.length === 0) {
       this.completeWave();
     }
   }
 
-  /** Moves through the immutable wave route using only delta time and grid coordinates. */
+  /** Moves along the current route using only delta time and grid coordinates. */
   private moveEnemy(enemy: Enemy, deltaSeconds: number): void {
     let distanceLeft = enemy.speed * deltaSeconds;
     while (distanceLeft > 0 && enemy.alive) {
@@ -444,12 +420,14 @@ export class GameState {
 
   /** Remaining route distance in grid units, calculated from the enemy's current live path. */
   private remainingDistanceToExit(enemy: Enemy): number {
-    const current = enemy.path[enemy.currentPathIndex];
-    const next = enemy.path[enemy.currentPathIndex + 1];
-    if (!current) return Number.POSITIVE_INFINITY;
-    if (!next) return Math.hypot(enemy.x - current.x, enemy.y - current.y);
+    const nextIndex = enemy.currentPathIndex + 1;
+    const next = enemy.path[nextIndex];
+    if (!next) {
+      const current = enemy.path[enemy.currentPathIndex];
+      return current ? Math.hypot(enemy.x - current.x, enemy.y - current.y) : Number.POSITIVE_INFINITY;
+    }
     let remaining = Math.hypot(next.x - enemy.x, next.y - enemy.y);
-    for (let index = enemy.currentPathIndex + 1; index < enemy.path.length - 1; index += 1) {
+    for (let index = nextIndex; index < enemy.path.length - 1; index += 1) {
       const from = enemy.path[index];
       const to = enemy.path[index + 1];
       remaining += Math.hypot(to.x - from.x, to.y - from.y);
@@ -461,49 +439,52 @@ export class GameState {
     return { x: Math.round(enemy.x), y: Math.round(enemy.y) };
   }
 
+  /** Follow the current segment to either reachable end, then take the shortest route. */
+  private shortestRouteForEnemy(enemy: Enemy): Cell[] | null {
+    const current = enemy.path[Math.max(0, enemy.currentPathIndex)];
+    const next = enemy.path[enemy.currentPathIndex + 1];
+    let best: Cell[] | null = null;
+    let bestDistance = Number.POSITIVE_INFINITY;
+    for (const anchor of [current, next]) {
+      if (!anchor || this.grid.isBlocked(anchor)) continue;
+      const route = this.groundRoute(anchor);
+      if (!route) continue;
+      const distance = Math.hypot(anchor.x - enemy.x, anchor.y - enemy.y) + route.length - 1;
+      if (distance < bestDistance) {
+        best = route;
+        bestDistance = distance;
+      }
+    }
+    return best;
+  }
+
   /** Keeps enemy world coordinates intact while replacing only their remaining route. */
   private repathActiveEnemies(): void {
     for (const enemy of this.enemies) {
       if (!enemy.alive || enemy.movementType === "flying") continue;
-      const start = this.enemyCurrentCell(enemy);
-      let lane = this.enemyMidLanes.get(enemy.id);
-      const laneTargets = this.map.midLaneTargets;
-      const passedLane = lane !== undefined && laneTargets?.[lane]
-        && enemy.path.slice(0, enemy.currentPathIndex + 1).some((cell) => sameCell(cell, laneTargets[lane!]));
-      const passedFinal = this.map.finalLaneTarget
-        && enemy.path.slice(0, enemy.currentPathIndex + 1).some((cell) => sameCell(cell, this.map.finalLaneTarget!));
-      let route = this.groundRoute(start, passedLane ? undefined : lane, passedFinal);
-      if (!route && laneTargets && lane !== undefined) {
-        lane = (lane + 1) % laneTargets.length;
-        route = this.groundRoute(start, passedLane ? undefined : lane, passedFinal);
-        if (route) this.enemyMidLanes.set(enemy.id, lane);
-      }
+      const route = this.shortestRouteForEnemy(enemy);
       if (!route) {
-        console.warn("Could not repath active enemy", enemy.id, start);
+        console.warn("Could not repath active enemy", enemy.id, this.enemyCurrentCell(enemy));
         continue;
       }
       enemy.path = route;
-      enemy.currentPathIndex = 0;
+      // A mob between cell centers must reach its chosen anchor before the next step.
+      enemy.currentPathIndex = enemy.x === route[0].x && enemy.y === route[0].y ? 0 : -1;
     }
   }
 
   private refreshSpawnPaths(): void {
     this.spawnPaths.clear();
     for (const spawn of this.layout.activeSpawns) {
-      const route = this.groundRoute(spawn.entryCell, this.map.midLaneTargets ? 0 : undefined);
+      const route = this.groundRoute(spawn.entryCell);
       if (route) this.spawnPaths.set(spawn.id, route);
     }
     this.path = this.spawnPaths.get(this.layout.activeSpawns[0].id) ?? [];
   }
 
-  /** Returns a path through the assigned route split, or the shortest exit path. */
-  private groundRoute(start: Cell, lane?: number, skipFinalLane = false): Cell[] | null {
-    const waypoints: Cell[] = [];
-    const laneTarget = lane === undefined ? undefined : this.map.midLaneTargets?.[lane];
-    if (laneTarget) waypoints.push(laneTarget);
-    if (!skipFinalLane && this.map.finalLaneTarget) waypoints.push(this.map.finalLaneTarget);
-    waypoints.push(this.exit);
-    return waypoints.length > 1 ? findPathThrough(this.grid, start, waypoints) : findPath(this.grid, start, this.exit);
+  /** Land mobs always use the shortest open grid path to the castle. */
+  private groundRoute(start: Cell): Cell[] | null {
+    return findPath(this.grid, start, this.exit);
   }
 
   private logLayout(): void {

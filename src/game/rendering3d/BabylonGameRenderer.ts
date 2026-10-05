@@ -582,6 +582,7 @@ export class BabylonGameRenderer {
           this.quaterniusEnemyFactory.reportFallback(enemy.type, fallbackReason);
         }
         visual ??= this.enemyFactory.create(enemy.id, enemy.type);
+        visual.root.scaling.scaleInPlace(VISUAL_CONFIG.unitVisualScaleMultiplier);
         this.enemyVisuals.set(enemy.id, visual);
         if (this.enemyGroundDebug) this.addEnemyGroundMarker(visual.root, enemy.id);
         this.reportEnemyVisualSpawn(enemy.id, enemy.type, usedFallback);
@@ -1515,6 +1516,7 @@ export class BabylonGameRenderer {
         throw new Error(`No defender visual mapping for ${unreachableType}`);
       }
     }
+    visual.bodyRoot.scaling.scaleInPlace(VISUAL_CONFIG.unitVisualScaleMultiplier);
     visual.root.position.set(world.x, 0, world.z);
     const factionRing = MeshBuilder.CreateTorus(`ally-faction-ring-${tower.id}`, {
       diameter: 0.68 + tower.level * 0.035,

@@ -9,7 +9,8 @@ type Edge = { from: Point; to: Point };
 
 // Taller than the thin prototype slab so the large blocked formations read clearly
 // from the fixed tactical camera. Grid/path footprints remain exactly unchanged.
-const TERRAIN_TOP = 1.35;
+// Give the mountains 50% more visual height; their cell-union footprint is unchanged.
+const TERRAIN_TOP = 1.35 * 1.5;
 const TERRAIN_BASE = -0.04;
 
 /**

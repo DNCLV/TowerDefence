@@ -1458,7 +1458,7 @@ canvas { display: block; width: 100% !important; height: 100% !important; touch-
   z-index: 3;
   left: max(10px, env(safe-area-inset-left));
   bottom: calc(var(--game-bottom-hud-height, 248px) + 8px);
-  width: clamp(160px, 14vw, 196px);
+  width: clamp(120px, 11vw, 150px);
   padding: 5px;
   overflow: hidden;
   border: 1px solid #90b5bf9c;
@@ -1495,7 +1495,7 @@ canvas { display: block; width: 100% !important; height: 100% !important; touch-
   .minimap-panel {
     left: max(7px, env(safe-area-inset-left));
     bottom: calc(var(--game-bottom-hud-height, 248px) + 7px);
-    width: clamp(116px, 35vw, 150px);
+    width: clamp(90px, 27vw, 116px);
     padding: 4px;
     border-radius: 7px;
   }
