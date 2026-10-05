@@ -981,13 +981,19 @@ try {
   }
   const spawnIds = threeSpawnWave.layout.activeSpawns.map(({ id }) => id);
   const originCounts = new Map(spawnIds.map((id) => [id, 0]));
+  const middleRouteCounts = { left: 0, right: 0 };
   for (const enemy of threeSpawnWave.enemies) {
     const origin = threeSpawnWave.layout.activeSpawns.find(({ entryCell }) =>
       entryCell.x === enemy.path[0].x && entryCell.y === enemy.path[0].y)?.id;
     assert.ok(origin);
     originCounts.set(origin, originCounts.get(origin) + 1);
+    if (origin === "spawn-north") {
+      if (enemy.path.some(({ x, y }) => x === 9 && y === 29)) middleRouteCounts.left += 1;
+      if (enemy.path.some(({ x, y }) => x === 33 && y === 29)) middleRouteCounts.right += 1;
+    }
   }
   assert.deepEqual([...originCounts.values()], [10, 10, 10], "three-spawn waves distribute mobs evenly");
+  assert.deepEqual(middleRouteCounts, { left: 5, right: 5 }, "middle spawn splits mobs evenly between left and right passages");
   assert.deepEqual(threeSpawnWave.enemies.slice(0, 3).map((enemy) => enemy.path[0]),
     threeSpawnWave.layout.activeSpawns.map(({ entryCell }) => entryCell),
     "three-spawn waves start one mob at each front in the same spawn tick");

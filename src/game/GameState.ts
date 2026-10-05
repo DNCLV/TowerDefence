@@ -2,12 +2,12 @@ import { Cell, cellKey, sameCell } from "../core/types";
 import { WORLD_UNITS_PER_CELL } from "../core/GameConstants";
 import { Enemy, createEnemy, getEnemyHpForWave, getEnemyHpMultiplier, getEnemyHpTier } from "./enemies/Enemy";
 import { Grid } from "./grid/Grid";
-import { findPath } from "./pathfinding/Pathfinder";
+import { findPath, findPathThrough } from "./pathfinding/Pathfinder";
 import { Tower, TowerAttackMode, canTowerTargetEnemy, createBasicTower, getTowerAttackProfile, getTowerLevelStats, getTowerSellRefund, getTowerSplashRatio, isTowerInRange, upgradeTower } from "./towers/Tower";
 import { DEFENDER_CONFIG, DefenderType } from "./config/DefenderConfig";
 import { LEVEL_1 } from "./config/Level1";
 import { BALANCE } from "./config/BalanceConfig";
-import { RunLayout } from "./map/RunLayout";
+import { RunLayout, RunSpawn } from "./map/RunLayout";
 import { MAPS, MapDefinition, MapId } from "./config/MapConfig";
 import { ENEMY_CONFIG, EnemyType } from "./config/EnemyConfig";
 import { ENEMY_THREAT_WEIGHT, MAX_ACTIVE_WAVE_ENEMIES, countWaveComposition, createWaveSpawnQueue, getWaveComposition, getWaveGoldReward } from "./config/WaveConfig";
@@ -51,6 +51,8 @@ export class GameState {
   readonly map: MapDefinition;
   layout!: RunLayout;
   readonly spawnPaths = new Map<string, Cell[]>();
+  private readonly spawnPathVariants = new Map<string, Cell[][]>();
+  private readonly spawnVariantCursors = new Map<string, number>();
   get spawn(): Cell { return this.layout.activeSpawns[0].entryCell; }
   get exit(): Cell { return this.layout.castle.approachCell; }
   path: Cell[];
@@ -178,6 +180,7 @@ export class GameState {
     this.spawnQueue = createWaveSpawnQueue(composition);
     this.spawnQueueCursor = 0;
     this.spawnRoundRobinCursor = 0;
+    this.spawnVariantCursors.clear();
     this.toSpawn = this.spawnQueue.length;
     this.spawnTimer = 0;
     this.waveSpawnInterval = composition.spawnInterval ?? 0.65;
@@ -257,6 +260,7 @@ export class GameState {
     this.spawnQueue = [];
     this.spawnQueueCursor = 0;
     this.spawnRoundRobinCursor = 0;
+    this.spawnVariantCursors.clear();
     this.wavesStarted = 0;
     this.waveEnemyCount = 0;
     this.waveEnemyComposition = { goblin: 0, goblinBrute: 0, goblinRider: 0, giantGoblin: 0, ghoul: 0, wraith: 0, undeadDragon: 0, skeletonKing: 0, skeletalCommander: 0 };
@@ -294,7 +298,7 @@ export class GameState {
         const type = this.spawnQueue[this.spawnQueueCursor];
         if (!type) break;
         const isFlying = ENEMY_CONFIG[type].movementType === "flying";
-        const groundRoute = isFlying ? null : this.groundRoute(spawn.entryCell);
+        const groundRoute = isFlying ? null : this.nextSpawnRoute(spawn.id, spawn.entryCell);
         if (!isFlying && !groundRoute) continue;
         this.spawnQueueCursor += 1;
         const route = isFlying
@@ -486,11 +490,37 @@ export class GameState {
 
   private refreshSpawnPaths(): void {
     this.spawnPaths.clear();
+    this.spawnPathVariants.clear();
     for (const spawn of this.layout.activeSpawns) {
-      const route = this.groundRoute(spawn.entryCell);
-      if (route) this.spawnPaths.set(spawn.id, route);
+      const routes = this.spawnRoutes(spawn);
+      if (routes.length > 0) {
+        this.spawnPathVariants.set(spawn.id, routes);
+        this.spawnPaths.set(spawn.id, routes[0]);
+      }
     }
     this.path = this.spawnPaths.get(this.layout.activeSpawns[0].id) ?? [];
+  }
+
+  private nextSpawnRoute(spawnId: string, entryCell: Cell): Cell[] | null {
+    const routes = this.spawnPathVariants.get(spawnId) ?? [];
+    if (routes.length === 0) return this.groundRoute(entryCell);
+    const cursor = this.spawnVariantCursors.get(spawnId) ?? 0;
+    this.spawnVariantCursors.set(spawnId, (cursor + 1) % routes.length);
+    return routes[cursor % routes.length];
+  }
+
+  private spawnRoutes(spawn: RunSpawn): Cell[][] {
+    if (this.map.id === "three-spawns" && spawn.id === "spawn-north") {
+      const left = findPathThrough(this.grid, spawn.entryCell, [
+        { x: 9, y: 29 }, { x: 9, y: 41 }, { x: 17, y: 52 }, this.exit,
+      ]);
+      const right = findPathThrough(this.grid, spawn.entryCell, [
+        { x: 33, y: 29 }, { x: 33, y: 41 }, { x: 25, y: 52 }, this.exit,
+      ]);
+      return [left, right].filter((route): route is Cell[] => route !== null);
+    }
+    const route = this.groundRoute(spawn.entryCell);
+    return route ? [route] : [];
   }
 
   /** Land mobs always use the shortest open grid path to the castle. */
