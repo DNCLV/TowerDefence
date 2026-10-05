@@ -175,7 +175,7 @@ export class QuaterniusEnemyFactory {
       this.recordVisualAudit({ status: "accepted", ...instanceAudit });
     }
 
-    // One compact bar: a dark background and a red fill whose width is the HP ratio.
+    // One compact bar: a gray background and a green fill whose width is the HP ratio.
     const healthBack = MeshBuilder.CreatePlane(`enemy-health-back-${id}`, { width: 0.72, height: 0.12 }, this.scene);
     healthBack.parent = root;
     healthBack.position.set(0, config.hpBarOffsetY, 0);
@@ -186,6 +186,10 @@ export class QuaterniusEnemyFactory {
     healthFill.position.set(0, config.hpBarOffsetY, -0.01);
     healthFill.billboardMode = Mesh.BILLBOARDMODE_ALL;
     healthFill.material = this.healthFront;
+    healthBack.renderingGroupId = 1;
+    healthFill.renderingGroupId = 2;
+    this.healthBack.disableDepthWrite = true;
+    this.healthFront.disableDepthWrite = true;
     healthBack.setEnabled(true);
     healthFill.setEnabled(true);
 

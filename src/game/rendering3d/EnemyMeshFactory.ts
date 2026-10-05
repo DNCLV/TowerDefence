@@ -76,6 +76,10 @@ export class EnemyMeshFactory {
     healthBack.parent = root; healthBack.position.set(0, 1.68, 0); healthBack.billboardMode = Mesh.BILLBOARDMODE_ALL; healthBack.material = this.healthBack;
     const healthFill = MeshBuilder.CreatePlane(`goblin-health-fill-${id}`, { width: 0.68, height: 0.06 }, this.scene);
     healthFill.parent = root; healthFill.position.set(0, 1.68, -0.01); healthFill.billboardMode = Mesh.BILLBOARDMODE_ALL; healthFill.material = this.healthFront;
+    healthBack.renderingGroupId = 1;
+    healthFill.renderingGroupId = 2;
+    this.healthBack.disableDepthWrite = true;
+    this.healthFront.disableDepthWrite = true;
     const barLocalHeight = visualConfig.hpBarOffsetY / fallbackScale;
     healthBack.position.y = barLocalHeight;
     healthFill.position.y = barLocalHeight;
