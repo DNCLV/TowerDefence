@@ -8,6 +8,8 @@ import { getSpecialization, TOWER_SPECIALIZATIONS } from "../config/Specializati
 import { FORMATION_BY_ID } from "../config/FormationConfig";
 import type { FormationId } from "../config/FormationConfig";
 import type { DamageType } from "../config/EnemyAffixConfig";
+import type { FactionId } from "../config/FactionConfig";
+import { getVeteranAttackSpeedMultiplier, getVeteranDamageMultiplier } from "../FactionBonusSystem";
 
 export interface Tower {
   id: number;
@@ -118,7 +120,7 @@ export function getTowerAttackMode(tower: Tower, enemy: Enemy): TowerAttackMode 
 }
 
 /** Selects the Sovereign profile at attack time; no profile owns separate cooldown state. */
-function getSovereignProfile(tower: Tower, enemy: Enemy): TowerAttackProfile {
+function getSovereignProfile(tower: Tower, enemy: Enemy, factionId?: FactionId): TowerAttackProfile {
   const config = DEFENDER_CONFIG.sovereign;
   const selectedMode = enemy.movementType === "flying" ? "antiAir" : enemy.combatClass === "fodder" ? "rapid" : "heavy";
   const profile = config.attackProfiles![selectedMode][tower.level - 1];
@@ -129,11 +131,13 @@ function getSovereignProfile(tower: Tower, enemy: Enemy): TowerAttackProfile {
   const formation = tower.formationId ? FORMATION_BY_ID[tower.formationId] : undefined;
   if (formation?.damageMultiplier) damage *= formation.damageMultiplier;
   if (formation?.rangedDamageMultiplier) damage *= formation.rangedDamageMultiplier;
-  return { mode, damage: Math.round(damage), fireRate: profile.fireRate * (formation?.attackSpeedMultiplier ?? 1) };
+  damage *= factionId ? getVeteranDamageMultiplier(factionId, tower) : 1;
+  return { mode, damage: Math.round(damage), fireRate: profile.fireRate * (formation?.attackSpeedMultiplier ?? 1)
+    * (factionId ? getVeteranAttackSpeedMultiplier(factionId, tower) : 1) };
 }
 
-export function getTowerAttackProfile(tower: Tower, enemy: Enemy): TowerAttackProfile {
-  if (tower.type === "sovereign") return getSovereignProfile(tower, enemy);
+export function getTowerAttackProfile(tower: Tower, enemy: Enemy, factionId?: FactionId): TowerAttackProfile {
+  if (tower.type === "sovereign") return getSovereignProfile(tower, enemy, factionId);
   const mode = getTowerAttackMode(tower, enemy);
   const formation = tower.formationId ? FORMATION_BY_ID[tower.formationId] : undefined;
   let damage = getTowerDamageAgainstEnemy(tower, enemy, mode);
@@ -141,7 +145,9 @@ export function getTowerAttackProfile(tower: Tower, enemy: Enemy): TowerAttackPr
   if (specialization?.bonusDamageClasses?.some((combatClass) => combatClass === enemy.combatClass)) damage *= specialization.bonusDamageMultiplier ?? 1;
   if (formation?.damageMultiplier) damage *= formation.damageMultiplier;
   if (formation?.rangedDamageMultiplier && mode !== "melee") damage *= formation.rangedDamageMultiplier;
-  const fireRate = tower.fireRate * (formation?.attackSpeedMultiplier ?? 1);
+  damage *= factionId ? getVeteranDamageMultiplier(factionId, tower) : 1;
+  const fireRate = tower.fireRate * (formation?.attackSpeedMultiplier ?? 1)
+    * (factionId ? getVeteranAttackSpeedMultiplier(factionId, tower) : 1);
   return { mode, damage: Math.round(damage), fireRate };
 }
 

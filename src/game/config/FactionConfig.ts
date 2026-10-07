@@ -1,6 +1,6 @@
 import type { DefenderType } from "./DefenderConfig";
 
-export type FactionId = "arcane-kingdom";
+export type FactionId = "arcane-kingdom" | "ancient-grove";
 
 export interface FactionDefinition {
   id: FactionId;
@@ -17,7 +17,14 @@ export const FACTIONS: Record<FactionId, FactionDefinition> = {
     id: "arcane-kingdom",
     name: "Royal Guard",
     tagline: "Balanced & Versatile",
-    description: "A balanced faction combining disciplined warriors with powerful arcane magic. Knights hold the frontline while Wizards and Battlemages control the battlefield from behind, making the faction adaptable to most situations without being overly specialized.",
+    description: "VETERAN CORPS · Towers grow stronger through combat experience. A balanced faction combining disciplined warriors with powerful arcane magic.",
+    units: ["blue-wizard", "holy-knight", "green-archer", "battlemage", "sovereign"],
+  },
+  "ancient-grove": {
+    id: "ancient-grove",
+    name: "Ancient Grove",
+    tagline: "Control & Sustained Exposure",
+    description: "LIVING MAZE · Long Grove-controlled paths progressively slow ground enemies. The faction relies on control and sustained exposure rather than high raw damage.",
     units: ["blue-wizard", "holy-knight", "green-archer", "battlemage", "sovereign"],
   },
 };

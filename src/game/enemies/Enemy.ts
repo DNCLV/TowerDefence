@@ -27,6 +27,8 @@ export interface Enemy {
   maxShield: number;
   slowMultiplier: number;
   slowSecondsRemaining: number;
+  /** Continuous exposure time in Ancient Grove's influenced path cells. */
+  livingMazeExposureSeconds: number;
   /** Ranger mark duration; it refreshes to a fixed duration and never stacks. */
   archerMarkSecondsRemaining: number;
   regenDelayRemaining: number;
@@ -63,6 +65,6 @@ export function createEnemy(id: number, type: EnemyType, path: Cell[], wave = 1)
     speed: ENEMY_BASE_SPEED_WORLD_PER_SECOND * config.speedMultiplier / WORLD_UNITS_PER_CELL,
     x: spawn.x, y: spawn.y, currentPathIndex: 0,
     path: path.map((cell) => ({ ...cell })), alive: true, affixes: [], shield: 0, maxShield: 0,
-    slowMultiplier: 1, slowSecondsRemaining: 0, archerMarkSecondsRemaining: 0, regenDelayRemaining: 0,
+    slowMultiplier: 1, slowSecondsRemaining: 0, livingMazeExposureSeconds: 0, archerMarkSecondsRemaining: 0, regenDelayRemaining: 0,
   };
 }

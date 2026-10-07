@@ -449,6 +449,9 @@ canvas { display: block; width: 100% !important; height: 100% !important; touch-
 .tower-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 10px 0; }
 .tower-stats span { padding: 6px 7px; border: 1px solid #b0d9e01b; border-radius: 6px; background: #d3f4ff08; color: #9db2b9; font-size: 9px; }
 .tower-stats strong { display: block; margin-top: 3px; color: #e3eff2; font-size: 12px; font-variant-numeric: tabular-nums; }
+.tower-veteran { display: grid; gap: 2px; margin: 7px 0 8px; padding: 6px 8px; border: 1px solid #d5b65b5c; border-radius: 6px; color: #cfdae0; background: linear-gradient(90deg, #caa84c14, #4c8fa01a); font-size: 9px; }
+.tower-veteran strong { color: #f0d48a; font-size: 9px; letter-spacing: .05em; }
+.tower-veteran small { color: #b7c9cf; font-size: 9px; font-variant-numeric: tabular-nums; }
 .tower-combat-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: -4px 0 10px; }
 .tower-combat-stats span { padding: 6px 7px; border: 1px solid #b0d9e01b; border-radius: 6px; background: #d3f4ff08; color: #9db2b9; font-size: 9px; }
 .tower-combat-stats strong { display: block; margin-top: 3px; color: #e3eff2; font-size: 12px; font-variant-numeric: tabular-nums; }

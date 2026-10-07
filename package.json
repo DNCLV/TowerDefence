@@ -11,6 +11,7 @@
     "test:enemy-waves": "node --import ./scripts/register-ts-loader.mjs scripts/test-enemy-waves.mjs && node --import ./scripts/register-ts-loader.mjs scripts/test-content-combat.mjs && npm run test:gameplay-depth",
     "test:content-combat": "node --import ./scripts/register-ts-loader.mjs scripts/test-content-combat.mjs",
     "test:gameplay-depth": "node --import ./scripts/register-ts-loader.mjs scripts/test-gameplay-depth.mjs",
+    "test:faction-bonuses": "node --import ./scripts/register-ts-loader.mjs scripts/test-faction-bonuses.mjs",
     "test:defender-specializations": "node --import ./scripts/register-ts-loader.mjs scripts/test-defender-specializations.mjs",
     "test:build-ux": "node scripts/test-build-ux.cjs",
     "test:content-assets": "node scripts/test-content-assets.cjs",

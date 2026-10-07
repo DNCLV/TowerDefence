@@ -33,6 +33,29 @@ async function evaluate(expression) {
   return response.result?.value;
 }
 
+async function waitForGroundEnemyBounds() {
+  const expectedTypes = ["goblin", "goblinBrute", "ghoul", "wraith", "giantGoblin", "skeletonKing"];
+  const deadline = Date.now() + 30000;
+  let latest;
+  while (Date.now() < deadline) {
+    latest = await evaluate(`(() => {
+      const expectedTypes = ${JSON.stringify(expectedTypes)};
+      const instances = window.__enemyVisualInstances ?? [];
+      const byType = Object.fromEntries(expectedTypes.map((type) => [type, instances.find((asset) => asset.type === type)]));
+      return {
+        ready: expectedTypes.every((type) => Boolean(byType[type])),
+        instances: expectedTypes.map((type) => byType[type] ?? { type, status: "not-created" }),
+        templates: (window.__enemyTemplateAudit ?? []).filter((asset) => expectedTypes.includes(asset.type)),
+        loadAudit: (window.__enemyVisualAudit ?? []).filter((asset) => expectedTypes.includes(asset.type)).slice(-12),
+        activeTypes: [...new Set((window.__towerDefenceGameState?.enemies ?? []).map((enemy) => enemy.type))],
+      };
+    })()`);
+    if (latest.ready) return latest.instances;
+    await delay(100);
+  }
+  throw new Error(`Enemy bounds unavailable after progressive visual load: ${JSON.stringify(latest)}`);
+}
+
 async function waitForChromePages(timeoutMs = 15000) {
   const deadline = Date.now() + timeoutMs;
   let lastError;
@@ -552,7 +575,7 @@ async function main() {
     sovereign: visualState.sovereignBranchChoice, sovereignSelected: visualState.sovereignLevel3,
     archer: visualState.archerBranchChoice, archerSelected: visualState.archerLevel3,
   }));
-  await delay(1000);
+  const groundEnemyBounds = await waitForGroundEnemyBounds();
   const result = await evaluate(`({
     enemyTemplates: window.__enemyTemplateAudit,
     enemyVisualInstances: window.__enemyVisualInstances,
@@ -581,7 +604,7 @@ async function main() {
     }));
   }
   const groundTypes = ["goblin", "goblinBrute", "ghoul", "wraith", "giantGoblin", "skeletonKing"];
-  const groundInstances = result.enemyVisualInstances?.filter((asset) => groundTypes.includes(asset.type)) ?? [];
+  const groundInstances = groundEnemyBounds.filter((asset) => groundTypes.includes(asset.type));
   const expectedGroundOffsets = { goblin: -0.12, goblinBrute: -0.02, ghoul: -0.02, wraith: 0.15, giantGoblin: -0.02, skeletonKing: 0 };
   if (groundInstances.length !== 6 || groundInstances.some((asset) => Math.abs(asset.groundOffsetY - expectedGroundOffsets[asset.type]) > 1e-9
     || Math.abs(asset.bounds.minY - asset.groundOffsetY) > 0.005)) {

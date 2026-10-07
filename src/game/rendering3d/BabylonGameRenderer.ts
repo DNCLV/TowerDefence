@@ -37,6 +37,8 @@ import { GameSpeedMultiplier, SimulationClock } from "../SimulationClock";
 import type { MinimapCameraView } from "../minimap/MinimapRenderer";
 import { groundPointToLogicalMap } from "../minimap/MinimapCoordinates";
 import type { LinesMesh } from "@babylonjs/core";
+import { getVeteranProgress } from "../FactionBonusSystem";
+import type { VeteranRank } from "../config/FactionBonusConfig";
 
 type TowerVisual = ArcherVisual | QuaterniusArcherVisual | BlueWizardVisual | HolyKnightVisual | QuaterniusDefenderVisual;
 type EnemyVisual = GoblinVisual | QuaterniusEnemyVisual;
@@ -156,6 +158,11 @@ export class BabylonGameRenderer {
   private readonly specializationVisuals = new Map<number, { id: TowerSpecializationId; mesh: AbstractMesh }>();
   private readonly activeSpecializationIds = new Set<number>();
   private readonly specializationMaterials = new Map<TowerSpecializationId, StandardMaterial>();
+  private readonly veteranVisuals = new Map<number, { rank: VeteranRank; meshes: AbstractMesh[] }>();
+  private readonly veteranMaterials = new Map<VeteranRank, StandardMaterial>();
+  private readonly livingMazeVisuals = new Map<string, AbstractMesh>();
+  private readonly livingMazeMaterial: StandardMaterial;
+  private livingMazeVisualSignature = "";
   private readonly affixMaterials = new Map<EnemyAffixId, StandardMaterial>();
   private readonly shieldBackMaterial: StandardMaterial;
   private readonly shieldFillMaterial: StandardMaterial;
@@ -163,6 +170,7 @@ export class BabylonGameRenderer {
   private readonly enemyShieldBars = new Map<number, { back: Mesh; fill: Mesh }>();
   private readonly enemySlowIndicators = new Map<number, Mesh>();
   private readonly enemySlowMaterial: StandardMaterial;
+  private readonly enemyMazeSlowMaterial: StandardMaterial;
   private readonly combatEffects: CombatEffects3D;
   private readonly simulationClock = new SimulationClock();
   private readonly environmentAssets: EnvironmentAssetLibrary;
@@ -296,6 +304,10 @@ export class BabylonGameRenderer {
     this.enemySlowMaterial.diffuseColor = Color3.FromHexString("#a9eaff");
     this.enemySlowMaterial.emissiveColor = Color3.FromHexString("#64cfff");
     this.enemySlowMaterial.alpha = 0.42; this.enemySlowMaterial.disableLighting = true;
+    this.enemyMazeSlowMaterial = new StandardMaterial("enemy-living-maze-indicator", this.scene);
+    this.enemyMazeSlowMaterial.diffuseColor = Color3.FromHexString("#83e3a5");
+    this.enemyMazeSlowMaterial.emissiveColor = Color3.FromHexString("#3aaa70");
+    this.enemyMazeSlowMaterial.alpha = 0.48; this.enemyMazeSlowMaterial.disableLighting = true;
     this.shieldBackMaterial = new StandardMaterial("enemy-shield-bar-back", this.scene);
     this.shieldBackMaterial.diffuseColor = Color3.FromHexString("#173149"); this.shieldBackMaterial.emissiveColor = Color3.FromHexString("#102c43");
     this.shieldBackMaterial.disableLighting = true; this.shieldBackMaterial.alpha = 0.78;
@@ -410,6 +422,17 @@ export class BabylonGameRenderer {
     this.allyAccentMaterial.diffuseColor = VISUAL_CONFIG.allyAccentColor;
     this.allyAccentMaterial.emissiveColor = VISUAL_CONFIG.allyAccentColor.scale(0.32);
     this.allyAccentMaterial.alpha = 0.72;
+    for (const [rank, color] of [[1, "#7ab8e8"], [2, "#83d6c2"], [3, "#f0cf72"]] as const) {
+      const material = new StandardMaterial(`veteran-rank-${rank}`, this.scene);
+      material.diffuseColor = Color3.FromHexString(color);
+      material.emissiveColor = material.diffuseColor.scale(0.8);
+      material.alpha = 0.82; material.disableLighting = true;
+      this.veteranMaterials.set(rank, material);
+    }
+    this.livingMazeMaterial = new StandardMaterial("living-maze-path-influence", this.scene);
+    this.livingMazeMaterial.diffuseColor = Color3.FromHexString("#64c58b");
+    this.livingMazeMaterial.emissiveColor = Color3.FromHexString("#2d8e62");
+    this.livingMazeMaterial.alpha = 0.14; this.livingMazeMaterial.disableLighting = true;
     this.installGestureInput();
     if (this.inputDebug) this.createInputDebugOverlay();
     if (this.cameraDebug) this.createCameraDebugOverlay();
@@ -548,6 +571,10 @@ export class BabylonGameRenderer {
     this.enemyDeathVisuals.clear();
     for (const label of this.enemyVisualDebugLabels.values()) label.dispose();
     this.enemyVisualDebugLabels.clear();
+    for (const visual of this.veteranVisuals.values()) visual.meshes.forEach((mesh) => mesh.dispose(false, false));
+    this.veteranVisuals.clear();
+    for (const mesh of this.livingMazeVisuals.values()) mesh.dispose(false, false);
+    this.livingMazeVisuals.clear();
     this.environmentAssets.dispose();
     this.blueWizardFactory.dispose();
     this.holyKnightFactory.dispose();
@@ -761,6 +788,8 @@ export class BabylonGameRenderer {
     this.syncTowers(gameState);
     this.syncFormationVisuals(gameState);
     this.syncSpecializationVisuals(gameState);
+    this.syncVeteranVisuals(gameState);
+    this.syncLivingMazeVisuals(gameState);
     this.updateSelectedTowerRange(gameState);
     this.updateSelectedTowerIndicator(gameState);
     if (processAttackEvents) this.beginEnemyDeathVisuals(gameState);
@@ -986,6 +1015,56 @@ export class BabylonGameRenderer {
     }
   }
 
+  private syncVeteranVisuals(gameState: GameState): void {
+    const activeIds = new Set<number>();
+    for (const tower of gameState.towers) {
+      const visual = this.towerVisuals.get(tower.id);
+      const rank = gameState.factionId === "arcane-kingdom" ? getVeteranProgress(gameState.factionId, tower).rank : 0;
+      const existing = this.veteranVisuals.get(tower.id);
+      if (!visual || rank === 0) {
+        existing?.meshes.forEach((mesh) => mesh.dispose(false, false));
+        this.veteranVisuals.delete(tower.id);
+        continue;
+      }
+      activeIds.add(tower.id);
+      if (existing?.rank === rank && existing.meshes.every((mesh) => mesh.parent === visual.root)) continue;
+      existing?.meshes.forEach((mesh) => mesh.dispose(false, false));
+      const marks = Array.from({ length: rank }, (_, index) => {
+        const mark = MeshBuilder.CreatePolyhedron(`veteran-mark-${tower.id}-${index}`, { type: 1, size: 0.105 }, this.scene);
+        mark.parent = visual.root;
+        mark.position.set((index - (rank - 1) / 2) * 0.15, 0.52 + rank * 0.025, 0);
+        mark.material = this.veteranMaterials.get(rank)!;
+        mark.isPickable = false;
+        mark.renderingGroupId = 2;
+        return mark;
+      });
+      this.veteranVisuals.set(tower.id, { rank, meshes: marks });
+    }
+    for (const [id, visual] of this.veteranVisuals) {
+      if (activeIds.has(id)) continue;
+      visual.meshes.forEach((mesh) => mesh.dispose(false, false));
+      this.veteranVisuals.delete(id);
+    }
+  }
+
+  private syncLivingMazeVisuals(gameState: GameState): void {
+    const cells = gameState.factionId === "ancient-grove" ? gameState.factionBonuses.getLivingMazeInfluencedCells() : [];
+    const signature = cells.map(({ x, y }) => `${x},${y}`).sort().join("|");
+    if (signature === this.livingMazeVisualSignature) return;
+    this.livingMazeVisualSignature = signature;
+    for (const mesh of this.livingMazeVisuals.values()) mesh.dispose(false, false);
+    this.livingMazeVisuals.clear();
+    for (const cell of cells) {
+      const point = gridToWorld3D(cell);
+      const mesh = MeshBuilder.CreateGround(`living-maze-cell-${cell.x}-${cell.y}`, { width: 0.76, height: 0.76 }, this.scene);
+      mesh.position.set(point.x, 0.024, point.z);
+      mesh.material = this.livingMazeMaterial;
+      mesh.isPickable = false;
+      mesh.renderingGroupId = 1;
+      this.livingMazeVisuals.set(`${cell.x},${cell.y}`, mesh);
+    }
+  }
+
   private syncEnemyAffixVisual(enemyId: number, enemy: GameState["enemies"][number], root: TransformNode, hpBarY: number): void {
     const signature = enemy.affixes.map(({ id, tier }) => `${id}:${tier}`).join("|");
     let visual = this.enemyAffixVisuals.get(enemyId);
@@ -1018,13 +1097,15 @@ export class BabylonGameRenderer {
       shield.fill.position.x = -0.34 + ratio * 0.34;
     }
     let slowIndicator = this.enemySlowIndicators.get(enemyId);
-    if (enemy.slowSecondsRemaining > 0) {
+    const livingMazeSlowed = enemy.livingMazeExposureSeconds > 0;
+    if (enemy.slowSecondsRemaining > 0 || livingMazeSlowed) {
       if (!slowIndicator) {
         slowIndicator = MeshBuilder.CreateTorus(`enemy-frost-slow-${enemyId}`, { diameter: 0.64, thickness: 0.035, tessellation: 20 }, this.scene);
         slowIndicator.parent = root; slowIndicator.position.y = 0.045;
-        slowIndicator.material = this.enemySlowMaterial; slowIndicator.isPickable = false; slowIndicator.renderingGroupId = 1;
+        slowIndicator.isPickable = false; slowIndicator.renderingGroupId = 1;
         this.enemySlowIndicators.set(enemyId, slowIndicator);
       }
+      slowIndicator.material = livingMazeSlowed ? this.enemyMazeSlowMaterial : this.enemySlowMaterial;
       slowIndicator.setEnabled(true);
     } else if (slowIndicator) {
       slowIndicator.setEnabled(false);
@@ -1729,7 +1810,7 @@ export class BabylonGameRenderer {
     const start = this.gesture;
     if (!start) return;
     const anchor = start.panAnchor;
-    if (!anchor || !start.startTarget) return;
+    if (!start.startTarget) return;
     // Project both points through the camera pose from pointer-down. Recomputing
     // the current ray from the already-panned camera would damp long drags.
     const liveTarget = this.camera.target.clone();
@@ -1738,11 +1819,32 @@ export class BabylonGameRenderer {
     const current = this.groundPointAt(clientX, clientY);
     this.camera.target.copyFrom(liveTarget);
     this.camera.computeWorldMatrix();
-    if (!current) return;
     const zoomScale = this.camera.radius / VISUAL_CONFIG.defaultCameraRadius;
     const panScale = VISUAL_CONFIG.cameraPanSpeed * Math.pow(zoomScale, VISUAL_CONFIG.cameraPanZoomMultiplier);
-    this.camera.target.x = start.startTarget.x + (anchor.x - current.x) * panScale;
-    this.camera.target.z = start.startTarget.z + (anchor.z - current.z) * panScale;
+    if (anchor && current) {
+      this.camera.target.x = start.startTarget.x + (anchor.x - current.x) * panScale;
+      this.camera.target.z = start.startTarget.z + (anchor.z - current.z) * panScale;
+    } else {
+      // Some mobile browsers cannot intersect the touch ray with the ground
+      // near the edge of the canvas or while crossing elevated terrain. Keep
+      // one-finger navigation usable by deriving a stable world-space delta
+      // from the camera basis instead of dropping the gesture entirely.
+      const bounds = this.canvas.getBoundingClientRect();
+      const renderHeight = Math.max(1, this.engine.getRenderHeight());
+      const cssHeight = Math.max(1, bounds.height);
+      const pixelsPerWorldUnit = renderHeight / (2 * this.camera.radius * Math.tan(this.camera.fov / 2));
+      const worldUnitsPerCssPixel = 1 / Math.max(1, pixelsPerWorldUnit * renderHeight / cssHeight);
+      const deltaX = clientX - start.startX;
+      const deltaY = clientY - start.startY;
+      const right = this.camera.getDirection(Vector3.Right());
+      const up = this.camera.getDirection(Vector3.Up());
+      right.y = 0;
+      up.y = 0;
+      if (right.lengthSquared() > 1e-6) right.normalize();
+      if (up.lengthSquared() > 1e-6) up.normalize();
+      this.camera.target.x = start.startTarget.x + (-right.x * deltaX - up.x * deltaY) * worldUnitsPerCssPixel * panScale;
+      this.camera.target.z = start.startTarget.z + (-right.z * deltaX - up.z * deltaY) * worldUnitsPerCssPixel * panScale;
+    }
     this.clampCameraToMap();
     this.camera.computeWorldMatrix();
   }

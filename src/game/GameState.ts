@@ -17,6 +17,7 @@ import type { TowerSpecializationId } from "./config/SpecializationConfig";
 import { FORMATION_BY_ID, resolveFormation } from "./config/FormationConfig";
 import { EnemyAffixSystem, applyEnemySlow, getCommanderAuraMultiplier, getEnemyDamageMultiplier, getEnemySpeedMultiplier, updateEnemyAffixes, createRunSeed } from "./enemies/EnemyAffixSystem";
 import type { AffixMilestoneWarning, DamageType } from "./config/EnemyAffixConfig";
+import { FactionBonusSystem } from "./FactionBonusSystem";
 
 export type PlacementResult = "placed" | "not-enough-gold" | "invalid-cell" | "enemy-occupied" | "blocks-path" | "game-over";
 export type UpgradeResult = "upgraded" | "specialization-required" | "invalid-specialization" | "not-enough-gold" | "max-level" | "game-over" | "tower-not-found";
@@ -85,6 +86,7 @@ export class GameState {
   hpTierWarning?: HPTierWarning;
   affixWarning?: AffixMilestoneWarning;
   readonly affixSystem: EnemyAffixSystem;
+  readonly factionBonuses: FactionBonusSystem;
   gameOver = false;
   private nextTowerId = 1;
   private nextEnemyId = 1;
@@ -111,6 +113,7 @@ export class GameState {
     this.map = typeof map === "string" ? MAPS[map] : map;
     this.faction = getFaction(factionId);
     this.factionId = this.faction.id;
+    this.factionBonuses = new FactionBonusSystem(this.factionId);
     this.availableUnits = this.faction.units;
     this.grid = new Grid(this.map.width, this.map.height);
     this.affixSystem = new EnemyAffixSystem(affixSeed);
@@ -122,6 +125,7 @@ export class GameState {
     this.layout = this.copyMapLayout();
     this.path = [];
     this.refreshSpawnPaths();
+    this.refreshLivingMazeInfluence();
     this.gold = this.map.startingGold;
     this.logLayout();
   }
@@ -170,6 +174,7 @@ export class GameState {
     this.grid.setBlocked(tower.cell, false);
     this.refreshFormations();
     this.refreshSpawnPaths();
+    this.refreshLivingMazeInfluence();
     if (this.waveActive) {
       this.wavePath = this.path.map((cell) => ({ ...cell }));
       this.repathActiveEnemies();
@@ -193,6 +198,7 @@ export class GameState {
     }
     this.towers.push(createBasicTower(this.nextTowerId++, cell, type));
     this.refreshFormations();
+    this.refreshLivingMazeInfluence();
     return "placed";
   }
 
@@ -278,6 +284,7 @@ export class GameState {
     this.path = [];
     this.spawnPaths.clear();
     this.refreshSpawnPaths();
+    this.refreshLivingMazeInfluence();
     this.gold = this.map.startingGold;
     this.lives = BALANCE.startingLives;
     this.towers = [];
@@ -369,7 +376,9 @@ export class GameState {
     for (const enemy of this.enemies) {
       updateEnemyAffixes(enemy, deltaSeconds);
       updateEnemySpecialStatuses(enemy, deltaSeconds);
-      this.moveEnemy(enemy, deltaSeconds, getCommanderAuraMultiplier(enemy, this.enemies) * getEnemySpeedMultiplier(enemy));
+      this.factionBonuses.updateLivingMazeExposure(enemy, deltaSeconds);
+      this.moveEnemy(enemy, deltaSeconds, getCommanderAuraMultiplier(enemy, this.enemies)
+        * getEnemySpeedMultiplier(enemy) * this.factionBonuses.getLivingMazeSlowMultiplier(enemy));
     }
     this.updateTowers(deltaSeconds);
     for (const enemy of this.enemies) {
@@ -432,7 +441,7 @@ export class GameState {
       if (tower.cooldownRemaining > 0) continue;
       const target = this.findTowerTarget(tower);
       if (!target) continue;
-      const profile = getTowerAttackProfile(tower, target);
+      const profile = getTowerAttackProfile(tower, target, this.factionId);
       const primaryDamage = profile.damage;
       tower.cooldownRemaining = 1 / profile.fireRate;
       const primaryDamageType = getTowerDamageType(tower, profile.mode);
@@ -453,7 +462,7 @@ export class GameState {
           if (!candidate) break;
           hitIds.add(candidate.id);
           const sourceX = previous.x, sourceY = previous.y;
-          const chainedProfile = getTowerAttackProfile(tower, candidate);
+          const chainedProfile = getTowerAttackProfile(tower, candidate, this.factionId);
           const chainDamage = Math.round(chainedProfile.damage * chain.damageRatios[index]);
           this.applyTowerDamage(tower, candidate, chainDamage, chainedProfile.mode, false, "chain", getTowerDamageType(tower, chainedProfile.mode), sourceX, sourceY);
           previous = candidate;
@@ -531,6 +540,10 @@ export class GameState {
 
   private refreshFormations(): void {
     for (const tower of this.towers) tower.formationId = resolveFormation(tower, this.towers)?.id;
+  }
+
+  private refreshLivingMazeInfluence(): void {
+    this.factionBonuses.rebuildLivingMazeInfluence(this.towers, [...this.spawnPaths.values()]);
   }
 
   private distanceToTower(tower: Tower, enemy: Enemy): number {

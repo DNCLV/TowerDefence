@@ -16,6 +16,7 @@ import type { TowerSpecializationId } from "./game/config/SpecializationConfig";
 import { FORMATION_BY_ID } from "./game/config/FormationConfig";
 import { AFFIXES, AFFIX_MILESTONES } from "./game/config/EnemyAffixConfig";
 import { getEnemyHpMultiplier } from "./game/enemies/Enemy";
+import { getVeteranProgress } from "./game/FactionBonusSystem";
 
 const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) throw new Error("Missing #app root element");
@@ -270,6 +271,7 @@ ui.innerHTML = `
     <div id="tower-specialization" class="tower-specialization" hidden></div>
     <small id="tower-specialization-detail" class="tower-specialization-detail" hidden></small>
     <div id="tower-formation" class="tower-formation" hidden></div>
+    <div id="tower-veteran" class="tower-veteran" hidden></div>
     <div class="tower-stats">
       <span>Damage <strong id="tower-damage">—</strong></span>
       <span>Range <strong id="tower-range">—</strong></span>
@@ -451,6 +453,7 @@ const towerDamageDone = query<HTMLElement>("#tower-damage-done");
 const towerSpecialization = query<HTMLElement>("#tower-specialization");
 const towerSpecializationDetail = query<HTMLElement>("#tower-specialization-detail");
 const towerFormation = query<HTMLElement>("#tower-formation");
+const towerVeteran = query<HTMLElement>("#tower-veteran");
 const specializationChoice = query<HTMLElement>("#specialization-choice");
 const specializationOptions = query<HTMLElement>("#specialization-options");
 const upgradeButton = query<HTMLButtonElement>("#upgrade-button");
@@ -775,7 +778,7 @@ function renderSelectedTower(state: GameState): void {
   const renderKey = [
     tower.id, tower.type, tower.level, tower.damage, tower.range, tower.fireRate,
     tower.specializationId, tower.formationId, tower.combatStats.kills, tower.combatStats.damageDone,
-    state.gold, pendingSellTowerId, selectionMessage,
+    state.factionId, state.gold, pendingSellTowerId, selectionMessage,
   ].join("|");
   if (renderKey === lastSelectedTowerRenderKey) return;
   lastSelectedTowerRenderKey = renderKey;
@@ -803,6 +806,21 @@ function renderSelectedTower(state: GameState): void {
     bonus.className = "tower-formation-bonus";
     bonus.textContent = formation.description;
     towerFormation.append(heading, bonus);
+  }
+  const veteran = getVeteranProgress(state.factionId, tower);
+  if (state.factionId === "arcane-kingdom") {
+    towerVeteran.hidden = false;
+    const next = veteran.next;
+    const progress = next
+      ? `${veteran.kills} / ${next.requiredKills} kills · ${veteran.damage.toLocaleString("en-US")} / ${next.requiredDamage.toLocaleString("en-US")} damage`
+      : `${veteran.kills} kills · ${veteran.damage.toLocaleString("en-US")} damage · MAX RANK`;
+    const bonuses = veteran.rank === 0
+      ? "No combat bonuses yet"
+      : `+${Math.round((veteran.damageMultiplier - 1) * 100)}% Damage · +${Math.round((veteran.attackSpeedMultiplier - 1) * 100)}% Attack Speed`;
+    towerVeteran.innerHTML = `<strong>VETERAN CORPS · ${veteran.label}</strong><small>${progress}</small><small>${bonuses}</small>`;
+  } else {
+    towerVeteran.hidden = true;
+    towerVeteran.replaceChildren();
   }
   if (specializationChoiceTowerId !== undefined && specializationChoiceTowerId !== tower.id) closeSpecializationChoice();
   const isSovereign = tower.type === "sovereign";
@@ -1151,6 +1169,10 @@ function renderBattlefieldInfo(state: GameState): void {
     return `<li class="info-milestone"><strong>TIER ${romanTier[tier]} · ${status} AT WAVE ${milestone}</strong><ul>${contents}</ul></li>`;
   }).join("")}</ul>${nextAffix ? `<p class="info-next-milestone">NEXT AFFIX TIER <strong>Tier ${romanTier[nextAffix.tier]} · Wave ${nextAffix.wave}</strong></p>` : "<p class=\"info-muted\">All affix tiers are unlocked for this run.</p>"}</section>`);
   parts.push(`<section class="battlefield-info-block"><h3>RUN</h3><p>Map: ${state.map.name}<br>Faction: ${state.faction.name}</p></section>`);
+  const factionBonus = state.factionId === "arcane-kingdom"
+    ? `<strong>VETERAN CORPS</strong><br><small>Royal Guard towers gain ranks through combat experience.</small>`
+    : `<strong>LIVING MAZE</strong><br><small>Ground enemies are slowed on Grove-influenced paths. Current maximum slow: <strong>20%</strong>. Flying enemies are unaffected.</small>`;
+  parts.push(`<section class="battlefield-info-block"><h3>FACTION BONUS</h3><p>${factionBonus}</p></section>`);
   const signature = parts.join("");
   if (infoContent.dataset.signature === signature) return;
   infoContent.dataset.signature = signature;
