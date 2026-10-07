@@ -7,35 +7,43 @@ import type { Enemy } from "./enemies/Enemy";
 export interface VeteranProgress {
   rank: VeteranRank;
   label: string;
-  kills: number;
   damage: number;
-  next?: { rank: VeteranRank; label: string; requiredKills: number; requiredDamage: number };
+  next?: { rank: VeteranRank; label: string; requiredDamage: number };
+  damageBonus: number;
+  attackSpeedBonus: number;
   damageMultiplier: number;
   attackSpeedMultiplier: number;
 }
 
-export function getVeteranRank(kills: number, damage: number): VeteranRank {
+export function getVeteranRank(damage: number): VeteranRank {
   let rank: VeteranRank = 0;
   for (const tier of VETERAN_TIERS) {
-    if (kills >= tier.requiredKills || damage >= tier.requiredDamage) rank = tier.rank;
+    if (damage >= tier.requiredDamage) rank = tier.rank;
   }
   return rank;
 }
 
 export function getVeteranProgress(factionId: FactionId, tower: Pick<Tower, "combatStats">): VeteranProgress {
-  const kills = tower.combatStats.kills;
   const damage = tower.combatStats.damageDone;
-  const rank = factionId === FACTION_BONUS_CONFIG.royalGuardId ? getVeteranRank(kills, damage) : 0;
+  const rank = factionId === FACTION_BONUS_CONFIG.royalGuardId ? getVeteranRank(damage) : 0;
   const tier = VETERAN_TIERS[rank - 1];
   const next = VETERAN_TIERS[rank];
+  let damageBonus = 0;
+  let attackSpeedBonus = 0;
+  for (const candidate of VETERAN_TIERS) {
+    if (candidate.rank > rank) break;
+    damageBonus += candidate.damageBonus;
+    attackSpeedBonus += candidate.attackSpeedBonus;
+  }
   return {
     rank,
-    label: tier?.label ?? "Unranked",
-    kills,
+    label: tier?.label ?? "Veteran",
     damage,
-    next: next ? { rank: next.rank, label: next.label, requiredKills: next.requiredKills, requiredDamage: next.requiredDamage } : undefined,
-    damageMultiplier: tier?.damageMultiplier ?? 1,
-    attackSpeedMultiplier: tier?.attackSpeedMultiplier ?? 1,
+    next: next ? { rank: next.rank, label: next.label, requiredDamage: next.requiredDamage } : undefined,
+    damageBonus,
+    attackSpeedBonus,
+    damageMultiplier: 1 + damageBonus,
+    attackSpeedMultiplier: 1 + attackSpeedBonus,
   };
 }
 

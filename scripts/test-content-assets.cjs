@@ -278,17 +278,54 @@ async function main() {
   const factionSelection = await evaluate(`(() => ({
     title: document.querySelector('#faction-select-title')?.textContent.trim(),
     names: [...document.querySelectorAll('.faction-choice-copy strong')].map((node) => node.textContent.trim().toUpperCase()),
+    selectedCount: document.querySelectorAll('.faction-choice-card[aria-checked="true"]').length,
+    expandedCount: [...document.querySelectorAll('.faction-card-details')].filter((node) => !node.hidden).length,
+    unitsVisible: document.querySelector('.faction-choice-card.is-selected .faction-unit-list')?.children.length,
+    actionCount: document.querySelectorAll('#start-battlefield').length,
     startText: document.querySelector('#start-battlefield')?.textContent.trim().replace(/\\s+/g, ' ').toUpperCase(),
     selectedMap: document.querySelector('.faction-select-screen .map-select-footer > span')?.textContent.trim(),
     minimapAbsentBeforeGameplay: !document.querySelector('#minimap-panel') && !document.querySelector('#game-minimap'),
   }))()`);
   if (!factionSelectReady || factionSelection.title !== "CHOOSE FACTION"
     || !factionSelection.names.includes("ROYAL GUARD")
-    || factionSelection.startText !== "START BATTLEFIELD →"
+    || factionSelection.selectedCount !== 1 || factionSelection.expandedCount !== 1
+    || factionSelection.unitsVisible !== 5 || factionSelection.actionCount !== 1
+    || factionSelection.startText !== "CONTINUE WITH ROYAL GUARD →"
     || !factionSelection.selectedMap?.startsWith("Open Field")
     || !factionSelection.minimapAbsentBeforeGameplay) {
     throw new Error(`Faction selection flow failed: ${JSON.stringify({ factionSelectReady, factionSelection })}`);
   }
+  await evaluate(`(() => {
+    const grove = document.querySelector('[data-faction-id="ancient-grove"]');
+    grove.click();
+    if (grove.getAttribute('aria-checked') !== 'true' || !grove.classList.contains('is-selected')
+      || document.querySelectorAll('.faction-choice-card[aria-checked="true"]').length !== 1
+      || document.querySelector('.faction-choice-card.is-selected .faction-card-details').hidden
+      || document.querySelector('#start-battlefield').textContent.trim().replace(/\\s+/g, ' ').toUpperCase() !== 'CONTINUE WITH ANCIENT GROVE →') {
+      throw new Error('Faction card selection did not update the selected details and global action.');
+    }
+    grove.focus();
+    grove.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+    if (document.querySelector('.faction-choice-card[aria-checked="true"]')?.dataset.factionId !== 'arcane-kingdom'
+      || document.querySelector('#start-battlefield').textContent.trim().replace(/\\s+/g, ' ').toUpperCase() !== 'CONTINUE WITH ROYAL GUARD →') {
+      throw new Error('Keyboard faction selection did not update the global action.');
+    }
+  })()`);
+  await command("Emulation.setDeviceMetricsOverride", { width: 360, height: 640, deviceScaleFactor: 1, mobile: true });
+  const compactFactionLayout = await evaluate(`(() => {
+    const app = document.querySelector('#app').getBoundingClientRect();
+    const action = document.querySelector('#start-battlefield').getBoundingClientRect();
+    const grid = document.querySelector('.faction-choice-grid').getBoundingClientRect();
+    const selected = document.querySelector('.faction-choice-card.is-selected').getBoundingClientRect();
+    return { viewportWidth: document.documentElement.clientWidth, pageWidth: document.documentElement.scrollWidth,
+      appBottom: app.bottom, actionBottom: action.bottom, actionVisible: action.height > 0 && action.bottom <= app.bottom,
+      cards: document.querySelectorAll('.faction-choice-card').length, selectedWithinList: selected.right <= grid.right };
+  })()`);
+  if (compactFactionLayout.pageWidth > compactFactionLayout.viewportWidth || !compactFactionLayout.actionVisible
+    || compactFactionLayout.cards < 2 || !compactFactionLayout.selectedWithinList) {
+    throw new Error(`Compact mobile faction layout failed: ${JSON.stringify(compactFactionLayout)}`);
+  }
+  await command("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
   await evaluate("document.querySelector('#start-battlefield').click()");
   let initialRunReady = false;
   for (let attempt = 0; attempt < 100; attempt += 1) {
@@ -1416,7 +1453,7 @@ async function main() {
     selectedMap: document.querySelector('.faction-select-screen .map-select-footer > span')?.textContent.trim(),
   }))()`);
   if (!threeSpawnFactionReady || threeSpawnFaction.name !== "ROYAL GUARD"
-    || threeSpawnFaction.startText !== "START BATTLEFIELD →"
+    || threeSpawnFaction.startText !== "CONTINUE WITH ROYAL GUARD →"
     || !threeSpawnFaction.selectedMap?.startsWith("Triple Convergence")) {
     throw new Error(`Three-spawn map was not carried through faction selection: ${JSON.stringify({ threeSpawnFactionReady, threeSpawnFaction })}`);
   }

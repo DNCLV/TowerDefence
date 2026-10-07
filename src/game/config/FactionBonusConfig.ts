@@ -5,16 +5,16 @@ export type VeteranRank = 0 | 1 | 2 | 3;
 export interface VeteranTierConfig {
   rank: VeteranRank;
   label: string;
-  requiredKills: number;
   requiredDamage: number;
-  damageMultiplier: number;
-  attackSpeedMultiplier: number;
+  damageBonus: number;
+  attackSpeedBonus: number;
 }
 
+/** Each tier adds to the previous tier; getVeteranProgress resolves the active cumulative total. */
 export const VETERAN_TIERS: readonly VeteranTierConfig[] = [
-  { rank: 1, label: "Veteran I", requiredKills: 25, requiredDamage: 1_500, damageMultiplier: 1.05, attackSpeedMultiplier: 1 },
-  { rank: 2, label: "Veteran II", requiredKills: 75, requiredDamage: 4_500, damageMultiplier: 1.05, attackSpeedMultiplier: 1.05 },
-  { rank: 3, label: "Veteran III", requiredKills: 150, requiredDamage: 9_000, damageMultiplier: 1.08, attackSpeedMultiplier: 1.05 },
+  { rank: 1, label: "Veteran I", requiredDamage: 40_000, damageBonus: 0.05, attackSpeedBonus: 0 },
+  { rank: 2, label: "Veteran II", requiredDamage: 150_000, damageBonus: 0, attackSpeedBonus: 0.05 },
+  { rank: 3, label: "Veteran III", requiredDamage: 350_000, damageBonus: 0.08, attackSpeedBonus: 0.05 },
 ];
 
 export const FACTION_BONUS_CONFIG = {

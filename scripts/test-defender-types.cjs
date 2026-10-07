@@ -366,6 +366,48 @@ async function main() {
     || JSON.stringify(rendererPlacement.classes) !== JSON.stringify([false,true,false,false])) {
     throw new Error("Build/tower info-panel state priority failed: " + JSON.stringify(rendererPlacement));
   }
+  const setVeteranDamage = async (damage, kills = 1000000) => {
+    await evaluate(`(() => {
+      const state = window.__towerDefenceGameState;
+      const tower = state.towers.find((candidate) => candidate.id === ${rendererPlacement.wizardTowerId});
+      if (!window.__veteranUiTestOriginal) window.__veteranUiTestOriginal = { damageDone: tower.combatStats.damageDone, kills: tower.combatStats.kills };
+      tower.combatStats.damageDone = ${damage};
+      tower.combatStats.kills = ${kills};
+      window.__towerDefenceUi.selectTower(tower.id);
+    })()`);
+    await delay(100);
+    return evaluate(`(() => {
+      const tile = document.querySelector('#tower-veteran');
+      const rect = tile.getBoundingClientRect();
+      return { visible: !tile.hidden, text: tile.textContent.trim().replace(/\\s+/g, ' '),
+        lines: tile.children.length, width: rect.width, height: rect.height,
+        rankUpFlash: tile.classList.contains('is-ranking-up'), pageWidth: document.documentElement.scrollWidth,
+        viewportWidth: document.documentElement.clientWidth, tileRight: rect.right };
+    })()`);
+  };
+  const veteranUi = {
+    rank0: await setVeteranDamage(39999),
+    rank1: await setVeteranDamage(40000),
+    rank2: await setVeteranDamage(150000),
+    rank3: await setVeteranDamage(350000),
+  };
+  if (!veteranUi.rank0.visible || !veteranUi.rank0.text.includes('VETERAN') || !veteranUi.rank0.text.includes('39,999 / 40,000 DMG')
+    || veteranUi.rank0.text.includes('KILL') || veteranUi.rank0.lines > 3
+    || !veteranUi.rank1.text.includes('VETERAN I ★') || !veteranUi.rank1.text.includes('+5% DMG')
+    || !veteranUi.rank2.text.includes('VETERAN II ★★') || !veteranUi.rank2.text.includes('150,000 / 350,000 DMG')
+    || !veteranUi.rank2.text.includes('+5% DMG · +5% ASPD')
+    || !veteranUi.rank3.text.includes('VETERAN III ★★★') || !veteranUi.rank3.text.includes('350,000 DMG · MAX')
+    || !veteranUi.rank3.text.includes('+13% DMG · +10% ASPD') || !veteranUi.rank3.rankUpFlash
+    || [veteranUi.rank0, veteranUi.rank1, veteranUi.rank2, veteranUi.rank3].some((state) => state.lines > 3 || state.width > 182 || state.height > 52
+      || state.pageWidth > state.viewportWidth || state.tileRight > state.viewportWidth)) {
+    throw new Error(`Veteran micro-UI failed: ${JSON.stringify(veteranUi)}`);
+  }
+  await evaluate(`(() => {
+    const state = window.__towerDefenceGameState;
+    const tower = state.towers.find((candidate) => candidate.id === ${rendererPlacement.wizardTowerId});
+    Object.assign(tower.combatStats, window.__veteranUiTestOriginal);
+    delete window.__veteranUiTestOriginal;
+  })()`);
   await command("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
   const portrait390 = await evaluate(`(() => {
     const rect=(selector)=>{const r=document.querySelector(selector).getBoundingClientRect();return {left:r.left,top:r.top,right:r.right,bottom:r.bottom,width:r.width,height:r.height}};

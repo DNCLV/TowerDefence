@@ -185,29 +185,53 @@ canvas { display: block; width: 100% !important; height: 100% !important; touch-
 }
 @media (prefers-reduced-motion: reduce) { .map-select-screen, .map-choice-card { transition: none; } }
 
-.faction-select-panel { width: min(100%, 720px); }
-.faction-choice-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; width: min(100%, 520px); margin: 0 auto; }
+.faction-select-screen { align-items: stretch; }
+.faction-select-panel { width: min(100%, 720px); min-height: 0; gap: 10px; }
+.faction-select-panel .map-select-heading { flex: 0 0 auto; }
+.faction-select-panel .map-select-eyebrow { margin-bottom: 4px; }
+.faction-select-panel h1 { font-size: clamp(28px, 7vw, 38px); }
+.faction-select-panel .map-select-tagline { margin-top: 6px; }
+.faction-select-panel .map-select-intro { margin-top: 4px; font-size: 11px; }
+.faction-choice-grid { display: grid; flex: 1 1 auto; align-content: start; grid-template-columns: minmax(0, 1fr); gap: 7px; width: min(100%, 560px); min-height: 0; margin: 0 auto; padding: 2px 4px 5px; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #8fb6c64d transparent; }
 .faction-choice-card {
-  position: relative; display: grid; grid-template-columns: 54px 1fr; gap: 8px 14px; padding: 18px;
-  color: inherit; border: 2px solid #e6c987; border-radius: 9px; outline: 1px solid #edcf884a; outline-offset: 3px;
-  background: linear-gradient(155deg, #364450, #1b2c38 54%, #101e2a); box-shadow: inset 0 1px #fff4d549, inset 0 0 0 5px #b8944e19, 0 0 0 1px #dfc17a6e, 0 0 27px #edc86a43, 0 15px 28px #000a;
+  position: relative; display: grid; grid-template-columns: 30px minmax(0, 1fr); align-items: center; gap: 3px 9px; width: 100%; min-width: 0; padding: 8px 10px;
+  color: inherit; text-align: left; border: 1px solid #8fb6c64d; border-radius: 7px; outline: none;
+  background: linear-gradient(155deg, #263b49e8, #152532f2 48%, #0d1a27fa); box-shadow: inset 0 1px #e3f4fa15, 0 5px 12px #0005;
+  cursor: pointer; touch-action: manipulation; transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease;
 }
-.faction-card-crest { grid-row: span 2; display: grid; place-items: center; width: 54px; height: 54px; color: #f2d68e; border: 1px solid #d9bb7b88; border-radius: 50%; background: radial-gradient(circle, #9d783b66, #203644); box-shadow: 0 0 18px #eac87144; font: 28px Georgia, serif; }
-.faction-choice-copy { display: grid; align-content: center; gap: 4px; }
-.faction-choice-copy strong { color: #f3d994; font: 700 25px/1.05 Georgia, "Times New Roman", serif; text-shadow: 0 0 12px #f0ca7260; }
-.faction-choice-copy small { color: #a9d4df; font-size: 10px; font-weight: 900; letter-spacing: .16em; text-transform: uppercase; }
-.faction-choice-copy p { margin: 5px 0 0; color: #c0d0d4; font: 13px/1.4 Georgia, serif; }
-.faction-unit-heading { grid-column: 1 / -1; padding-top: 11px; border-top: 1px solid #9ac2cf35; color: #96bfcb; font-size: 9px; font-weight: 900; letter-spacing: .15em; }
-.faction-unit-list { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 9px; }
-.faction-unit { display: inline-flex; align-items: center; gap: 5px; min-width: 0; color: #d7e9ed; font-size: 10px; font-weight: 800; }
-.faction-unit-portrait { display: grid; place-items: center; width: 27px; height: 32px; overflow: hidden; border: 1px solid #8fb6c66c; border-radius: 4px; background: #0d1d29; }
+.faction-choice-card:hover { border-color: #a9d4e0; }
+.faction-choice-card:focus-visible { outline: 2px solid #e9d28e; outline-offset: 2px; }
+.faction-choice-card.is-selected { border-color: #e6c987; background: linear-gradient(155deg, #364450, #1b2c38 54%, #101e2a); box-shadow: inset 0 1px #fff4d549, inset 0 0 0 2px #b8944e19, 0 0 0 1px #dfc17a6e, 0 0 16px #edc86a35; }
+.faction-card-crest { grid-row: span 2; display: grid; place-items: center; width: 28px; height: 28px; color: #c4d8df; border: 1px solid #9fc2cd66; border-radius: 50%; background: radial-gradient(circle, #57718466, #203644); font: 16px Georgia, serif; }
+.faction-choice-card.is-selected .faction-card-crest { color: #f2d68e; border-color: #d9bb7b; background: radial-gradient(circle, #9d783b66, #203644); box-shadow: 0 0 12px #eac8713d; }
+.faction-choice-copy { display: grid; align-content: center; gap: 2px; min-width: 0; }
+.faction-choice-copy strong { overflow: hidden; color: #d5e6ea; font: 700 17px/1.05 Georgia, "Times New Roman", serif; text-overflow: ellipsis; white-space: nowrap; }
+.faction-choice-card.is-selected .faction-choice-copy strong { color: #f3d994; text-shadow: 0 0 12px #f0ca7260; }
+.faction-choice-copy small { overflow: hidden; color: #a9d4df; font-size: 9px; font-weight: 900; letter-spacing: .12em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
+.faction-card-bonus { grid-column: 2; display: flex; align-items: baseline; gap: 6px; min-width: 0; color: #b8cbd0; font: 10px/1.25 Georgia, serif; }
+.faction-card-bonus strong { flex: 0 0 auto; color: #e5c981; font: 900 8px/1 system-ui, sans-serif; letter-spacing: .09em; }
+.faction-card-bonus span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.faction-card-details { grid-column: 1 / -1; display: grid; gap: 6px; padding: 8px 1px 1px; border-top: 1px solid #9ac2cf35; }
+.faction-card-details[hidden] { display: none; }
+.faction-card-description, .faction-bonus-explanation { color: #c0d0d4; font: 11px/1.3 Georgia, serif; }
+.faction-bonus-explanation strong { color: #e5c981; font: 900 9px system-ui, sans-serif; letter-spacing: .06em; }
+.faction-unit-heading { padding-top: 4px; color: #96bfcb; font-size: 8px; font-weight: 900; letter-spacing: .15em; }
+.faction-unit-list { display: flex; flex-wrap: nowrap; gap: 9px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.faction-unit-list::-webkit-scrollbar { display: none; }
+.faction-unit { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 4px; min-width: 0; color: #d7e9ed; font-size: 9px; font-weight: 800; }
+.faction-unit-portrait { display: grid; place-items: center; width: 22px; height: 26px; overflow: hidden; border: 1px solid #8fb6c66c; border-radius: 4px; background: #0d1d29; }
 .faction-unit-portrait img { width: 100%; height: 100%; object-fit: contain; }
-.faction-select-button { grid-column: 1 / -1; min-height: 44px; margin-top: 4px; border: 1px solid #9bd8ea; border-radius: 5px; color: #e9f9fb; background: linear-gradient(180deg, #4d92a9, #1f526b 55%, #14384f); box-shadow: inset 0 1px #f0ffff9c, 0 0 0 3px #5ba4b52b, 0 0 22px #56cced50, 0 7px 18px #0009; font: 900 12px/1 system-ui, sans-serif; letter-spacing: .16em; cursor: pointer; }
-.faction-select-button span { margin-left: 10px; font-size: 17px; }
+@media (max-width: 380px) { .faction-unit-list { flex-wrap: wrap; overflow-x: visible; row-gap: 4px; } }
+.faction-select-footer { flex: 0 0 auto; gap: 5px; padding-top: 0; }
+.faction-select-footer > span { font-size: 10px; }
+.faction-select-button { width: min(100%, 330px); min-height: 46px; margin-top: 2px; padding: 0 12px; border: 1px solid #9bd8ea; border-radius: 5px; color: #e9f9fb; background: linear-gradient(180deg, #4d92a9, #1f526b 55%, #14384f); box-shadow: inset 0 1px #f0ffff9c, 0 0 0 3px #5ba4b52b, 0 0 22px #56cced50, 0 7px 18px #0009; font: 900 11px/1 system-ui, sans-serif; letter-spacing: .11em; cursor: pointer; touch-action: manipulation; }
+.faction-select-button span { margin-left: 7px; font-size: 15px; }
 .faction-select-button:hover, .faction-select-button:focus-visible { filter: brightness(1.12); outline: 2px solid #e9d28e; outline-offset: 3px; }
 .setup-back-button { border: 0; color: #a9d4df; background: transparent; font: 900 10px system-ui, sans-serif; letter-spacing: .13em; cursor: pointer; }
 .setup-back-button:hover, .setup-back-button:focus-visible { color: #f3d994; outline: none; }
-@media (max-height: 650px) { .faction-choice-card { padding: 12px; } .faction-choice-copy p { font-size: 12px; } .faction-unit-list { gap: 5px; } }
+@media (min-width: 600px) { .faction-choice-card { grid-template-columns: 32px minmax(160px, .8fr) minmax(0, 1.2fr); gap: 4px 10px; padding: 8px 12px; } .faction-card-crest { grid-row: span 2; } .faction-card-bonus { grid-column: 3; grid-row: 1 / span 2; } .faction-card-details { grid-column: 1 / -1; } }
+@media (max-height: 650px) { .faction-select-panel { gap: 6px; } .faction-select-panel .map-select-intro { display: none; } .faction-choice-grid { gap: 5px; } .faction-choice-card { padding: 6px 8px; } .faction-card-details { gap: 4px; padding-top: 5px; } .faction-select-button { min-height: 40px; } }
+@media (prefers-reduced-motion: reduce) { .faction-choice-card { transition: none; } }
 
 .game-ui {
   position: absolute;
@@ -449,9 +473,6 @@ canvas { display: block; width: 100% !important; height: 100% !important; touch-
 .tower-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 10px 0; }
 .tower-stats span { padding: 6px 7px; border: 1px solid #b0d9e01b; border-radius: 6px; background: #d3f4ff08; color: #9db2b9; font-size: 9px; }
 .tower-stats strong { display: block; margin-top: 3px; color: #e3eff2; font-size: 12px; font-variant-numeric: tabular-nums; }
-.tower-veteran { display: grid; gap: 2px; margin: 7px 0 8px; padding: 6px 8px; border: 1px solid #d5b65b5c; border-radius: 6px; color: #cfdae0; background: linear-gradient(90deg, #caa84c14, #4c8fa01a); font-size: 9px; }
-.tower-veteran strong { color: #f0d48a; font-size: 9px; letter-spacing: .05em; }
-.tower-veteran small { color: #b7c9cf; font-size: 9px; font-variant-numeric: tabular-nums; }
 .tower-combat-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: -4px 0 10px; }
 .tower-combat-stats span { padding: 6px 7px; border: 1px solid #b0d9e01b; border-radius: 6px; background: #d3f4ff08; color: #9db2b9; font-size: 9px; }
 .tower-combat-stats strong { display: block; margin-top: 3px; color: #e3eff2; font-size: 12px; font-variant-numeric: tabular-nums; }
@@ -1372,12 +1393,20 @@ canvas { display: block; width: 100% !important; height: 100% !important; touch-
 .tower-name { font-size: 9px; }
 .tower-level { font-size: 7px; }
 .panel-close { top: 2px; right: 2px; width: 18px; height: 18px; font-size: 12px; }
-.tower-stats { grid-column: 2; grid-row: 1; min-width: 0; gap: 2px; margin: 0; }
+.tower-stat-group { grid-column: 2; grid-row: 1 / span 2; display: grid; align-content: center; gap: 3px; min-width: 0; }
+.tower-stats { grid-column: auto; grid-row: auto; min-width: 0; gap: 2px; margin: 0; }
 .tower-stats span,
 .tower-combat-stats span { padding: 3px 4px; font-size: 6px; }
 .tower-stats strong,
 .tower-combat-stats strong { margin-top: 1px; font-size: 8px; }
-.tower-combat-stats { grid-column: 2; grid-row: 2; min-width: 0; gap: 2px; margin: 0; }
+.tower-combat-stats { grid-column: auto; grid-row: auto; min-width: 0; gap: 2px; margin: 0; }
+.tower-sovereign-profiles { grid-column: auto; grid-row: auto; }
+.tower-veteran { display: grid; gap: 1px; width: min(100%, 180px); min-width: 0; margin: 0; padding: 4px 6px; border: 1px solid #d5b65b4d; border-radius: 5px; color: #cfdae0; background: linear-gradient(90deg, #caa84c12, #4c8fa014); font-size: 8px; line-height: 1.15; }
+.tower-veteran strong { overflow: hidden; color: #f0d48a; font-size: 8px; letter-spacing: .06em; text-overflow: ellipsis; white-space: nowrap; }
+.tower-veteran small { overflow: hidden; color: #c5d1d0; font-size: 8px; line-height: 1.15; font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
+.tower-veteran.is-ranking-up { animation: veteran-rank-flash 760ms ease-out; }
+@keyframes veteran-rank-flash { 0%, 100% { border-color: #d5b65b4d; box-shadow: none; } 25% { border-color: #f6d77e; background-color: #caa84c35; box-shadow: 0 0 13px #edc86a88, inset 0 0 8px #edc86a33; } }
+@media (prefers-reduced-motion: reduce) { .tower-veteran.is-ranking-up { animation: none; } }
 .tower-actions {
   grid-column: 3;
   grid-row: 1 / span 2;
@@ -1455,9 +1484,8 @@ canvas { display: block; width: 100% !important; height: 100% !important; touch-
     padding-inline: 5px;
   }
   .tower-identity { grid-column: 1; grid-row: 1 / span 2; padding-right: 8px; }
-  .tower-stats { grid-column: 2; grid-row: 1; }
-  .tower-combat-stats { grid-column: 2; grid-row: 2; }
-  .tower-sovereign-profiles { grid-column: 2; grid-row: 1 / span 2; }
+  .tower-stat-group { grid-column: 2; grid-row: 1 / span 2; }
+  .tower-sovereign-profiles { grid-column: auto; grid-row: auto; }
   .tower-actions {
     grid-column: 1 / -1;
     grid-row: 3;

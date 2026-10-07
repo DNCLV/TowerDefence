@@ -88,6 +88,17 @@ function renderFactionUnits(faction: FactionDefinition): string {
   }).join("");
 }
 
+function getFactionPresentation(faction: FactionDefinition): { bonusName: string; bonusSummary: string; description: string } {
+  const [bonus, ...descriptionParts] = faction.description.split(" · ");
+  const sentenceEnd = bonus?.indexOf(". ") ?? -1;
+  const bonusSummary = sentenceEnd < 0 ? bonus : bonus.slice(0, sentenceEnd + 1);
+  return {
+    bonusName: sentenceEnd < 0 ? "FACTION BONUS" : bonus.slice(0, sentenceEnd),
+    bonusSummary: bonusSummary || faction.description,
+    description: [...(sentenceEnd < 0 ? [] : [bonus.slice(sentenceEnd + 2)]), ...descriptionParts].filter(Boolean).join(" "),
+  };
+}
+
 function showFactionSelect(map: MapDefinition): void {
   factionSelect?.remove();
   factionSelect = document.createElement("main");
@@ -100,33 +111,73 @@ function showFactionSelect(map: MapDefinition): void {
         <p class="map-select-tagline">CHOOSE YOUR BANNER <i></i> SHAPE YOUR DEFENSE</p>
         <p class="map-select-intro">Every faction brings a different answer to the enemy threat.</p>
       </header>
-      <div class="faction-choice-grid" role="group" aria-label="Choose a faction">
-        ${FACTION_CHOICES.map((faction) => `<article class="faction-choice-card is-selected" data-faction-id="${faction.id}">
-          <div class="faction-card-crest" aria-hidden="true">✦</div>
-          <div class="faction-choice-copy"><strong>${faction.name}</strong><small>${faction.tagline}</small><p>${faction.description}</p></div>
-          <div class="faction-unit-heading">AVAILABLE UNITS</div>
-          <div class="faction-unit-list">${renderFactionUnits(faction)}</div>
-          <button id="start-battlefield" class="faction-select-button" type="button" data-select-faction="${faction.id}">START BATTLEFIELD <span aria-hidden="true">→</span></button>
-        </article>`).join("")}
+      <div class="faction-choice-grid" role="radiogroup" aria-label="Choose a faction">
+        ${FACTION_CHOICES.map((faction) => {
+          const presentation = getFactionPresentation(faction);
+          const selected = faction.id === selectedFaction.id;
+          return `<article class="faction-choice-card${selected ? " is-selected" : ""}" data-faction-id="${faction.id}" role="radio" aria-checked="${selected}" tabindex="${selected ? 0 : -1}">
+            <span class="faction-card-crest" aria-hidden="true">✦</span>
+            <span class="faction-choice-copy"><strong>${faction.name}</strong><small>${faction.tagline}</small></span>
+            <span class="faction-card-bonus"><strong>${presentation.bonusName}</strong><span>${presentation.bonusSummary}</span></span>
+            <span class="faction-card-details"${selected ? "" : " hidden"}>
+              <span class="faction-card-description">${presentation.description || faction.description}</span>
+              <span class="faction-bonus-explanation"><strong>${presentation.bonusName}:</strong> ${presentation.bonusSummary}</span>
+              <span class="faction-unit-heading">AVAILABLE UNITS</span>
+              <span class="faction-unit-list">${renderFactionUnits(faction)}</span>
+            </span>
+          </article>`;
+        }).join("")}
       </div>
-      <footer class="map-select-footer"><span>${map.name} · ${map.startingGold} Gold</span><button id="back-to-map-select" type="button" class="setup-back-button">← BACK TO MAPS</button></footer>
+      <footer class="map-select-footer faction-select-footer"><span>${map.name} · ${map.startingGold} Gold</span><button id="start-battlefield" class="faction-select-button" type="button" data-select-faction="${selectedFaction.id}">CONTINUE WITH ${selectedFaction.name.toUpperCase()} <span aria-hidden="true">→</span></button><button id="back-to-map-select" type="button" class="setup-back-button">← BACK TO MAPS</button></footer>
     </section>`;
   app!.append(factionSelect);
   const screen = factionSelect;
-  screen.querySelectorAll<HTMLButtonElement>("[data-select-faction]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const faction = FACTION_CHOICES.find((choice) => choice.id === button.dataset.selectFaction);
-      if (!faction || screen.classList.contains("is-starting")) return;
-      selectedFaction = faction;
-      button.disabled = true;
-      screen.classList.add("is-starting");
-      window.setTimeout(() => {
-        if (!screen.isConnected) return;
-        screen.remove();
-        factionSelect = undefined;
-        startGame(map, faction);
-      }, 260);
+  const cards = Array.from(screen.querySelectorAll<HTMLElement>("[data-faction-id]"));
+  const continueButton = screen.querySelector<HTMLButtonElement>("#start-battlefield")!;
+  const selectFaction = (card: HTMLElement): void => {
+    const faction = FACTION_CHOICES.find((choice) => choice.id === card.dataset.factionId);
+    if (!faction) return;
+    selectedFaction = faction;
+    cards.forEach((candidate) => {
+      const isSelected = candidate === card;
+      candidate.classList.toggle("is-selected", isSelected);
+      candidate.setAttribute("aria-checked", String(isSelected));
+      candidate.tabIndex = isSelected ? 0 : -1;
+      const details = candidate.querySelector<HTMLElement>(".faction-card-details");
+      if (details) details.hidden = !isSelected;
     });
+    continueButton.dataset.selectFaction = faction.id;
+    continueButton.innerHTML = `CONTINUE WITH ${faction.name.toUpperCase()} <span aria-hidden="true">→</span>`;
+  };
+  cards.forEach((card, index) => {
+    card.addEventListener("click", () => selectFaction(card));
+    card.addEventListener("keydown", (event: KeyboardEvent) => {
+      let nextIndex: number | undefined;
+      if (event.key === "ArrowDown" || event.key === "ArrowRight") nextIndex = (index + 1) % cards.length;
+      if (event.key === "ArrowUp" || event.key === "ArrowLeft") nextIndex = (index - 1 + cards.length) % cards.length;
+      if (nextIndex !== undefined) {
+        event.preventDefault();
+        const nextCard = cards[nextIndex];
+        selectFaction(nextCard);
+        nextCard.focus();
+      } else if (event.key === " " || event.key === "Enter") {
+        event.preventDefault();
+        selectFaction(card);
+      }
+    });
+  });
+  continueButton.addEventListener("click", () => {
+    const faction = FACTION_CHOICES.find((choice) => choice.id === continueButton.dataset.selectFaction);
+    if (!faction || screen.classList.contains("is-starting")) return;
+    selectedFaction = faction;
+    continueButton.disabled = true;
+    screen.classList.add("is-starting");
+    window.setTimeout(() => {
+      if (!screen.isConnected) return;
+      screen.remove();
+      factionSelect = undefined;
+      startGame(map, faction);
+    }, 260);
   });
   screen.querySelector<HTMLButtonElement>("#back-to-map-select")?.addEventListener("click", () => {
     screen.remove();
@@ -271,16 +322,18 @@ ui.innerHTML = `
     <div id="tower-specialization" class="tower-specialization" hidden></div>
     <small id="tower-specialization-detail" class="tower-specialization-detail" hidden></small>
     <div id="tower-formation" class="tower-formation" hidden></div>
-    <div id="tower-veteran" class="tower-veteran" hidden></div>
-    <div class="tower-stats">
-      <span>Damage <strong id="tower-damage">—</strong></span>
-      <span>Range <strong id="tower-range">—</strong></span>
-      <span>Fire rate <strong id="tower-fire-rate">—</strong></span>
-    </div>
-    <div id="tower-sovereign-profiles" class="sovereign-profile-list tower-sovereign-profiles" hidden></div>
-    <div class="tower-combat-stats" aria-label="Tower combat statistics">
-      <span>Kills <strong id="tower-kills">0</strong></span>
-      <span>Damage Done <strong id="tower-damage-done">0</strong></span>
+    <div class="tower-stat-group">
+      <div class="tower-stats">
+        <span>Damage <strong id="tower-damage">—</strong></span>
+        <span>Range <strong id="tower-range">—</strong></span>
+        <span>Fire rate <strong id="tower-fire-rate">—</strong></span>
+      </div>
+      <div id="tower-veteran" class="tower-veteran" hidden></div>
+      <div id="tower-sovereign-profiles" class="sovereign-profile-list tower-sovereign-profiles" hidden></div>
+      <div class="tower-combat-stats" aria-label="Tower combat statistics">
+        <span>Kills <strong id="tower-kills">0</strong></span>
+        <span>Damage Done <strong id="tower-damage-done">0</strong></span>
+      </div>
     </div>
     <div class="tower-actions">
       <div id="upgrade-action-wrap" class="upgrade-action-wrap">
@@ -468,6 +521,7 @@ let activeWarningKey: string | undefined;
 let warningHideTimer: number | undefined;
 let selectedTowerId: number | undefined;
 let lastSelectedTowerRenderKey = "";
+let lastSelectedVeteranRank: number | undefined;
 let specializationChoiceTowerId: number | undefined;
 let selectedBuildType: DefenderType | undefined;
 let selectionMessage = "";
@@ -482,8 +536,11 @@ const cancelSellConfirmation = (): void => {
 query<HTMLElement>("#tower-fire-rate").parentElement!.firstChild!.textContent = "Attack Speed ";
 
 const setSelection = (towerId?: number): void => {
-  if (towerId !== selectedTowerId) cancelSellConfirmation();
-  if (towerId !== selectedTowerId) lastSelectedTowerRenderKey = "";
+  if (towerId !== selectedTowerId) {
+    cancelSellConfirmation();
+    lastSelectedTowerRenderKey = "";
+    lastSelectedVeteranRank = undefined;
+  }
   selectedTowerId = towerId;
   if (specializationChoiceTowerId !== towerId) closeSpecializationChoice();
   selectionMessage = "";
@@ -782,6 +839,10 @@ function renderSelectedTower(state: GameState): void {
   ].join("|");
   if (renderKey === lastSelectedTowerRenderKey) return;
   lastSelectedTowerRenderKey = renderKey;
+  const veteran = getVeteranProgress(state.factionId, tower);
+  const veteranRankedUp = state.factionId === "arcane-kingdom"
+    && lastSelectedVeteranRank !== undefined && veteran.rank > lastSelectedVeteranRank;
+  lastSelectedVeteranRank = veteran.rank;
   towerPanel.hidden = false;
   buildUnitInfo.hidden = true;
   towerEmptyState.hidden = true;
@@ -807,20 +868,27 @@ function renderSelectedTower(state: GameState): void {
     bonus.textContent = formation.description;
     towerFormation.append(heading, bonus);
   }
-  const veteran = getVeteranProgress(state.factionId, tower);
   if (state.factionId === "arcane-kingdom") {
     towerVeteran.hidden = false;
-    const next = veteran.next;
-    const progress = next
-      ? `${veteran.kills} / ${next.requiredKills} kills · ${veteran.damage.toLocaleString("en-US")} / ${next.requiredDamage.toLocaleString("en-US")} damage`
-      : `${veteran.kills} kills · ${veteran.damage.toLocaleString("en-US")} damage · MAX RANK`;
-    const bonuses = veteran.rank === 0
-      ? "No combat bonuses yet"
-      : `+${Math.round((veteran.damageMultiplier - 1) * 100)}% Damage · +${Math.round((veteran.attackSpeedMultiplier - 1) * 100)}% Attack Speed`;
-    towerVeteran.innerHTML = `<strong>VETERAN CORPS · ${veteran.label}</strong><small>${progress}</small><small>${bonuses}</small>`;
+    const stars = "★".repeat(veteran.rank);
+    const title = veteran.rank === 0 ? "VETERAN" : `${veteran.label.toUpperCase()} ${stars}`;
+    const progress = veteran.next
+      ? `${veteran.damage.toLocaleString("en-US")} / ${veteran.next.requiredDamage.toLocaleString("en-US")} DMG`
+      : `${veteran.damage.toLocaleString("en-US")} DMG · MAX`;
+    const bonuses = [
+      veteran.damageBonus > 0 ? `+${Math.round(veteran.damageBonus * 100)}% DMG` : "",
+      veteran.attackSpeedBonus > 0 ? `+${Math.round(veteran.attackSpeedBonus * 100)}% ASPD` : "",
+    ].filter(Boolean).join(" · ");
+    towerVeteran.innerHTML = `<strong>${title}</strong><small>${progress}</small>${bonuses ? `<small>${bonuses}</small>` : ""}`;
+    if (veteranRankedUp) {
+      towerVeteran.classList.remove("is-ranking-up");
+      void towerVeteran.offsetWidth;
+      towerVeteran.classList.add("is-ranking-up");
+    }
   } else {
     towerVeteran.hidden = true;
     towerVeteran.replaceChildren();
+    towerVeteran.classList.remove("is-ranking-up");
   }
   if (specializationChoiceTowerId !== undefined && specializationChoiceTowerId !== tower.id) closeSpecializationChoice();
   const isSovereign = tower.type === "sovereign";
