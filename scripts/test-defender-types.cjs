@@ -370,17 +370,30 @@ async function main() {
     await evaluate(`(() => {
       const state = window.__towerDefenceGameState;
       const tower = state.towers.find((candidate) => candidate.id === ${rendererPlacement.wizardTowerId});
-      if (!window.__veteranUiTestOriginal) window.__veteranUiTestOriginal = { damageDone: tower.combatStats.damageDone, kills: tower.combatStats.kills };
+      if (!window.__veteranUiTestOriginal) window.__veteranUiTestOriginal = {
+        damageDone: tower.combatStats.damageDone, kills: tower.combatStats.kills, formationId: tower.formationId,
+      };
       tower.combatStats.damageDone = ${damage};
       tower.combatStats.kills = ${kills};
+      tower.formationId = 'holy-formation';
       window.__towerDefenceUi.selectTower(tower.id);
     })()`);
     await delay(100);
     return evaluate(`(() => {
       const tile = document.querySelector('#tower-veteran');
       const rect = tile.getBoundingClientRect();
+      const formation = document.querySelector('#tower-formation');
+      const formationRect = formation.getBoundingClientRect();
+      const buttonRects = ['.upgrade-button', '.upgrade-info-button', '.sell-button'].map((selector) => {
+        const button = document.querySelector(selector).getBoundingClientRect();
+        return { left: button.left, top: button.top, right: button.right, bottom: button.bottom };
+      });
+      const buttonsNoOverlap = buttonRects.every((a, index) => buttonRects.slice(index + 1).every((b) =>
+        a.right <= b.left + 1 || b.right <= a.left + 1 || a.bottom <= b.top + 1 || b.bottom <= a.top + 1));
       return { visible: !tile.hidden, text: tile.textContent.trim().replace(/\\s+/g, ' '),
         lines: tile.children.length, width: rect.width, height: rect.height,
+        formationVisible: !formation.hidden, formationText: formation.textContent.trim().replace(/\\s+/g, ' '),
+        formationWidth: formationRect.width, formationHeight: formationRect.height, buttonsNoOverlap,
         rankUpFlash: tile.classList.contains('is-ranking-up'), pageWidth: document.documentElement.scrollWidth,
         viewportWidth: document.documentElement.clientWidth, tileRight: rect.right };
     })()`);
@@ -391,21 +404,27 @@ async function main() {
     rank2: await setVeteranDamage(150000),
     rank3: await setVeteranDamage(350000),
   };
-  if (!veteranUi.rank0.visible || !veteranUi.rank0.text.includes('VETERAN') || !veteranUi.rank0.text.includes('39,999 / 40,000 DMG')
-    || veteranUi.rank0.text.includes('KILL') || veteranUi.rank0.lines > 3
-    || !veteranUi.rank1.text.includes('VETERAN I ★') || !veteranUi.rank1.text.includes('+5% DMG')
-    || !veteranUi.rank2.text.includes('VETERAN II ★★') || !veteranUi.rank2.text.includes('150,000 / 350,000 DMG')
-    || !veteranUi.rank2.text.includes('+5% DMG · +5% ASPD')
-    || !veteranUi.rank3.text.includes('VETERAN III ★★★') || !veteranUi.rank3.text.includes('350,000 DMG · MAX')
-    || !veteranUi.rank3.text.includes('+13% DMG · +10% ASPD') || !veteranUi.rank3.rankUpFlash
-    || [veteranUi.rank0, veteranUi.rank1, veteranUi.rank2, veteranUi.rank3].some((state) => state.lines > 3 || state.width > 182 || state.height > 52
+  if (!veteranUi.rank0.visible || !veteranUi.rank0.text.includes('Veteran Corps · None') || !veteranUi.rank0.text.includes('39,999 / 40,000 DMG')
+    || !veteranUi.rank0.text.includes('Next: Veteran I in 1 DMG') || veteranUi.rank0.text.includes('KILL')
+    || !veteranUi.rank1.text.includes('Veteran Corps · Veteran I') || !veteranUi.rank1.text.includes('Next: Veteran II in 110,000 DMG')
+    || !veteranUi.rank1.text.includes('Bonus: +5% DMG')
+    || !veteranUi.rank2.text.includes('Veteran Corps · Veteran II') || !veteranUi.rank2.text.includes('150,000 / 350,000 DMG')
+    || !veteranUi.rank2.text.includes('Next: Veteran III in 200,000 DMG') || !veteranUi.rank2.text.includes('Bonus: +5% DMG, +5% ASPD')
+    || !veteranUi.rank3.text.includes('Veteran Corps · Veteran III') || !veteranUi.rank3.text.includes('350,000 DMG')
+    || !veteranUi.rank3.text.includes('Max Veteran Rank') || !veteranUi.rank3.text.includes('Bonus: +13% DMG, +10% ASPD')
+    || !veteranUi.rank3.rankUpFlash || !veteranUi.rank0.formationVisible
+    || !veteranUi.rank0.formationText.includes('Formation: Holy Formation') || !veteranUi.rank0.formationText.includes('Bonus: +12% attack speed')
+    || [veteranUi.rank0, veteranUi.rank1, veteranUi.rank2, veteranUi.rank3].some((state) => state.lines > 4 || state.width > 202 || state.height > 62
+      || state.formationWidth > 202 || state.formationHeight > 32 || !state.buttonsNoOverlap
       || state.pageWidth > state.viewportWidth || state.tileRight > state.viewportWidth)) {
     throw new Error(`Veteran micro-UI failed: ${JSON.stringify(veteranUi)}`);
   }
   await evaluate(`(() => {
     const state = window.__towerDefenceGameState;
     const tower = state.towers.find((candidate) => candidate.id === ${rendererPlacement.wizardTowerId});
-    Object.assign(tower.combatStats, window.__veteranUiTestOriginal);
+    tower.combatStats.damageDone = window.__veteranUiTestOriginal.damageDone;
+    tower.combatStats.kills = window.__veteranUiTestOriginal.kills;
+    tower.formationId = window.__veteranUiTestOriginal.formationId;
     delete window.__veteranUiTestOriginal;
   })()`);
   await command("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
@@ -413,16 +432,20 @@ async function main() {
     const rect=(selector)=>{const r=document.querySelector(selector).getBoundingClientRect();return {left:r.left,top:r.top,right:r.right,bottom:r.bottom,width:r.width,height:r.height}};
     const ui=window.__towerDefenceUi, panel=document.querySelector('#tower-panel'), buildInfo=document.querySelector('#build-unit-info');
     ui.selectTower(${rendererPlacement.knightTowerId});
-    const tower={panel:rect('#tower-panel'),actions:rect('.bottom-actions'),info:rect('.tower-info-section'),bottom:rect('.bottom-hud-bar'),panelVisible:!panel.hidden,buildInfoHidden:buildInfo.hidden};
+    const tower={panel:rect('#tower-panel'),actions:rect('.bottom-actions'),info:rect('.tower-info-section'),bottom:rect('.bottom-hud-bar'),
+      veteran:rect('#tower-veteran'),formation:rect('#tower-formation'),panelVisible:!panel.hidden,buildInfoHidden:buildInfo.hidden};
     ui.selectTower();
     const build={panel:rect('#build-unit-info'),actions:rect('.bottom-actions'),info:rect('.tower-info-section'),bottom:rect('.bottom-hud-bar'),panelVisible:!buildInfo.hidden};
     const frames=[...document.querySelectorAll('.unit-portrait-frame')].map(node=>{const r=node.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,width:r.width,height:r.height,centerX:r.left+r.width/2}});
-    return {viewport:{width:innerWidth,height:innerHeight},top:rect('.top-hud-bar'),bottom:rect('.bottom-hud-bar'),buildSection:rect('.build-unit-section'),tower,build,frames};
+    return {viewport:{width:innerWidth,height:innerHeight},pageWidth:document.documentElement.scrollWidth,
+      top:rect('.top-hud-bar'),bottom:rect('.bottom-hud-bar'),buildSection:rect('.build-unit-section'),tower,build,frames};
   })()`);
   const fits = (state) => state.panel.left >= state.info.left && state.panel.right <= state.info.right
     && state.panel.top >= state.bottom.top && state.actions.bottom <= state.bottom.bottom;
   if (portrait390.viewport.width !== 390 || portrait390.viewport.height !== 844
-    || portrait390.top.right > 390 || portrait390.bottom.right > 390 || !portrait390.tower.panelVisible || !portrait390.tower.buildInfoHidden
+    || portrait390.pageWidth > 390 || portrait390.top.right > 390 || portrait390.bottom.right > 390
+    || !portrait390.tower.panelVisible || !portrait390.tower.buildInfoHidden
+    || portrait390.tower.veteran.width > 202 || portrait390.tower.veteran.right > 390
     || !fits(portrait390.tower) || !portrait390.build.panelVisible || !fits(portrait390.build)
     || portrait390.frames.length !== 4
     || portrait390.frames.some((frame) => frame.left < portrait390.buildSection.left || frame.right > portrait390.buildSection.right)

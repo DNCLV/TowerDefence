@@ -321,18 +321,20 @@ ui.innerHTML = `
     </div>
     <div id="tower-specialization" class="tower-specialization" hidden></div>
     <small id="tower-specialization-detail" class="tower-specialization-detail" hidden></small>
-    <div id="tower-formation" class="tower-formation" hidden></div>
     <div class="tower-stat-group">
       <div class="tower-stats">
         <span>Damage <strong id="tower-damage">—</strong></span>
         <span>Range <strong id="tower-range">—</strong></span>
         <span>Fire rate <strong id="tower-fire-rate">—</strong></span>
       </div>
-      <div id="tower-veteran" class="tower-veteran" hidden></div>
       <div id="tower-sovereign-profiles" class="sovereign-profile-list tower-sovereign-profiles" hidden></div>
       <div class="tower-combat-stats" aria-label="Tower combat statistics">
         <span>Kills <strong id="tower-kills">0</strong></span>
         <span>Damage Done <strong id="tower-damage-done">0</strong></span>
+      </div>
+      <div class="tower-secondary-bonuses">
+        <div id="tower-veteran" class="tower-veteran" hidden></div>
+        <div id="tower-formation" class="tower-formation" hidden></div>
       </div>
     </div>
     <div class="tower-actions">
@@ -862,24 +864,27 @@ function renderSelectedTower(state: GameState): void {
     const formation = FORMATION_BY_ID[tower.formationId];
     const heading = document.createElement("span");
     heading.className = "tower-formation-heading";
-    heading.textContent = `FORMATION · ${formation.name.toUpperCase()}`;
+    heading.textContent = `Formation: ${formation.name}`;
     const bonus = document.createElement("strong");
     bonus.className = "tower-formation-bonus";
-    bonus.textContent = formation.description;
-    towerFormation.append(heading, bonus);
+    bonus.textContent = `Bonus: ${formation.description}`;
+    towerFormation.append(heading, document.createTextNode(" "), bonus);
   }
   if (state.factionId === "arcane-kingdom") {
     towerVeteran.hidden = false;
-    const stars = "★".repeat(veteran.rank);
-    const title = veteran.rank === 0 ? "VETERAN" : `${veteran.label.toUpperCase()} ${stars}`;
+    const currentRank = veteran.rank === 0 ? "None" : veteran.label;
+    const title = `Veteran Corps · ${currentRank}`;
     const progress = veteran.next
       ? `${veteran.damage.toLocaleString("en-US")} / ${veteran.next.requiredDamage.toLocaleString("en-US")} DMG`
-      : `${veteran.damage.toLocaleString("en-US")} DMG · MAX`;
+      : `${veteran.damage.toLocaleString("en-US")} DMG`;
+    const nextRank = veteran.next
+      ? `Next: ${veteran.next.label} in ${Math.max(0, veteran.next.requiredDamage - veteran.damage).toLocaleString("en-US")} DMG`
+      : "Max Veteran Rank";
     const bonuses = [
       veteran.damageBonus > 0 ? `+${Math.round(veteran.damageBonus * 100)}% DMG` : "",
       veteran.attackSpeedBonus > 0 ? `+${Math.round(veteran.attackSpeedBonus * 100)}% ASPD` : "",
-    ].filter(Boolean).join(" · ");
-    towerVeteran.innerHTML = `<strong>${title}</strong><small>${progress}</small>${bonuses ? `<small>${bonuses}</small>` : ""}`;
+    ].filter(Boolean).join(", ");
+    towerVeteran.innerHTML = `<strong>${title}</strong><small>${progress}</small><small>${nextRank}</small>${bonuses ? `<small>Bonus: ${bonuses}</small>` : ""}`;
     if (veteranRankedUp) {
       towerVeteran.classList.remove("is-ranking-up");
       void towerVeteran.offsetWidth;

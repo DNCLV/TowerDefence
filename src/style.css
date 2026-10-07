@@ -1597,9 +1597,14 @@ canvas { display: block; width: 100% !important; height: 100% !important; touch-
   line-height: 1.25;
 }
 .tower-specialization-detail[hidden] { display: none !important; }
-.tower-formation { display: grid; gap: 2px; margin-top: 3px; padding: 4px 8px; border-color: #c8a65e99; border-radius: 6px; color: #f3d991; background: linear-gradient(120deg, #40331ccc, #222016d9); }
-.tower-formation-heading { color: #ffe6a4; font-size: 7px; letter-spacing: .09em; }
-.tower-formation-bonus { color: #f2d18a; font: 700 9px/1.2 Arial, sans-serif; letter-spacing: .01em; }
+.tower-secondary-bonuses { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr)); align-content: start; gap: 3px; min-width: 0; }
+.tower-veteran,
+.tower-formation { display: grid; align-content: start; gap: 1px; width: min(100%, 200px); min-width: 0; margin: 0; padding: 3px 6px; border: 1px solid #c8a65e66; border-radius: 5px; color: #d8d6c9; background: linear-gradient(120deg, #40331c70, #22201666); font: 7px/1.15 Arial, sans-serif; }
+.tower-veteran strong,
+.tower-formation-heading { overflow: hidden; color: #f0d48a; font: 800 7px/1.15 Arial, sans-serif; letter-spacing: .025em; text-overflow: ellipsis; white-space: nowrap; }
+.tower-veteran small,
+.tower-formation-bonus { overflow: hidden; color: #d5d3c9; font: 7px/1.15 Arial, sans-serif; font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
+.tower-formation-bonus { color: #f2d18a; font-weight: 700; letter-spacing: .01em; }
 .specialization-choice {
   position: absolute;
   z-index: 20;
