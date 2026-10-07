@@ -3,7 +3,7 @@ import { WORLD_UNITS_PER_CELL } from "../core/GameConstants";
 import { Enemy, applyArcherMark, createEnemy, getEnemyHpForWave, getEnemyHpMultiplier, getEnemyHpTier, updateEnemySpecialStatuses } from "./enemies/Enemy";
 import { Grid } from "./grid/Grid";
 import { findPath, findPathThrough } from "./pathfinding/Pathfinder";
-import { Tower, TowerAttackMode, canTowerTargetEnemy, createBasicTower, getTowerAttackProfile, getTowerDamageType, getTowerLevelStats, getTowerSellRefund, getTowerSplashRadiusMultiplier, getTowerSplashRatio, isTowerInRange, isTowerAdjacent8, upgradeTower } from "./towers/Tower";
+import { Tower, TowerAttackMode, canTowerTargetEnemy, createBasicTower, getTowerAttackProfile, getTowerDamageType, getTowerLevelStats, getTowerSellRefund, getTowerSplashRadiusMultiplier, getTowerSplashRadiusTiles, getTowerSplashRatio, isTowerInRange, isTowerAdjacent8, upgradeTower } from "./towers/Tower";
 import { DEFENDER_CONFIG, DefenderType } from "./config/DefenderConfig";
 import { LEVEL_1 } from "./config/Level1";
 import { BALANCE } from "./config/BalanceConfig";
@@ -353,6 +353,8 @@ export class GameState {
         const queueCursor = spawnQueue ? (this.spawnQueueCursorsBySpawn.get(spawn.id) ?? 0) : this.spawnQueueCursor;
         const type = queue[queueCursor];
         if (!type) break;
+        // Multi-front queues run concurrently. Hold Commander finishers until every other lane is drained.
+        if (type === "skeletalCommander" && this.hasPendingNonCommanderSpawns()) continue;
         const isFlying = ENEMY_CONFIG[type].movementType === "flying";
         const groundRoute = isFlying ? null : this.nextSpawnRoute(spawn.id, spawn.entryCell);
         if (!isFlying && !groundRoute) continue;
@@ -478,7 +480,7 @@ export class GameState {
       const targetCellY = Math.round(target.y);
       // Snapshot the candidates so each secondary is damaged once and never re-targeted recursively.
       const isCleave = tower.specializationId === "dawn-paladin";
-      const radiusCells = 1.5 * getTowerSplashRadiusMultiplier(tower);
+      const radiusCells = getTowerSplashRadiusTiles(tower) * getTowerSplashRadiusMultiplier(tower);
       const secondaryTargets = this.enemies.filter((enemy) => enemy !== target && enemy.alive && enemy.hp > 0
         && canTowerTargetEnemy(tower, enemy)
         && Math.hypot(enemy.x - target.x, enemy.y - target.y) <= radiusCells
@@ -655,6 +657,16 @@ export class GameState {
       const spawn = spawns[index % spawns.length];
       this.spawnQueuesBySpawn.get(spawn.id)?.push(type);
     });
+  }
+
+  private hasPendingNonCommanderSpawns(): boolean {
+    for (const [spawnId, queue] of this.spawnQueuesBySpawn) {
+      const cursor = this.spawnQueueCursorsBySpawn.get(spawnId) ?? 0;
+      for (let index = cursor; index < queue.length; index += 1) {
+        if (queue[index] !== "skeletalCommander") return true;
+      }
+    }
+    return false;
   }
 
   private logLayout(): void {

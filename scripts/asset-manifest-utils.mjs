@@ -110,7 +110,7 @@ export function validateSourceManifest({ manifest, roots }, sources) {
   const uiSource = sources.find((entry) => entry.relative === "src/main.ts")?.text;
   if (!uiSource) problems.push("Could not inspect main.ts for UI image paths");
   else {
-    const uiRegex = /assets\/ui\/defenders\/([a-z0-9-]+\.png)/gi;
+    const uiRegex = /assets\/ui\/defenders\/([a-z0-9-]+\.(?:png|jpe?g|webp))/gi;
     for (const match of uiSource.matchAll(uiRegex)) {
       const asset = `assets/ui/defenders/${match[1]}`.toLowerCase();
       if (!production.has(asset)) problems.push(`main.ts UI portrait is missing from production manifest: ${asset}`);

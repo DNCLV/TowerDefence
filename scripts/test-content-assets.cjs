@@ -289,7 +289,7 @@ async function main() {
   if (!factionSelectReady || factionSelection.title !== "CHOOSE FACTION"
     || !factionSelection.names.includes("ROYAL GUARD")
     || factionSelection.selectedCount !== 1 || factionSelection.expandedCount !== 1
-    || factionSelection.unitsVisible !== 5 || factionSelection.actionCount !== 1
+    || factionSelection.unitsVisible !== 6 || factionSelection.actionCount !== 1
     || factionSelection.startText !== "CONTINUE WITH ROYAL GUARD →"
     || !factionSelection.selectedMap?.startsWith("Open Field")
     || !factionSelection.minimapAbsentBeforeGameplay) {
@@ -303,6 +303,10 @@ async function main() {
       || document.querySelector('.faction-choice-card.is-selected .faction-card-details').hidden
       || document.querySelector('#start-battlefield').textContent.trim().replace(/\\s+/g, ' ').toUpperCase() !== 'CONTINUE WITH ANCIENT GROVE →') {
       throw new Error('Faction card selection did not update the selected details and global action.');
+    }
+    const groveUnits = document.querySelector('.faction-choice-card.is-selected .faction-unit-list');
+    if (groveUnits.children.length !== 5 || groveUnits.textContent.includes('Holy Emperor')) {
+      throw new Error('Holy Emperor should only be present in the Royal Guard roster.');
     }
     grove.focus();
     grove.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
@@ -456,7 +460,7 @@ async function main() {
   }
   if (process.env.TD_MAP_SELECT_ONLY === "1") return;
   for (let attempt = 0; attempt < 100; attempt += 1) {
-    const loaded = await evaluate("(window.__enemyTemplateAudit?.length ?? 0) === 9 && (window.__defenderTemplateAudit?.length ?? 0) === 3 && !!window.__towerDefenceUi && !!window.__towerDefenceInputDebug && document.querySelector('.game-ui')?.dataset.defenderAssetsReady === 'true'");
+    const loaded = await evaluate("(window.__enemyTemplateAudit?.length ?? 0) === 9 && (window.__defenderTemplateAudit?.length ?? 0) === 4 && !!window.__towerDefenceUi && !!window.__towerDefenceInputDebug && document.querySelector('.game-ui')?.dataset.defenderAssetsReady === 'true'");
     if (loaded) break;
     if (attempt === 99) throw new Error("New enemy and defender GLB templates failed to load.");
     await delay(300);
@@ -585,9 +589,55 @@ async function main() {
       specializationDetail: document.querySelector('#tower-specialization-detail').textContent,
     };
     ui.selectTower();
+    ui.chooseBuildUnit('holy-emperor');
+    const holyEmperor = {
+      cardExists: !!document.querySelector('#build-holy-emperor-button'),
+      cardCost: document.querySelector('#build-holy-emperor-button .unit-card-cost')?.textContent,
+      cardPortrait: document.querySelector('#build-holy-emperor-button .unit-portrait-frame img')?.getAttribute('src'),
+      name: document.querySelector('#build-unit-info-name').textContent,
+      damage: document.querySelector('#build-unit-info-damage').textContent,
+      range: document.querySelector('#build-unit-info-range').textContent,
+      rate: document.querySelector('#build-unit-info-rate').textContent,
+      cost: document.querySelector('#build-unit-info-cost').textContent,
+      capabilities: document.querySelector('#build-unit-info-capabilities').textContent,
+      portraitIsFallback: document.querySelector('#build-unit-info-image').hidden
+        || !document.querySelector('#build-unit-info-fallback').hidden,
+    };
+    game.gold = 10000;
+    if (place('holy-emperor') !== 'placed') throw new Error('Could not place a Holy Emperor in the browser test map.');
+    const holyEmperorTower = game.towers.at(-1);
+    ui.selectTower(holyEmperorTower.id);
+    const holyEmperorLevel1 = {
+      level: document.querySelector('#tower-level').textContent,
+      damage: document.querySelector('#tower-damage').textContent,
+      range: document.querySelector('#tower-range').textContent,
+      rate: document.querySelector('#tower-fire-rate').textContent,
+      details: document.querySelector('#tower-specialization-detail').textContent,
+      upgrade: document.querySelector('#upgrade-button').textContent,
+    };
+    document.querySelector('#upgrade-button').click();
+    const holyEmperorLevel2 = {
+      level: document.querySelector('#tower-level').textContent,
+      damage: document.querySelector('#tower-damage').textContent,
+      rate: document.querySelector('#tower-fire-rate').textContent,
+      details: document.querySelector('#tower-specialization-detail').textContent,
+      upgrade: document.querySelector('#upgrade-button').textContent,
+      tooltip: document.querySelector('#upgrade-tooltip').textContent,
+    };
+    document.querySelector('#upgrade-button').click();
+    const holyEmperorLevel3 = {
+      level: document.querySelector('#tower-level').textContent,
+      damage: document.querySelector('#tower-damage').textContent,
+      rate: document.querySelector('#tower-fire-rate').textContent,
+      details: document.querySelector('#tower-specialization-detail').textContent,
+      upgrade: document.querySelector('#upgrade-button').textContent,
+    };
+    ui.selectTower();
     ui.selectTower(placedIds[14]);
     const groundLineup = window.__towerDefenceEnemyVisualTest.spawnGroundLineup();
-    return { archer, battlemage, sovereign, selectedSovereign, sovereignLevel2, sovereignBranchChoice, sovereignLevel3,
+    return { archer, battlemage, sovereign, selectedSovereign, sovereignLevel2, sovereignBranchChoice, sovereignLevel3, holyEmperor,
+      holyEmperorId: holyEmperorTower.id,
+      holyEmperorLevel1, holyEmperorLevel2, holyEmperorLevel3,
       archerBranchChoice, archerLevel3, groundLineup, placedIds, towers: game.towers.map(({ type, level }) => ({ type, level })) };
   })()`);
   if (!visualState.sovereignBranchChoice.visible || visualState.sovereignBranchChoice.options.map(({ name }) => name).join("|") !== "Storm Regent|War Sovereign"
@@ -608,6 +658,30 @@ async function main() {
       archer: visualState.archerBranchChoice, archerSelected: visualState.archerLevel3,
     })}`);
   }
+  if (!visualState.holyEmperor.cardExists || visualState.holyEmperor.cardCost !== "300G"
+    || !visualState.holyEmperor.cardPortrait?.endsWith("/assets/ui/defenders/holy-emperor.jpg")
+    || visualState.holyEmperor.name !== "Holy Emperor"
+    || visualState.holyEmperor.damage !== "450" || visualState.holyEmperor.range !== "MAP WIDE"
+    || visualState.holyEmperor.rate !== "0.85/s" || visualState.holyEmperor.cost !== "300 Gold"
+    || !visualState.holyEmperor.capabilities.includes("MAP-WIDE")
+    || !visualState.holyEmperor.capabilities.includes("TARGETS GROUND + AIR")
+    || visualState.holyEmperor.portraitIsFallback) {
+    throw new Error(`Holy Emperor build card/details failed: ${JSON.stringify(visualState.holyEmperor)}`);
+  }
+  if (visualState.holyEmperorLevel1.level !== "Level 1" || visualState.holyEmperorLevel1.damage !== "450"
+    || visualState.holyEmperorLevel1.range !== "MAP WIDE" || visualState.holyEmperorLevel1.rate !== "0.85/s"
+    || !visualState.holyEmperorLevel1.details.includes("TARGETS GROUND + AIR")
+    || !visualState.holyEmperorLevel1.upgrade.includes("400G")
+    || visualState.holyEmperorLevel2.level !== "Level 2" || visualState.holyEmperorLevel2.damage !== "700"
+    || visualState.holyEmperorLevel2.rate !== "1.00/s" || !visualState.holyEmperorLevel2.upgrade.includes("500G")
+    || !visualState.holyEmperorLevel2.tooltip.includes("Divine Splash: 65% within 1.75 tiles")
+    || visualState.holyEmperorLevel3.level !== "Level 3" || visualState.holyEmperorLevel3.damage !== "950"
+    || visualState.holyEmperorLevel3.rate !== "1.25/s" || !visualState.holyEmperorLevel3.details.includes("DIVINE SPLASH 65% WITHIN 1.75 TILES")
+    || visualState.holyEmperorLevel3.upgrade !== "MAX LEVEL") {
+    throw new Error(`Holy Emperor upgrade UI failed: ${JSON.stringify({
+      L1: visualState.holyEmperorLevel1, L2: visualState.holyEmperorLevel2, L3: visualState.holyEmperorLevel3,
+    })}`);
+  }
   console.log("Mobile specialization branch UI passed", JSON.stringify({
     sovereign: visualState.sovereignBranchChoice, sovereignSelected: visualState.sovereignLevel3,
     archer: visualState.archerBranchChoice, archerSelected: visualState.archerLevel3,
@@ -621,6 +695,34 @@ async function main() {
     sceneStats: window.__enemySceneStats,
     selection: window.__towerDefenceUi.selectionVisual(),
   })`);
+  if (process.env.TD_HOLY_EMPEROR_ONLY === "1") {
+    const emperorTemplate = result.defenderTemplates?.find((asset) => asset.type === "holy-emperor");
+    const emperorVisual = result.defenderInstances?.findLast((asset) => asset.id === visualState.holyEmperorId);
+    if (result.defenderTemplates?.length !== 4 || !emperorTemplate?.optimized
+      || emperorTemplate.assetPath !== "/assets/models/defenders/optimized/holy-emperor.glb"
+      || !emperorVisual || emperorVisual.type !== "holy-emperor" || !emperorVisual.optimized
+      || emperorVisual.primitiveFallback || emperorVisual.assetPath !== emperorTemplate.assetPath
+      || !emperorVisual.bounds || emperorVisual.bounds.width >= 1 || emperorVisual.bounds.depth >= 1
+      || Math.abs(emperorVisual.bounds.height - 1.9) > 0.02 || emperorVisual.targetVisualHeight <= 1.747
+      || Math.abs(emperorVisual.bounds.minY) > 0.01) {
+      throw new Error(`Holy Emperor browser asset integration failed: ${JSON.stringify({ emperorTemplate, emperorVisual })}`);
+    }
+    if (process.env.TD_HOLY_EMPEROR_SCREENSHOT === "1") {
+      await evaluate(`window.__towerDefenceUi.selectTower(${visualState.holyEmperorId})`);
+      const screenshot = await command("Page.captureScreenshot", { format: "png", fromSurface: true });
+      const screenshotPath = path.join(os.tmpdir(), "tower-defence-holy-emperor-browser.png");
+      fs.writeFileSync(screenshotPath, Buffer.from(screenshot.data, "base64"));
+      console.log(`Holy Emperor runtime screenshot: ${screenshotPath}`);
+    }
+    console.log("Holy Emperor browser integration passed", JSON.stringify({
+      name: visualState.holyEmperor.name,
+      portrait: visualState.holyEmperor.cardPortrait,
+      levels: [visualState.holyEmperorLevel1, visualState.holyEmperorLevel2, visualState.holyEmperorLevel3],
+      template: emperorTemplate,
+      visual: emperorVisual,
+    }));
+    return;
+  }
   const animatedSkeletonKing = result.enemyTemplates.find((asset) => asset.type === "skeletonKing");
   const staticEnemyTemplates = result.enemyTemplates.filter((asset) => asset.type !== "skeletonKing");
   if (staticEnemyTemplates.some((asset) => !asset.optimized) || staticEnemyTemplates.length !== 8
@@ -647,7 +749,7 @@ async function main() {
     || Math.abs(asset.bounds.minY - asset.groundOffsetY) > 0.005)) {
     throw new Error(`Ground enemy model bounds/alignment offsets failed: ${JSON.stringify(groundInstances)}`);
   }
-  if (result.defenderTemplates.some((asset) => !asset.optimized) || result.defenderTemplates.length !== 3) {
+  if (result.defenderTemplates.some((asset) => !asset.optimized) || result.defenderTemplates.length !== 4) {
     throw new Error(`Defender factory did not load all optimized GLBs: ${JSON.stringify(result.defenderTemplates)}`);
   }
   const newTypeInstances = result.defenderInstances?.filter((asset) => ["green-archer", "battlemage", "sovereign"].includes(asset.type)) ?? [];
@@ -672,9 +774,18 @@ async function main() {
     "green-archer": "/assets/models/defenders/optimized/green-archer.glb",
     battlemage: "/assets/models/defenders/optimized/battlemage.glb",
     sovereign: "/assets/models/defenders/optimized/sovereign.glb",
+    "holy-emperor": "/assets/models/defenders/optimized/holy-emperor.glb",
   };
   if (result.defenderTemplates.some((asset) => asset.assetPath !== typeToExpectedPath[asset.type])) {
     throw new Error(`Defender type resolved to the wrong GLB: ${JSON.stringify(result.defenderTemplates)}`);
+  }
+  const holyEmperorVisual = result.defenderInstances?.findLast((asset) => asset.id === visualState.holyEmperorId);
+  if (!holyEmperorVisual || holyEmperorVisual.type !== "holy-emperor" || !holyEmperorVisual.optimized
+    || holyEmperorVisual.primitiveFallback || holyEmperorVisual.assetPath !== typeToExpectedPath["holy-emperor"]
+    || !holyEmperorVisual.bounds || holyEmperorVisual.bounds.width >= 1 || holyEmperorVisual.bounds.depth >= 1
+    || Math.abs(holyEmperorVisual.bounds.height - 1.9) > 0.02 || holyEmperorVisual.targetVisualHeight <= 1.747
+    || Math.abs(holyEmperorVisual.bounds.minY) > 0.01) {
+    throw new Error(`Holy Emperor GLB instance or bounds check failed: ${JSON.stringify(holyEmperorVisual)}`);
   }
   if (!result.selection.visible || !result.selection.markerVisible || result.selection.markerPosition.y <= 0.2) {
     throw new Error(`Selection ring/diamond failed for imported defender: ${JSON.stringify(result.selection)}`);

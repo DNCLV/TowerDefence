@@ -3,6 +3,7 @@ import type { DefenderType } from "../config/DefenderConfig";
 export interface DefenderVisualDefinition {
   displayName: string;
   debugLabel: string;
+  /** Optimized production GLB; configured for every 3D defender. */
   assetPath: string;
   fallbackAssetPath?: string;
   /** Vertical scale derived from the measured source GLB height. */
@@ -16,7 +17,7 @@ export interface DefenderVisualDefinition {
   targetVisualHeight: number;
   targetFootprint?: { width: number; depth: number };
   rotationY: number;
-  primitiveFallback: "wizard" | "knight" | "green-archer" | "battlemage" | "sovereign";
+  primitiveFallback?: "wizard" | "knight" | "green-archer" | "battlemage" | "sovereign";
 }
 
 function normalizedVisual(
@@ -75,5 +76,14 @@ export const DEFENDER_VISUAL_CONFIG: Record<DefenderType, DefenderVisualDefiniti
     ...normalizedVisual({ width: 1.27846, height: 1.89844, depth: 1.12448 }, 1.747, { width: 0.8, depth: 0.8 }),
     visualScaleMultiplier: 0.9,
     rotationY: 0, primitiveFallback: "sovereign",
+  },
+  "holy-emperor": {
+    displayName: "Holy Emperor", debugLabel: "EMPEROR",
+    assetPath: "/assets/models/defenders/optimized/holy-emperor.glb",
+    fallbackAssetPath: "/assets/models/defenders/holy-emperor.glb",
+    // Bounds include the source node transform; keep the wide model within one cell.
+    ...normalizedVisual({ width: 2.04697, height: 2.32384, depth: 1.46094 }, 1.9, { width: 0.72, depth: 0.72 }),
+    visualScaleMultiplier: 0.9,
+    rotationY: 0,
   },
 };

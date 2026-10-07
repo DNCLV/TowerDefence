@@ -13,7 +13,7 @@ export interface QuaterniusDefenderVisual {
   dispose(): void;
 }
 
-type ImportedDefenderType = "green-archer" | "battlemage" | "sovereign";
+type ImportedDefenderType = "green-archer" | "battlemage" | "sovereign" | "holy-emperor";
 type DefenderTemplateAudit = { type: ImportedDefenderType; assetPath?: string; optimized: boolean; triangleCount: number; textures: number; materials: number };
 
 /** Loads each imported defender once. Pending loads stay visually quiet; only a small neutral marker is used on failure. */
@@ -21,16 +21,16 @@ export class QuaterniusDefenderFactory {
   private readonly templates = new Map<ImportedDefenderType, AssetContainer>();
   private readonly loadedPaths = new Map<ImportedDefenderType, string>();
   private readonly debug = new URLSearchParams(window.location.search).get("defenderVisualDebug") === "1";
-  private readonly reportedTypes = new Set<ImportedDefenderType>();
+  private readonly reportedTypes = new Set<DefenderType>();
   private loadingComplete = false;
   private readonly neutralFallbackMaterial: StandardMaterial;
-  private readonly unavailableReported = new Set<ImportedDefenderType>();
+  private readonly unavailableReported = new Set<DefenderType>();
 
   constructor(private readonly scene: Scene, private readonly shadows: ShadowGenerator) {
     this.neutralFallbackMaterial = this.material("defender-neutral-fallback", new Color3(0.38, 0.5, 0.53), new Color3(0.06, 0.09, 0.1));
   }
 
-  private readonly importedTypes: ImportedDefenderType[] = ["green-archer", "battlemage", "sovereign"];
+  private readonly importedTypes: ImportedDefenderType[] = ["green-archer", "battlemage", "sovereign", "holy-emperor"];
   get ready(): boolean { return this.templates.size === this.importedTypes.length; }
   get cachedModelCount(): number { return this.templates.size; }
   hasTemplate(type: DefenderType): boolean { return this.templates.has(type as ImportedDefenderType); }
@@ -115,8 +115,8 @@ export class QuaterniusDefenderFactory {
   private async loadType(type: ImportedDefenderType): Promise<void> {
     const definition = DEFENDER_VISUAL_CONFIG[type];
     try {
-      this.templates.set(type, await this.loadContainer(definition.assetPath));
-      this.loadedPaths.set(type, definition.assetPath);
+      this.templates.set(type, await this.loadContainer(definition.assetPath!));
+      this.loadedPaths.set(type, definition.assetPath!);
       return;
     } catch (optimizedError) {
       if (!import.meta.env.DEV || !definition.fallbackAssetPath) throw optimizedError;
@@ -150,7 +150,7 @@ export class QuaterniusDefenderFactory {
     };
   }
 
-  private createNeutralFallback(id: number, type: ImportedDefenderType, level: number): QuaterniusDefenderVisual {
+  private createNeutralFallback(id: number, type: DefenderType, level: number): QuaterniusDefenderVisual {
     const root = new TransformNode(`defender-root-${id}`, this.scene);
     const bodyRoot = new TransformNode(`defender-body-root-${id}`, this.scene);
     bodyRoot.parent = root;
@@ -172,7 +172,7 @@ export class QuaterniusDefenderFactory {
     return { root, bodyRoot, attackOrigin, level, dispose: () => undefined };
   }
 
-  private reportResolution(type: ImportedDefenderType, assetPath: string | undefined, primitive: boolean): void {
+  private reportResolution(type: DefenderType, assetPath: string | undefined, primitive: boolean): void {
     if (!this.debug || this.reportedTypes.has(type)) return;
     this.reportedTypes.add(type);
     const config = DEFENDER_VISUAL_CONFIG[type];
@@ -181,12 +181,12 @@ export class QuaterniusDefenderFactory {
     });
   }
 
-  private recordInstance(id: number, type: ImportedDefenderType, level: number, assetPath: string | undefined,
+  private recordInstance(id: number, type: DefenderType, level: number, assetPath: string | undefined,
     bounds: { min: Vector3; max: Vector3 } | undefined, groundOffset: number): void {
     if (!this.debug) return;
     const instances = (window as Window & { __defenderVisualInstances?: object[] }).__defenderVisualInstances ??= [];
     instances.push({
-      id, type, config: type, optimized: assetPath === DEFENDER_VISUAL_CONFIG[type].assetPath,
+      id, type, config: type, optimized: assetPath !== undefined && assetPath === DEFENDER_VISUAL_CONFIG[type].assetPath,
       assetPath: assetPath ?? null, primitiveFallback: assetPath === undefined, level,
       sourceBounds: DEFENDER_VISUAL_CONFIG[type].sourceBounds,
       visualScaleMultiplier: DEFENDER_VISUAL_CONFIG[type].visualScaleMultiplier,

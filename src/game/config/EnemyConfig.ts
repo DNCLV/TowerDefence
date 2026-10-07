@@ -27,5 +27,5 @@ export const ENEMY_CONFIG: Record<EnemyType, EnemyTypeConfig> = {
   wraith: { id: "wraith", name: "Wraith", hp: 700, speedMultiplier: 1.6, goldReward: 5, livesDamage: 1, movementType: "ground", combatClass: "fodder", threatWeight: 7 },
   undeadDragon: { id: "undeadDragon", name: "Undead Dragon", hp: 480, speedMultiplier: 0.9, goldReward: 5, livesDamage: 2, movementType: "flying", combatClass: "tank", threatWeight: 6 },
   skeletonKing: { id: "skeletonKing", name: "Skeleton King", hp: 12000, speedMultiplier: 0.22, goldReward: 75, livesDamage: 10, movementType: "ground", combatClass: "boss", threatWeight: 0, boss: true },
-  skeletalCommander: { id: "skeletalCommander", name: "Skeletal Commander", hp: 1400, speedMultiplier: 1, goldReward: 12, livesDamage: 4, movementType: "flying", combatClass: "boss", threatWeight: 14, boss: true },
+  skeletalCommander: { id: "skeletalCommander", name: "Skeletal Commander", hp: 1400, speedMultiplier: 0.72, goldReward: 12, livesDamage: 4, movementType: "flying", combatClass: "boss", threatWeight: 14, boss: true },
 };

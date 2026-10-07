@@ -15,7 +15,8 @@ $models = @(
   @{ Source = 'Skeletal Commander Flying'; Runtime = 'public\assets\models\enemies\skeletal-commander.glb'; Optimized = 'public\assets\models\enemies\optimized\skeletal-commander.glb'; Ratio = '0.13'; TextureLimit = 1024 },
   @{ Source = 'Soveign'; Runtime = 'public\assets\models\defenders\sovereign.glb'; Optimized = 'public\assets\models\defenders\optimized\sovereign.glb'; Ratio = '0.075'; TextureLimit = 1024 },
   @{ Source = 'Blue Wizard'; Runtime = 'public\assets\models\defenders\blue-wizard.glb'; Optimized = 'public\assets\models\defenders\optimized\blue-wizard.glb'; Ratio = '0.14'; TextureLimit = 1024 },
-  @{ Source = 'Holy Knight'; Runtime = 'public\assets\models\defenders\holy-knight.glb'; Optimized = 'public\assets\models\defenders\optimized\holy-knight.glb'; Ratio = '0.14'; TextureLimit = 1024 }
+  @{ Source = 'Holy Knight'; Runtime = 'public\assets\models\defenders\holy-knight.glb'; Optimized = 'public\assets\models\defenders\optimized\holy-knight.glb'; Ratio = '0.14'; TextureLimit = 1024 },
+  @{ Source = 'Holy Emperor'; Runtime = 'public\assets\models\defenders\holy-emperor.glb'; Optimized = 'public\assets\models\defenders\optimized\holy-emperor.glb'; Ratio = '0.10'; TextureLimit = 1024 }
 )
 
 New-Item -ItemType Directory -Force -Path $temporaryDirectory | Out-Null

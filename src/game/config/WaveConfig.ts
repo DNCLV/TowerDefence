@@ -203,10 +203,14 @@ export function getWaveComposition(wave: number): WaveComposition {
   };
 }
 
-/** Interleave standard archetypes deterministically; giants arrive after the main mix for pacing. */
+/** Interleave regular archetypes, then append Giants and finally Commanders as finishers. */
 export function createWaveSpawnQueue(composition: WaveComposition): EnemyType[] {
-  const regularEntries = composition.entries.filter((entry) => entry.type !== "giantGoblin");
-  const giantCount = composition.entries.find((entry) => entry.type === "giantGoblin")?.count ?? 0;
+  const regularEntries = composition.entries.filter((entry) => entry.type !== "giantGoblin" && entry.type !== "skeletalCommander");
+  const countOf = (type: EnemyType) => composition.entries
+    .filter((entry) => entry.type === type)
+    .reduce((total, entry) => total + entry.count, 0);
+  const giantCount = countOf("giantGoblin");
+  const commanderCount = countOf("skeletalCommander");
   const queue: EnemyType[] = [];
   const counts = new Map(regularEntries.map((entry) => [entry.type, entry.count]));
   const maxCount = Math.max(0, ...regularEntries.map((entry) => entry.count));
@@ -216,6 +220,7 @@ export function createWaveSpawnQueue(composition: WaveComposition): EnemyType[] 
     }
   }
   for (let index = 0; index < giantCount; index += 1) queue.push("giantGoblin");
+  for (let index = 0; index < commanderCount; index += 1) queue.push("skeletalCommander");
   return queue;
 }
 

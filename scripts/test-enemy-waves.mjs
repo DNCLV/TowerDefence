@@ -677,6 +677,26 @@ try {
     assert.equal(special.waveEnemyComposition.skeletonKing, Math.round(multiplier));
   }
 
+  // In multi-front waves, finish all regular fliers and Dragons before the Commander appears.
+  const commanderPacing = new GameState("three-spawns");
+  commanderPacing.wavesStarted = 41;
+  assert.equal(commanderPacing.startWave(), true, "Wave 42 Commander pacing starts on a multi-spawn map");
+  const actualCommanderWaveOrder = [];
+  for (let tick = 0; tick < 100 && commanderPacing.toSpawn > 0; tick += 1) {
+    const before = commanderPacing.enemies.length;
+    commanderPacing.update(tick === 0 ? 0 : 1);
+    actualCommanderWaveOrder.push(...commanderPacing.enemies.slice(before).map((enemy) => enemy.type));
+    // Keep the test focused on spawn order and avoid simulating combat/path completion.
+    commanderPacing.enemies = [];
+  }
+  assert.equal(commanderPacing.toSpawn, 0, "the multi-front queue eventually releases every Wave 42 enemy");
+  assert.equal(actualCommanderWaveOrder.filter((type) => type === "skeletalCommander").length, 4,
+    "the three-spawn map's four scaled Commanders are all queued");
+  const firstCommanderIndex = actualCommanderWaveOrder.indexOf("skeletalCommander");
+  assert.ok(firstCommanderIndex >= 0);
+  assert.ok(actualCommanderWaveOrder.slice(firstCommanderIndex).every((type) => type === "skeletalCommander"),
+    "all non-Commanders spawn before the grouped multi-front Commander finisher");
+
   const expected = {
     1: [12, 0, 0, 0], 2: [16, 0, 0, 0], 3: [14, 2, 0, 0], 4: [18, 2, 0, 0],
     5: [14, 4, 0, 0], 6: [20, 4, 0, 0], 7: [0, 0, 12, 0], 8: [16, 4, 2, 0],
@@ -743,7 +763,15 @@ try {
   assert.ok(ENEMY_VISUAL_CONFIG.ghoul.hpBarOffsetY > ghoulVisualHeight);
   assert.ok(ENEMY_VISUAL_CONFIG.wraith.hpBarOffsetY > wraithVisualHeight);
   assert.deepEqual(createWaveSpawnQueue(getWaveComposition(9)).slice(0, 3), ["goblin", "goblinBrute", "goblinRider"]);
-  assert.deepEqual(createWaveSpawnQueue(getWaveComposition(70)).slice(-7), Array(7).fill("giantGoblin"));
+  const wave35Queue = createWaveSpawnQueue(getWaveComposition(35));
+  assert.equal(wave35Queue.length, 25, "Wave 35 queue keeps its 20 Riders, four Dragons, and one Commander");
+  assert.deepEqual(wave35Queue.slice(-1), ["skeletalCommander"], "Wave 35 Commander is the final spawn slot");
+  assert.equal(wave35Queue.slice(0, -1).includes("skeletalCommander"), false, "Wave 35 has no early Commander slot");
+  const wave42Queue = createWaveSpawnQueue(getWaveComposition(42));
+  assert.deepEqual(wave42Queue.slice(-2), ["skeletalCommander", "skeletalCommander"], "multiple Commanders are grouped at queue end");
+  const wave70Queue = createWaveSpawnQueue(getWaveComposition(70));
+  assert.deepEqual(wave70Queue.slice(-11, -4), Array(7).fill("giantGoblin"), "Giant finisher ordering stays before Commanders");
+  assert.deepEqual(wave70Queue.slice(-4), Array(4).fill("skeletalCommander"), "Commander group follows Giants");
 
   const lateWaveSnapshots = {
     21: { counts: { goblin: 0, goblinBrute: 0, goblinRider: 26, giantGoblin: 0, ghoul: 0, wraith: 0 }, threat: 78 },

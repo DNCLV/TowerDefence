@@ -18,7 +18,7 @@ export const FACTIONS: Record<FactionId, FactionDefinition> = {
     name: "Royal Guard",
     tagline: "Balanced & Versatile",
     description: "VETERAN CORPS · Towers grow stronger through combat experience. A balanced faction combining disciplined warriors with powerful arcane magic.",
-    units: ["blue-wizard", "holy-knight", "green-archer", "battlemage", "sovereign"],
+    units: ["blue-wizard", "holy-knight", "green-archer", "battlemage", "sovereign", "holy-emperor"],
   },
   "ancient-grove": {
     id: "ancient-grove",

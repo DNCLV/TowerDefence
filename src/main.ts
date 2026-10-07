@@ -17,9 +17,30 @@ import { FORMATION_BY_ID } from "./game/config/FormationConfig";
 import { AFFIXES, AFFIX_MILESTONES } from "./game/config/EnemyAffixConfig";
 import { getEnemyHpMultiplier } from "./game/enemies/Enemy";
 import { getVeteranProgress } from "./game/FactionBonusSystem";
+import { BuildCarousel } from "./BuildCarousel";
+import { FACTION_BONUS_CONFIG } from "./game/config/FactionBonusConfig";
+import type { Tower } from "./game/towers/Tower";
 
 const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) throw new Error("Missing #app root element");
+
+function defenderPortrait(type: DefenderType): string | undefined {
+  switch (type) {
+    case "blue-wizard": return resolveAssetUrl("assets/ui/defenders/wizard.png");
+    case "holy-knight": return resolveAssetUrl("assets/ui/defenders/knight.png");
+    case "green-archer": return resolveAssetUrl("assets/ui/defenders/green-archer.png");
+    case "battlemage": return resolveAssetUrl("assets/ui/defenders/battlemage.png");
+    case "sovereign": return resolveAssetUrl("assets/ui/defenders/sovereign.png");
+    case "holy-emperor": return resolveAssetUrl("assets/ui/defenders/holy-emperor.jpg");
+  }
+}
+
+function defenderPortraitMarkup(type: DefenderType, fallbackClassName: string): string {
+  const portrait = defenderPortrait(type);
+  return portrait
+    ? `<img src="${portrait}" alt="" draggable="false">`
+    : `<span class="${fallbackClassName}" aria-label="Portrait unavailable">✦</span>`;
+}
 
 function renderMapPreview(map: MapDefinition): string {
   const geometry = getMapPreviewGeometry(map);
@@ -83,8 +104,7 @@ selectMap(selectedMap, mapSelect.querySelector<HTMLButtonElement>(`[data-map-id=
 function renderFactionUnits(faction: FactionDefinition): string {
   return faction.units.map((type) => {
     const defender = DEFENDER_CONFIG[type];
-    const portrait = type === "blue-wizard" ? "wizard.png" : type === "holy-knight" ? "knight.png" : `${type}.png`;
-    return `<span class="faction-unit"><span class="faction-unit-portrait"><img src="${resolveAssetUrl(`assets/ui/defenders/${portrait}`)}" alt=""></span><strong>${defender.name.replace("Blue ", "")}</strong></span>`;
+    return `<span class="faction-unit"><span class="faction-unit-portrait">${defenderPortraitMarkup(type, "faction-unit-portrait-fallback")}</span><strong>${defender.name.replace("Blue ", "")}</strong></span>`;
   }).join("");
 }
 
@@ -278,20 +298,24 @@ ui.innerHTML = `
   <footer class="bottom-hud-bar">
     <section class="build-unit-section" aria-label="Build units">
       <div class="bottom-section-heading"><span>BUILD UNITS</span></div>
+      <div class="build-carousel-shell">
+        <button id="carousel-previous" class="carousel-arrow" type="button" aria-label="Previous unit" title="Previous unit">‹</button>
   <nav class="defender-choice-panel" aria-label="Choose defender to build">
     <button id="select-tool-button" class="defender-choice select-tool is-selected" type="button" aria-label="Select tool" aria-pressed="true">
-      <span class="select-tool-icon" aria-hidden="true">↖</span><span class="unit-card-copy"><strong>SELECT</strong><small>Tool</small></span><span class="unit-card-selection">ACTIVE</span>
+      <span class="select-tool-icon" aria-hidden="true">↖</span><span class="unit-card-copy"><strong>SELECT</strong><small>TOOL</small></span><span class="unit-card-selection">ACTIVE</span>
     </button>
     ${faction.units.map((type) => {
       const defender = DEFENDER_CONFIG[type];
-      const portrait = type === "blue-wizard" ? "wizard.png" : type === "holy-knight" ? "knight.png" : `${type}.png`;
-      return `<button id="build-${type}-button" class="defender-choice" type="button" aria-label="Select ${defender.name}" aria-pressed="false">
-        <span class="unit-portrait-frame"><img src="${resolveAssetUrl(`assets/ui/defenders/${portrait}`)}" alt="" draggable="false"></span>
-        <span class="unit-card-copy"><strong>${defender.name.replace("Blue ", "")}</strong><small class="unit-card-cost">${defender.buildCost}</small></span>
+      return `<button id="build-${type}-button" class="defender-choice${type === "holy-emperor" ? " is-ultimate" : ""}" type="button" aria-label="Select ${defender.name}" aria-pressed="false">
+        <span class="unit-portrait-frame">${defenderPortraitMarkup(type, "unit-portrait-fallback")}</span>
+        <span class="unit-card-copy"><strong>${defender.name}</strong><small class="unit-card-cost">${defender.buildCost}G</small></span>
         <span class="unit-card-selection">SELECTED</span>
       </button>`;
     }).join("")}
   </nav>
+        <button id="carousel-next" class="carousel-arrow" type="button" aria-label="Next unit" title="Next unit">›</button>
+      </div>
+      <small id="carousel-selection-summary" class="carousel-selection-summary" aria-live="polite">SELECT TOOL</small>
     </section>
     <section class="tower-info-section" aria-label="Selected tower and actions">
       <div id="tower-empty-state" class="tower-empty-state">
@@ -301,7 +325,7 @@ ui.innerHTML = `
       </div>
       <section id="build-unit-info" class="build-unit-info" aria-label="Selected unit for building" hidden>
         <div class="build-unit-info-heading">
-          <span class="build-unit-info-portrait"><img id="build-unit-info-image" alt="" draggable="false"></span>
+          <span class="build-unit-info-portrait"><img id="build-unit-info-image" alt="" draggable="false" hidden><span id="build-unit-info-fallback" class="portrait-placeholder" aria-label="Portrait unavailable" hidden>✦</span></span>
           <span class="build-unit-info-name-wrap"><strong id="build-unit-info-name"></strong><small id="build-unit-info-role"></small></span>
         </div>
         <div class="build-unit-info-stats">
@@ -310,6 +334,7 @@ ui.innerHTML = `
           <span>Attack Rate <strong id="build-unit-info-rate"></strong></span>
           <span>Build Cost <strong id="build-unit-info-cost"></strong></span>
         </div>
+        <small id="build-unit-info-capabilities" class="build-unit-info-capabilities" hidden></small>
         <div id="build-sovereign-profiles" class="sovereign-profile-list" hidden></div>
         <small class="build-unit-info-hint" aria-live="polite">Loading defender visuals…</small>
       </section>
@@ -317,9 +342,8 @@ ui.innerHTML = `
     <button id="close-tower-panel" class="panel-close" type="button" aria-label="Deselect tower">×</button>
     <div class="tower-identity">
       <div class="tower-portrait" aria-hidden="true">✦</div>
-      <div><div class="tower-name">Blue Wizard</div><div id="tower-level" class="tower-level">Level 1</div></div>
+      <div><div class="tower-name">Blue Wizard</div><div id="tower-level" class="tower-level">Level 1</div><div id="tower-specialization" class="tower-specialization" hidden></div></div>
     </div>
-    <div id="tower-specialization" class="tower-specialization" hidden></div>
     <small id="tower-specialization-detail" class="tower-specialization-detail" hidden></small>
     <div class="tower-stat-group">
       <div class="tower-stats">
@@ -334,7 +358,7 @@ ui.innerHTML = `
       </div>
       <div class="tower-secondary-bonuses">
         <div id="tower-veteran" class="tower-veteran" hidden></div>
-        <div id="tower-formation" class="tower-formation" hidden></div>
+        <div class="tower-buff-row"><strong>BUFFS</strong><div id="tower-buff-icons" class="tower-buff-icons" aria-label="Active tower buffs"></div></div>
       </div>
     </div>
     <div class="tower-actions">
@@ -432,27 +456,24 @@ minimapDockObserver.observe(bottomHudBar);
 requestAnimationFrame(syncMinimapDock);
 const buildUnitSection = query<HTMLElement>(".build-unit-section");
 const defenderChoicePanel = query<HTMLElement>(".defender-choice-panel");
+const carouselSummary = query<HTMLElement>("#carousel-selection-summary");
 const infoToggle = query<HTMLButtonElement>("#battlefield-info-toggle");
 const infoPanel = query<HTMLElement>("#battlefield-info-panel");
 const infoContent = query<HTMLElement>("#battlefield-info-content");
+let buildCarousel: BuildCarousel | undefined;
 const updateBuildTrayOverflow = (): void => {
   buildUnitSection.classList.toggle("has-overflow", defenderChoicePanel.scrollWidth > defenderChoicePanel.clientWidth + 1);
 };
 defenderChoicePanel.addEventListener("scroll", updateBuildTrayOverflow, { passive: true });
-defenderChoicePanel.addEventListener("wheel", (event) => {
-  if (Math.abs(event.deltaY) > Math.abs(event.deltaX) && defenderChoicePanel.scrollWidth > defenderChoicePanel.clientWidth) {
-    defenderChoicePanel.scrollLeft += event.deltaY;
-    event.preventDefault();
-  }
-}, { passive: false });
 const handleBuildTrayResize = (): void => {
   updateBuildTrayOverflow();
+  buildCarousel?.refresh();
   // ResizeObserver normally keeps the minimap dock in sync; this rAF fallback
   // also handles viewport/orientation changes before the observer callback.
   requestAnimationFrame(syncMinimapDock);
 };
-const buildTrayResizeObserver = new ResizeObserver(updateBuildTrayOverflow);
-const buildTrayMutationObserver = new MutationObserver(updateBuildTrayOverflow);
+const buildTrayResizeObserver = new ResizeObserver(handleBuildTrayResize);
+const buildTrayMutationObserver = new MutationObserver(handleBuildTrayResize);
 const uiLifecycle = new AbortController();
 window.addEventListener("resize", handleBuildTrayResize, { passive: true });
 buildTrayResizeObserver.observe(defenderChoicePanel);
@@ -488,6 +509,8 @@ const towerPanel = query<HTMLElement>("#tower-panel");
 const towerEmptyState = query<HTMLElement>("#tower-empty-state");
 const buildUnitInfo = query<HTMLElement>("#build-unit-info");
 const buildUnitInfoImage = query<HTMLImageElement>("#build-unit-info-image");
+const buildUnitInfoFallback = query<HTMLElement>("#build-unit-info-fallback");
+const buildUnitInfoCapabilities = query<HTMLElement>("#build-unit-info-capabilities");
 const buildUnitInfoName = query<HTMLElement>("#build-unit-info-name");
 const buildUnitInfoRole = query<HTMLElement>("#build-unit-info-role");
 const buildUnitInfoDamage = query<HTMLElement>("#build-unit-info-damage");
@@ -507,8 +530,8 @@ const towerKills = query<HTMLElement>("#tower-kills");
 const towerDamageDone = query<HTMLElement>("#tower-damage-done");
 const towerSpecialization = query<HTMLElement>("#tower-specialization");
 const towerSpecializationDetail = query<HTMLElement>("#tower-specialization-detail");
-const towerFormation = query<HTMLElement>("#tower-formation");
 const towerVeteran = query<HTMLElement>("#tower-veteran");
+const towerBuffIcons = query<HTMLElement>("#tower-buff-icons");
 const specializationChoice = query<HTMLElement>("#specialization-choice");
 const specializationOptions = query<HTMLElement>("#specialization-options");
 const upgradeButton = query<HTMLButtonElement>("#upgrade-button");
@@ -554,9 +577,21 @@ const buildButtons = Object.fromEntries(faction.units.map((type) => [
   type, query<HTMLButtonElement>(`#build-${type}-button`),
 ])) as Record<DefenderType, HTMLButtonElement>;
 const selectToolButton = query<HTMLButtonElement>("#select-tool-button");
+const carouselItems = [selectToolButton, ...faction.units.map((type) => buildButtons[type])];
 for (const button of Object.values(buildButtons)) button.disabled = true;
 startButton.disabled = true;
 let previousDefenderAssetsReady: boolean | undefined;
+const updateCarouselSummary = (type?: DefenderType): void => {
+  if (!type) {
+    carouselSummary.textContent = "SELECT TOOL";
+    return;
+  }
+  const defender = DEFENDER_CONFIG[type];
+  const range = defender.supportsMapWideTargeting ? "MAP WIDE"
+    : defender.rangeMode === "adjacent8" ? "MELEE" : defender.rangeMode === "hybrid" ? "HYBRID" : "RANGED";
+  const targets = defender.targetTypes.includes("air") ? "GROUND + AIR" : "GROUND";
+  carouselSummary.textContent = `${range} · ${targets}`;
+};
 const chooseBuildType = (type: DefenderType): void => {
   selectedBuildType = type;
   renderer.setBuildDefenderType(type);
@@ -566,7 +601,8 @@ const chooseBuildType = (type: DefenderType): void => {
     button.classList.toggle("is-selected", buttonType === type);
     button.setAttribute("aria-pressed", String(buttonType === type));
   }
-  buildButtons[type].scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
+  buildCarousel?.setSelected(faction.units.indexOf(type) + 1);
+  updateCarouselSummary(type);
   if (selectedTowerId === undefined) renderBuildUnitInfo();
 };
 const chooseSelectTool = (): void => {
@@ -578,10 +614,18 @@ const chooseSelectTool = (): void => {
     button.classList.remove("is-selected");
     button.setAttribute("aria-pressed", "false");
   }
+  buildCarousel?.setSelected(0);
+  updateCarouselSummary();
   if (selectedTowerId === undefined) renderBuildUnitInfo();
 };
 selectToolButton.addEventListener("click", chooseSelectTool);
 for (const type of faction.units) buildButtons[type].addEventListener("click", () => chooseBuildType(type));
+buildCarousel = new BuildCarousel(
+  defenderChoicePanel, carouselItems,
+  query<HTMLButtonElement>("#carousel-previous"), query<HTMLButtonElement>("#carousel-next"),
+  (index) => index === 0 ? chooseSelectTool() : chooseBuildType(faction.units[index - 1]), uiLifecycle.signal,
+);
+buildCarousel.setSelected(0, false);
 
 const setInfoPanelOpen = (open: boolean): void => {
   infoPanel.hidden = !open;
@@ -590,6 +634,11 @@ const setInfoPanelOpen = (open: boolean): void => {
 };
 infoToggle.addEventListener("click", () => setInfoPanelOpen(infoPanel.hidden));
 query<HTMLButtonElement>("#battlefield-info-close").addEventListener("click", () => setInfoPanelOpen(false));
+towerBuffIcons.addEventListener("click", (event) => {
+  if (!(event.target instanceof Element) || !event.target.closest(".tower-buff-icon")) return;
+  setInfoPanelOpen(true);
+  infoContent.querySelector("#active-buffs-info")?.scrollIntoView({ block: "nearest" });
+});
 window.addEventListener("keydown", (event) => {
   if (event.key !== "Escape" || !resetConfirmation.hidden) return;
   if (selectedBuildType !== undefined) {
@@ -823,6 +872,46 @@ if (debugParams.get("minimapDebug") === "1") {
   };
 }
 
+type TowerBuff = { icon: string; name: string; detail: string };
+
+function formatCompactDamage(value: number): string {
+  if (value < 1_000) return String(value);
+  return `${Number((Math.floor(value / 100) / 10).toFixed(1))}K`;
+}
+
+function getTowerBuffs(state: GameState, tower: Tower): TowerBuff[] {
+  const buffs: TowerBuff[] = [];
+  const veteran = getVeteranProgress(state.factionId, tower);
+  if (veteran.rank > 0) {
+    buffs.push({ icon: "★", name: veteran.label,
+      detail: `Veteran Corps rank ${veteran.rank}; +${Math.round(veteran.damageBonus * 100)}% damage and +${Math.round(veteran.attackSpeedBonus * 100)}% attack speed.` });
+    if (veteran.damageBonus > 0) buffs.push({ icon: "⚔", name: "Veteran damage", detail: `+${Math.round(veteran.damageBonus * 100)}% damage from Veteran Corps.` });
+    if (veteran.attackSpeedBonus > 0) buffs.push({ icon: "ϟ", name: "Veteran attack speed", detail: `+${Math.round(veteran.attackSpeedBonus * 100)}% attack speed from Veteran Corps.` });
+  }
+  if (tower.formationId) {
+    const formation = FORMATION_BY_ID[tower.formationId];
+    buffs.push({ icon: "◇", name: formation.name, detail: formation.description });
+  }
+  const specialization = tower.specializationId ? TOWER_SPECIALIZATIONS[tower.specializationId] : undefined;
+  if (specialization) {
+    const icon = specialization.slow ? "❄" : specialization.mark ? "◎" : specialization.chain ? "ϟ"
+      : specialization.bonusDamageClasses ? "◆" : specialization.targetDamageMultipliers?.air ? "✦"
+        : specialization.splashRatio ? "✺" : specialization.meleeDamageMultiplier ? "⚔" : "✧";
+    buffs.push({ icon, name: specialization.name, detail: specialization.description });
+  } else {
+    const splashRatio = DEFENDER_CONFIG[tower.type].splashDamageRatios?.[tower.level] ?? 0;
+    if (splashRatio > 0) buffs.push({ icon: "✺", name: "Splash",
+      detail: `${Math.round(splashRatio * 100)}% damage within ${formatBalanceNumber(DEFENDER_CONFIG[tower.type].splashRadiusTiles?.[tower.level] ?? 1.5)} tiles.` });
+  }
+  if (DEFENDER_CONFIG[tower.type].supportsMapWideTargeting) {
+    buffs.push({ icon: "◉", name: "Map-wide targeting", detail: "Can acquire Ground and Air enemies anywhere on the map." });
+  }
+  if (state.factionId === FACTION_BONUS_CONFIG.ancientGroveId) {
+    buffs.push({ icon: "❧", name: "Living Maze", detail: `Ground enemies on influenced paths slow by up to ${Math.round(FACTION_BONUS_CONFIG.livingMaze.maxSlow * 100)}%. Flying enemies are unaffected.` });
+  }
+  return buffs;
+}
+
 function renderSelectedTower(state: GameState): void {
   if (selectedTowerId === undefined) {
     towerPanel.hidden = true;
@@ -849,42 +938,46 @@ function renderSelectedTower(state: GameState): void {
   buildUnitInfo.hidden = true;
   towerEmptyState.hidden = true;
   query<HTMLElement>(".tower-name").textContent = DEFENDER_CONFIG[tower.type].name;
-  towerPortrait.textContent = "";
-  towerPortrait.style.backgroundImage = `url("${defenderPortrait(tower.type)}")`;
+  const portrait = defenderPortrait(tower.type);
+  towerPortrait.textContent = portrait ? "" : "✦";
+  towerPortrait.classList.toggle("has-placeholder", !portrait);
+  towerPortrait.style.backgroundImage = portrait ? `url("${portrait}")` : "none";
   towerLevel.textContent = `Level ${tower.level}`;
   const specialization = tower.specializationId ? TOWER_SPECIALIZATIONS[tower.specializationId] : undefined;
   towerSpecialization.hidden = !specialization;
   towerSpecialization.textContent = specialization ? specialization.name.toUpperCase() : "";
-  towerSpecializationDetail.hidden = !specialization;
-  towerSpecializationDetail.textContent = specialization?.description ?? "";
-  towerSpecializationDetail.style.setProperty("--specialization-color", specialization?.visualColor ?? "#bcf0f6");
-  towerFormation.hidden = !tower.formationId;
-  towerFormation.replaceChildren();
-  if (tower.formationId) {
-    const formation = FORMATION_BY_ID[tower.formationId];
-    const heading = document.createElement("span");
-    heading.className = "tower-formation-heading";
-    heading.textContent = `Formation: ${formation.name}`;
-    const bonus = document.createElement("strong");
-    bonus.className = "tower-formation-bonus";
-    bonus.textContent = `Bonus: ${formation.description}`;
-    towerFormation.append(heading, document.createTextNode(" "), bonus);
+  const mapWide = DEFENDER_CONFIG[tower.type].supportsMapWideTargeting === true;
+  towerSpecializationDetail.hidden = true;
+  towerSpecializationDetail.textContent = specialization?.description ?? (mapWide ? getDefenderCapabilitySummary(tower.type, tower.level) : "");
+  towerSpecializationDetail.style.setProperty("--specialization-color", specialization?.visualColor ?? (mapWide ? "#e9cf84" : "#bcf0f6"));
+  const buffs = getTowerBuffs(state, tower);
+  const buffSignature = buffs.map(({ name, detail }) => `${name}:${detail}`).join("|");
+  if (towerBuffIcons.dataset.signature !== buffSignature) {
+    towerBuffIcons.dataset.signature = buffSignature;
+    towerBuffIcons.replaceChildren(...buffs.map((buff) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "tower-buff-icon";
+      button.textContent = buff.icon;
+      button.title = `${buff.name} — ${buff.detail}`;
+      button.setAttribute("aria-label", `${buff.name}: ${buff.detail}. Open details`);
+      return button;
+    }));
   }
   if (state.factionId === "arcane-kingdom") {
     towerVeteran.hidden = false;
-    const currentRank = veteran.rank === 0 ? "None" : veteran.label;
-    const title = `Veteran Corps · ${currentRank}`;
-    const progress = veteran.next
-      ? `${veteran.damage.toLocaleString("en-US")} / ${veteran.next.requiredDamage.toLocaleString("en-US")} DMG`
-      : `${veteran.damage.toLocaleString("en-US")} DMG`;
-    const nextRank = veteran.next
-      ? `Next: ${veteran.next.label} in ${Math.max(0, veteran.next.requiredDamage - veteran.damage).toLocaleString("en-US")} DMG`
-      : "Max Veteran Rank";
-    const bonuses = [
-      veteran.damageBonus > 0 ? `+${Math.round(veteran.damageBonus * 100)}% DMG` : "",
-      veteran.attackSpeedBonus > 0 ? `+${Math.round(veteran.attackSpeedBonus * 100)}% ASPD` : "",
-    ].filter(Boolean).join(", ");
-    towerVeteran.innerHTML = `<strong>${title}</strong><small>${progress}</small><small>${nextRank}</small>${bonuses ? `<small>Bonus: ${bonuses}</small>` : ""}`;
+    const title = veteran.rank === 0 ? "VETERAN" : veteran.label.toUpperCase();
+    const damage = `${formatCompactDamage(veteran.damage)} DMG`;
+    const remaining = veteran.next
+      ? `${formatCompactDamage(Math.max(0, veteran.next.requiredDamage - veteran.damage))} TO ${veteran.next.label.toUpperCase()}`
+      : "MAX";
+    towerVeteran.replaceChildren();
+    const rankLabel = document.createElement("strong");
+    rankLabel.textContent = title;
+    const progressLabel = document.createElement("small");
+    progressLabel.textContent = `${damage} · ${remaining}`;
+    towerVeteran.append(rankLabel, progressLabel);
+    towerVeteran.setAttribute("aria-label", `${title}, ${veteran.damage.toLocaleString("en-US")} damage done, ${veteran.next ? `${Math.max(0, veteran.next.requiredDamage - veteran.damage).toLocaleString("en-US")} damage to ${veteran.next.label}` : "maximum rank"}`);
     if (veteranRankedUp) {
       towerVeteran.classList.remove("is-ranking-up");
       void towerVeteran.offsetWidth;
@@ -901,7 +994,7 @@ function renderSelectedTower(state: GameState): void {
   towerSovereignProfiles.hidden = !isSovereign;
   if (isSovereign) renderSovereignProfiles(towerSovereignProfiles, tower.level);
   towerDamage.textContent = String(tower.damage);
-  towerRange.textContent = tower.rangeMode === "adjacent8"
+  towerRange.textContent = mapWide ? "MAP WIDE" : tower.rangeMode === "adjacent8"
     ? "1 Tile"
     : `${Number((tower.range / WORLD_UNITS_PER_CELL).toFixed(1))} Tiles`;
   towerFireRate.textContent = `${tower.fireRate.toFixed(2)}/s`;
@@ -933,6 +1026,12 @@ function renderSelectedTower(state: GameState): void {
       tooltipLines.push(`Damage: ${tower.damage} -> ${nextLevel.damage}`);
       tooltipLines.push(`Attack Rate: ${tower.fireRate.toFixed(2)} -> ${nextLevel.fireRate.toFixed(2)} attacks/sec`);
       tooltipLines.push(`DPS: ${formatBalanceNumber(getTowerDps(tower))} -> ${formatBalanceNumber(getTowerDps(nextLevel))}`);
+    }
+    const nextSplashRatio = DEFENDER_CONFIG[tower.type].splashDamageRatios?.[nextLevel.level] ?? 0;
+    const nextSplashRadius = DEFENDER_CONFIG[tower.type].splashRadiusTiles?.[nextLevel.level];
+    if (nextSplashRatio > 0 && nextSplashRadius !== undefined) {
+      const splashLabel = DEFENDER_CONFIG[tower.type].splashLabel ?? "Splash";
+      tooltipLines.push(`${splashLabel}: ${Math.round(nextSplashRatio * 100)}% within ${formatBalanceNumber(nextSplashRadius)} tiles`);
     }
     tooltipLines.push(`Upgrade Cost: ${upgradeCost} gold`);
     tooltipLines.push(`Total Invested After Upgrade: ${getTotalTowerInvestment(nextLevel.level, tower.type)} gold`);
@@ -1005,17 +1104,24 @@ function renderBuildUnitInfo(): void {
   buildUnitInfo.dataset.unitType = selectedBuildType;
   buildUnitInfo.hidden = false;
   const isSovereign = selectedBuildType === "sovereign";
+  const isMapWide = defender.supportsMapWideTargeting === true;
   query<HTMLElement>(".build-unit-info-stats").hidden = isSovereign;
   buildSovereignProfiles.hidden = !isSovereign;
   if (isSovereign) renderSovereignProfiles(buildSovereignProfiles, 1, true);
-  buildUnitInfoImage.src = defenderPortrait(selectedBuildType);
+  const portrait = defenderPortrait(selectedBuildType);
+  buildUnitInfoImage.hidden = !portrait;
+  buildUnitInfoFallback.hidden = Boolean(portrait);
+  if (portrait) buildUnitInfoImage.src = portrait;
+  else buildUnitInfoImage.removeAttribute("src");
+  buildUnitInfoCapabilities.hidden = !isMapWide;
+  buildUnitInfoCapabilities.textContent = isMapWide ? getDefenderCapabilitySummary(selectedBuildType, 1) : "";
   buildUnitInfoName.textContent = defender.name;
   buildUnitInfoRole.textContent = (selectedBuildType === "sovereign"
     ? defender.roleLabel ?? defender.specializationLabel
     : defender.specializationLabel ?? defender.roleLabel)
     ?? (defender.rangeMode === "adjacent8" ? "Melee Defender" : "Ranged Defender");
   buildUnitInfoDamage.textContent = String(stats.damage);
-  buildUnitInfoRange.textContent = defender.rangeMode === "adjacent8"
+  buildUnitInfoRange.textContent = isMapWide ? "MAP WIDE" : defender.rangeMode === "adjacent8"
     ? "Adjacent 8"
     : `${(stats.range / WORLD_UNITS_PER_CELL).toFixed(1)} Tiles`;
   buildUnitInfoRate.textContent = `${stats.fireRate.toFixed(2)}/s`;
@@ -1246,6 +1352,21 @@ function renderBattlefieldInfo(state: GameState): void {
     ? `<strong>VETERAN CORPS</strong><br><small>Royal Guard towers gain ranks through combat experience.</small>`
     : `<strong>LIVING MAZE</strong><br><small>Ground enemies are slowed on Grove-influenced paths. Current maximum slow: <strong>20%</strong>. Flying enemies are unaffected.</small>`;
   parts.push(`<section class="battlefield-info-block"><h3>FACTION BONUS</h3><p>${factionBonus}</p></section>`);
+  const selectedTower = state.towers.find((tower) => tower.id === selectedTowerId);
+  if (selectedTower) {
+    const buffs = getTowerBuffs(state, selectedTower);
+    parts.push(`<section id="active-buffs-info" class="battlefield-info-block"><h3>ACTIVE BUFFS · ${DEFENDER_CONFIG[selectedTower.type].name}</h3><ul class="active-buff-details">${buffs.length
+      ? buffs.map(({ icon, name, detail }) => `<li><span aria-hidden="true">${icon}</span><div><strong>${name}</strong><small>${detail}</small></div></li>`).join("")
+      : "<li class=\"info-muted\">No active buffs yet.</li>"}</ul></section>`);
+    if (selectedTower.specializationId) {
+      const specialization = TOWER_SPECIALIZATIONS[selectedTower.specializationId];
+      parts.push(`<section class="battlefield-info-block"><h3>SPECIALIZATION</h3><p>${specialization.name}</p><small>${specialization.description}</small></section>`);
+    }
+  } else if (selectedBuildType) {
+    const defender = DEFENDER_CONFIG[selectedBuildType];
+    const stats = defender.levels[0];
+    parts.push(`<section class="battlefield-info-block"><h3>SELECTED UNIT</h3><p>${defender.name} · ${defender.buildCost} Gold</p><small>${stats.damage} damage · ${stats.fireRate.toFixed(2)} attacks/sec · ${defender.supportsMapWideTargeting ? "Map-wide" : defender.rangeMode === "adjacent8" ? "Adjacent melee" : `${formatBalanceNumber(stats.range / WORLD_UNITS_PER_CELL)} tile range`} · Targets ${defender.targetTypes.join(" + ")}</small></section>`);
+  }
   const signature = parts.join("");
   if (infoContent.dataset.signature === signature) return;
   infoContent.dataset.signature = signature;
@@ -1256,13 +1377,15 @@ function formatBalanceNumber(value: number): string {
   return String(Number(value.toFixed(2)));
 }
 
-function defenderPortrait(type: DefenderType): string {
-  switch (type) {
-    case "blue-wizard": return resolveAssetUrl("assets/ui/defenders/wizard.png");
-    case "holy-knight": return resolveAssetUrl("assets/ui/defenders/knight.png");
-    case "green-archer": return resolveAssetUrl("assets/ui/defenders/green-archer.png");
-    case "battlemage": return resolveAssetUrl("assets/ui/defenders/battlemage.png");
-    case "sovereign": return resolveAssetUrl("assets/ui/defenders/sovereign.png");
+function getDefenderCapabilitySummary(type: DefenderType, level: number): string {
+  const defender = DEFENDER_CONFIG[type];
+  const targets = defender.targetTypes.map((target) => target === "air" ? "Air" : "Ground").join(" + ");
+  const parts = [defender.supportsMapWideTargeting ? "Map-wide" : "", targets ? `Targets ${targets}` : ""].filter(Boolean);
+  const splashRatio = defender.splashDamageRatios?.[level] ?? 0;
+  const splashRadius = defender.splashRadiusTiles?.[level];
+  if (splashRatio > 0 && splashRadius !== undefined) {
+    parts.push(`${defender.splashLabel ?? "Splash"} ${Math.round(splashRatio * 100)}% within ${formatBalanceNumber(splashRadius)} tiles`);
   }
+  return parts.join(" · ").toUpperCase();
 }
 }

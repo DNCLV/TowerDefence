@@ -7,6 +7,7 @@ import { resolveAssetUrl } from "../../core/AssetUrl";
 import { gridToWorld3D, TILE_SIZE_3D, worldToGrid3D } from "./Grid3D";
 import { WORLD_UNITS_PER_CELL } from "../../core/GameConstants";
 import type { DefenderType } from "../config/DefenderConfig";
+import { DEFENDER_CONFIG } from "../config/DefenderConfig";
 import type { EnemyType } from "../config/EnemyConfig";
 import { AFFIXES } from "../config/EnemyAffixConfig";
 import type { EnemyAffixId } from "../config/EnemyAffixConfig";
@@ -1114,7 +1115,8 @@ export class BabylonGameRenderer {
 
   private updateSelectedTowerRange(gameState: GameState): void {
     const selected = gameState.towers.find((tower) => tower.id === this.selectedTowerId);
-    const showCircle = selected?.rangeMode === "circular" || selected?.rangeMode === "hybrid";
+    const showCircle = Boolean(selected && !DEFENDER_CONFIG[selected.type].supportsMapWideTargeting
+      && (selected.rangeMode === "circular" || selected.rangeMode === "hybrid"));
     this.circularRangeMarker.setEnabled(showCircle);
     if (showCircle && selected) {
       const point = gridToWorld3D(selected.cell);
@@ -1198,7 +1200,8 @@ export class BabylonGameRenderer {
         continue;
       }
       if (event.isSplash) {
-        this.combatEffects.showSplashHit(targetPosition);
+        if (event.defenderType === "holy-emperor") this.combatEffects.showWarImpact(targetPosition, false);
+        else this.combatEffects.showSplashHit(targetPosition);
         continue;
       }
       const desiredRotation = Math.atan2(target.x - tower.root.position.x, target.z - tower.root.position.z);
@@ -1207,6 +1210,10 @@ export class BabylonGameRenderer {
       tower.bodyRoot.computeWorldMatrix(true);
       if (event.defenderType === "holy-knight") {
         this.combatEffects.showMeleeHit(targetPosition, event.enemyDied);
+        continue;
+      }
+      if (event.defenderType === "holy-emperor") {
+        this.combatEffects.showWarImpact(targetPosition, event.enemyDied);
         continue;
       }
       const attackOrigin = "attackOrigin" in tower ? tower.attackOrigin : "arrowOrigin" in tower ? tower.arrowOrigin : undefined;
@@ -2116,7 +2123,8 @@ export class BabylonGameRenderer {
       case "green-archer":
       case "battlemage":
       case "sovereign":
-        // The factory returns that type's own GLB or its own primitive fallback; never Wizard.
+      case "holy-emperor":
+        // Each imported defender uses its own GLB and safe neutral fallback; never a different unit's model.
         visual = this.quaterniusDefenderFactory.create(tower.id, tower.type, tower.level);
         break;
       default: {

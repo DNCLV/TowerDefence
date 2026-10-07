@@ -45,8 +45,8 @@ assert.deepEqual(Object.fromEntries(Object.entries(ENEMY_CONFIG).map(([type, con
 assert.deepEqual(
   [ENEMY_CONFIG.skeletalCommander.hp, ENEMY_CONFIG.skeletalCommander.speedMultiplier, ENEMY_CONFIG.skeletalCommander.goldReward,
     ENEMY_CONFIG.skeletalCommander.livesDamage, ENEMY_CONFIG.skeletalCommander.movementType, ENEMY_CONFIG.skeletalCommander.combatClass,
-    ENEMY_CONFIG.skeletalCommander.threatWeight],
-  [1400, 1, 12, 4, "flying", "boss", 14],
+    ENEMY_CONFIG.skeletalCommander.threatWeight, ENEMY_CONFIG.skeletalCommander.boss],
+  [1400, 0.72, 12, 4, "flying", "boss", 14, true],
 );
 assert.deepEqual(
   [ENEMY_CONFIG.skeletonKing.hp, ENEMY_CONFIG.skeletonKing.speedMultiplier, ENEMY_CONFIG.skeletonKing.goldReward,
@@ -60,7 +60,7 @@ assert.deepEqual(countWaveComposition(getWaveComposition(35)), {
 assert.equal(getEnemyHpForWave("skeletalCommander", 35), 11200);
 const runtimeCommander = createEnemy(2001, "skeletalCommander", route, 35);
 assert.deepEqual([runtimeCommander.hp, Number((runtimeCommander.speed * WORLD_UNITS_PER_CELL / 90).toFixed(2)), runtimeCommander.reward,
-  runtimeCommander.livesDamage, runtimeCommander.movementType, runtimeCommander.combatClass], [11200, 1, 12, 4, "flying", "boss"]);
+  runtimeCommander.livesDamage, runtimeCommander.movementType, runtimeCommander.combatClass], [11200, 0.72, 12, 4, "flying", "boss"]);
 assert.equal(canTowerTargetEnemy(atLevel("holy-knight", 1), runtimeCommander), false, "Holy Knight cannot hit flying Commander");
 assert.equal(canTowerTargetEnemy(atLevel("blue-wizard", 1), runtimeCommander), true);
 assert.equal(canTowerTargetEnemy(atLevel("green-archer", 1), runtimeCommander), true);
@@ -72,9 +72,9 @@ for (const [wave, count] of [[42, 2], [49, 3], [63, 4]]) {
 assert.equal(getEnemyHpForWave("undeadDragon", 35), 3840);
 assert.equal(getEnemyHpForWave("skeletonKing", 50), 192000);
 assert.deepEqual(
-  ["wraith", "goblinRider", "goblin", "ghoul", "undeadDragon", "goblinBrute", "giantGoblin", "skeletonKing"]
+  ["wraith", "goblinRider", "goblin", "ghoul", "undeadDragon", "goblinBrute", "giantGoblin", "skeletalCommander", "skeletonKing"]
     .map((type) => ENEMY_CONFIG[type].speedMultiplier),
-  [1.6, 1.2, 1.05, 0.95, 0.9, 0.72, 0.42, 0.22],
+  [1.6, 1.2, 1.05, 0.95, 0.9, 0.72, 0.42, 0.72, 0.22],
 );
 
 const wave32 = countWaveComposition(getWaveComposition(32));

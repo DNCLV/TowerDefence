@@ -7,7 +7,8 @@
       "assets/models/defenders/optimized/holy-knight.glb",
       "assets/models/defenders/optimized/green-archer.glb",
       "assets/models/defenders/optimized/battlemage.glb",
-      "assets/models/defenders/optimized/sovereign.glb"
+      "assets/models/defenders/optimized/sovereign.glb",
+      "assets/models/defenders/optimized/holy-emperor.glb"
     ],
     "enemies": [
       "assets/models/enemies/optimized/goblin.glb",
@@ -42,7 +43,8 @@
       "assets/ui/defenders/knight.png",
       "assets/ui/defenders/green-archer.png",
       "assets/ui/defenders/battlemage.png",
-      "assets/ui/defenders/sovereign.png"
+      "assets/ui/defenders/sovereign.png",
+      "assets/ui/defenders/holy-emperor.jpg"
     ],
     "fallbackAndAnimation": [
       "assets/models/quaternius/runtime/Female_Ranger.gltf",
@@ -55,6 +57,7 @@
     "assets/models/defenders/green-archer.glb",
     "assets/models/defenders/battlemage.glb",
     "assets/models/defenders/sovereign.glb",
+    "assets/models/defenders/holy-emperor.glb",
     "assets/models/enemies/goblin.glb",
     "assets/models/enemies/goblin-brute.glb",
     "assets/models/enemies/goblin-rider.glb",

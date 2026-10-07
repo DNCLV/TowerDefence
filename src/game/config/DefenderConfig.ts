@@ -1,7 +1,7 @@
 /** Shared economy and all combat stats for player-built defenders. */
 import { WORLD_UNITS_PER_CELL } from "../../core/GameConstants";
 
-export type DefenderType = "blue-wizard" | "holy-knight" | "green-archer" | "battlemage" | "sovereign";
+export type DefenderType = "blue-wizard" | "holy-knight" | "green-archer" | "battlemage" | "sovereign" | "holy-emperor";
 export type DefenderRangeMode = "circular" | "adjacent8" | "hybrid";
 export type SovereignAttackMode = "antiAir" | "rapid" | "heavy";
 
@@ -24,10 +24,15 @@ export interface DefenderDefinition {
   levels: readonly DefenderLevelStats[];
   roleLabel?: string;
   specializationLabel?: string;
+  /** A semantic range capability; never represented by a huge fake radius. */
+  supportsMapWideTargeting?: boolean;
   airDamageMultiplier?: number;
   groundDamageMultiplier?: number;
   meleeDamageMultiplier?: number;
   splashDamageRatios?: readonly number[];
+  splashLabel?: string;
+  /** Per-level splash radius in grid cells. Unspecified defenders keep the 1.5-cell default. */
+  splashRadiusTiles?: readonly number[];
   /** Per-level, target-dependent stats for the Sovereign's single-target modes. */
   attackProfiles?: Record<SovereignAttackMode, readonly Pick<DefenderLevelStats, "damage" | "fireRate">[]>;
 }
@@ -110,6 +115,25 @@ export const DEFENDER_CONFIG: Record<DefenderType, DefenderDefinition> = {
       rapid: [{ damage: 45, fireRate: 2.2 }, { damage: 105, fireRate: 2.4 }, { damage: 225, fireRate: 2.6 }],
       heavy: [{ damage: 180, fireRate: 0.55 }, { damage: 430, fireRate: 0.6 }, { damage: 950, fireRate: 0.65 }],
     },
+  },
+  "holy-emperor": {
+    id: "holy-emperor",
+    name: "Holy Emperor",
+    rangeMode: "circular",
+    targetTypes: ["ground", "air"],
+    supportsMapWideTargeting: true,
+    buildCost: 300,
+    roleLabel: "Ultimate Defender",
+    specializationLabel: "Map-wide · Ground + Air",
+    splashLabel: "Divine Splash",
+    splashDamageRatios: [0, 0, 0, 0.65],
+    splashRadiusTiles: [0, 0, 0, 1.75],
+    // Range is intentionally not a gameplay radius; supportsMapWideTargeting is authoritative.
+    levels: [
+      { level: 1, damage: 450, range: 0, fireRate: 0.85, upgradeCost: null },
+      { level: 2, damage: 700, range: 0, fireRate: 1.00, upgradeCost: 400 },
+      { level: 3, damage: 950, range: 0, fireRate: 1.25, upgradeCost: 500 },
+    ],
   },
 };
 

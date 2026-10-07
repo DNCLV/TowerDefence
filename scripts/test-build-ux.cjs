@@ -67,6 +67,93 @@ async function main() {
   const ready = await evaluate("!!window.__towerDefenceUi && document.querySelector('.game-ui')?.dataset.defenderAssetsReady === 'true'");
   if (!ready) throw new Error("Gameplay/defender visuals did not become ready.");
 
+  const carouselLayouts = [];
+  for (const [width, height] of [[360, 800], [390, 844], [1280, 900]]) {
+    await command("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: width < 600 });
+    await evaluate("document.querySelector('#build-blue-wizard-button').click()");
+    await delay(550);
+    const layout = await evaluate(`(() => {
+      const panel = document.querySelector('.defender-choice-panel');
+      const selected = document.querySelector('.defender-choice.is-selected');
+      const left = document.querySelector('#select-tool-button');
+      const right = document.querySelector('#build-holy-knight-button');
+      const rect = (element) => element.getBoundingClientRect();
+      const viewport = rect(panel), card = rect(selected);
+      const visible = (element) => Math.max(0, Math.min(rect(element).right, viewport.right) - Math.max(rect(element).left, viewport.left));
+      return { width: innerWidth, hudHeight: rect(document.querySelector('.bottom-hud-bar')).height,
+        scrollLeft: panel.scrollLeft, scrollWidth: panel.scrollWidth, clientWidth: panel.clientWidth,
+        selectedOffsetLeft: selected.offsetLeft, firstOffsetLeft: left.offsetLeft,
+        viewport: viewport.toJSON(), card: card.toJSON(),
+        centerDelta: Math.abs((card.left + card.right - viewport.left - viewport.right) / 2),
+        selectedScale: new DOMMatrix(getComputedStyle(selected).transform).a,
+        adjacentScale: new DOMMatrix(getComputedStyle(right).transform).a,
+        leftPreview: visible(left), rightPreview: visible(right), cardWidth: card.width,
+        selectedId: selected.id, mode: window.__towerDefenceInputDebug().buildMode,
+        rosterCount: panel.querySelectorAll('.defender-choice').length,
+        expectedCount: window.__towerDefenceGameState.faction.units.length + 1,
+        safeAreaPadding: parseFloat(getComputedStyle(document.querySelector('.bottom-hud-bar')).paddingBottom),
+        pageOverflow: document.documentElement.scrollWidth > innerWidth,
+      };
+    })()`);
+    if (layout.centerDelta > 3 || layout.selectedId !== "build-blue-wizard-button" || !layout.mode.includes("blue-wizard")
+      || layout.selectedScale < 0.97 || layout.adjacentScale < 0.78 || layout.adjacentScale > 0.91
+      || layout.leftPreview < 12 || layout.rightPreview < 12 || layout.rosterCount !== layout.expectedCount
+      || layout.hudHeight > 135 || layout.safeAreaPadding < 7 || layout.pageOverflow) {
+      throw new Error(`Build carousel layout failed: ${JSON.stringify(layout)}`);
+    }
+    carouselLayouts.push(layout);
+    if (process.env.TD_BUILD_CAROUSEL_SCREENSHOT === "1") {
+      const screenshot = await command("Page.captureScreenshot", { format: "png", fromSurface: true });
+      fs.writeFileSync(path.join(os.tmpdir(), `td-carousel-${width}.png`), Buffer.from(screenshot.data, "base64"));
+    }
+  }
+  await command("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+  await evaluate("document.querySelector('#select-tool-button').click()");
+  await delay(450);
+  await evaluate("document.querySelector('#carousel-next').click()");
+  await delay(350);
+  const nextSelection = await evaluate("document.querySelector('.defender-choice.is-selected')?.id");
+  await evaluate("document.querySelector('#carousel-next').click()");
+  await delay(350);
+  await evaluate("document.querySelector('#carousel-previous').click()");
+  await delay(350);
+  const previousSelection = await evaluate("document.querySelector('.defender-choice.is-selected')?.id");
+  await evaluate("document.querySelector('.defender-choice.is-selected').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))");
+  await delay(350);
+  const keyboardSelection = await evaluate("document.querySelector('.defender-choice.is-selected')?.id");
+  await evaluate("document.querySelector('#build-holy-emperor-button').click()");
+  await delay(500);
+  const emperorSelection = await evaluate(`({ id: document.querySelector('.defender-choice.is-selected')?.id,
+    ultimate: document.querySelector('#build-holy-emperor-button').classList.contains('is-ultimate'),
+    nextDisabled: document.querySelector('#carousel-next').disabled,
+    mode: window.__towerDefenceInputDebug().buildMode })`);
+  if (nextSelection !== "build-blue-wizard-button" || previousSelection !== "build-blue-wizard-button"
+    || keyboardSelection !== "build-holy-knight-button" || emperorSelection.id !== "build-holy-emperor-button"
+    || !emperorSelection.ultimate || !emperorSelection.nextDisabled || !emperorSelection.mode.includes("holy-emperor")) {
+    throw new Error(`Build carousel controls failed: ${JSON.stringify({ nextSelection, previousSelection, keyboardSelection, emperorSelection })}`);
+  }
+  await evaluate("document.querySelector('#build-blue-wizard-button').click()");
+  await delay(350);
+  const swipePoint = await evaluate(`(() => { const rect = document.querySelector('.defender-choice-panel').getBoundingClientRect();
+    return { x: rect.left + rect.width * .62, y: rect.top + rect.height / 2 }; })()`);
+  const swipeTouch = async (type, x) => command("Input.dispatchTouchEvent", {
+    type, touchPoints: type === "touchEnd" ? [] : [{ id: 1, x, y: swipePoint.y, radiusX: 2, radiusY: 2, force: 1 }],
+  });
+  await swipeTouch("touchStart", swipePoint.x);
+  for (const distance of [20, 45, 70, 95]) { await swipeTouch("touchMove", swipePoint.x - distance); await delay(24); }
+  await swipeTouch("touchEnd", swipePoint.x - 95);
+  await delay(500);
+  const swipeSelection = await evaluate(`(() => { const selected = document.querySelector('.defender-choice.is-selected');
+    const viewport = document.querySelector('.defender-choice-panel').getBoundingClientRect();
+    const rect = selected.getBoundingClientRect();
+    return { id: selected.id, delta: Math.abs((rect.left + rect.right - viewport.left - viewport.right) / 2),
+      mode: window.__towerDefenceInputDebug().buildMode }; })()`);
+  if (swipeSelection.id !== "build-holy-knight-button" || swipeSelection.delta > 3
+    || !swipeSelection.mode.includes("holy-knight")) throw new Error(`Carousel touch swipe/snap failed: ${JSON.stringify(swipeSelection)}`);
+  await evaluate("document.querySelector('#select-tool-button').click()");
+  await delay(500);
+  console.log("Build carousel browser layout and controls passed", JSON.stringify({ carouselLayouts, nextSelection, previousSelection, keyboardSelection, emperorSelection, swipeSelection }));
+
   // Mobile emulation also covers touch input below; activate this DOM control
   // directly here so the test focuses on its expanded state and layout.
   await evaluate("document.querySelector('#battlefield-info-toggle').click()");
@@ -208,7 +295,61 @@ async function main() {
   await delay(120);
   const desktop = await evaluate("({ mode: window.__towerDefenceInputDebug().buildMode, count: window.__towerDefenceGameState.towers.length })");
   if (!desktop.mode.includes("holy-knight") || desktop.count !== 6) throw new Error(`Desktop placement did not retain the selected unit: ${JSON.stringify(desktop)}`);
-  console.log("Build UX browser test passed", JSON.stringify({ infoPanel: infoPanelState, milestoneWarnings, placed: placed.count, remainingGold: placed.gold, triad, selectedRing, unselectedRing, invalidResult, poorResult, switched, escaped, desktop }));
+  const formationTowerId = await evaluate(`(() => { const tower = window.__towerDefenceGameState.towers.find((item) => item.formationId === 'arcane-triad');
+    window.__towerDefenceUi.selectTower(tower.id); return tower.id; })()`);
+  await delay(150);
+  const inactiveBuffs = await evaluate(`(() => ({ labels: [...document.querySelectorAll('#tower-buff-icons button')]
+    .map((button) => button.getAttribute('aria-label')), hudHeight: document.querySelector('.bottom-hud-bar').getBoundingClientRect().height,
+    veteran: document.querySelector('#tower-veteran').textContent,
+    iconsOnly: !/[0-9%]/.test(document.querySelector('#tower-buff-icons').textContent) }))()`);
+  if (!inactiveBuffs.labels.some((label) => label.includes('Arcane Triad'))
+    || inactiveBuffs.labels.some((label) => label.includes('Veteran')) || !inactiveBuffs.iconsOnly
+    || !inactiveBuffs.veteran.includes('40K TO VETERAN I') || inactiveBuffs.hudHeight > 230) {
+    throw new Error(`Initial compact tower buffs/progress failed: ${JSON.stringify(inactiveBuffs)}`);
+  }
+  const veteranProgress = [];
+  for (const damage of [39_999, 40_000, 150_000, 350_000]) {
+    await evaluate(`(() => { window.__towerDefenceGameState.towers.find((item) => item.id === ${formationTowerId}).combatStats.damageDone = ${damage};
+      window.__towerDefenceUi.selectTower(); window.__towerDefenceUi.selectTower(${formationTowerId}); })()`);
+    veteranProgress.push(await evaluate(`(() => ({ text: document.querySelector('#tower-veteran').textContent,
+      label: document.querySelector('#tower-veteran').getAttribute('aria-label'),
+      icons: [...document.querySelectorAll('#tower-buff-icons button')].map((button) => button.getAttribute('aria-label')) }))()`));
+  }
+  if (!veteranProgress[0].text.includes('1 TO VETERAN I') || !veteranProgress[1].text.includes('110K TO VETERAN II')
+    || !veteranProgress[2].text.includes('200K TO VETERAN III') || !veteranProgress[3].text.includes('MAX')
+    || veteranProgress.some((progress) => progress.text.includes('%'))
+    || veteranProgress.slice(1).some((progress) => !progress.icons.some((label) => label.includes('Veteran')))) {
+    throw new Error(`Veteran thresholds/compact progress failed: ${JSON.stringify(veteranProgress)}`);
+  }
+  const specialization = await evaluate(`(() => { const game = window.__towerDefenceGameState;
+    const result = { level2: game.upgradeBasicTower(${formationTowerId}), level3: game.upgradeBasicTower(${formationTowerId}, 'stormcaller') };
+    window.__towerDefenceUi.selectTower(); window.__towerDefenceUi.selectTower(${formationTowerId}); return result; })()`);
+  const specializedBuffs = await evaluate(`(() => ({
+    labels: [...document.querySelectorAll('#tower-buff-icons button')].map((button) => button.getAttribute('aria-label')),
+    specialization: document.querySelector('#tower-specialization').textContent,
+    detailsHidden: getComputedStyle(document.querySelector('#tower-specialization-detail')).display === 'none',
+    hudBuffText: document.querySelector('.tower-secondary-bonuses').innerText,
+    hudHeight: document.querySelector('.bottom-hud-bar').getBoundingClientRect().height,
+  }))()`);
+  if (specialization.level2 !== 'upgraded' || specialization.level3 !== 'upgraded'
+    || !specializedBuffs.labels.some((label) => label.includes('Stormcaller'))
+    || !specializedBuffs.labels.some((label) => label.includes('Arcane Triad'))
+    || specializedBuffs.specialization !== 'STORMCALLER' || !specializedBuffs.detailsHidden
+    || specializedBuffs.hudBuffText.includes('%') || specializedBuffs.hudHeight > 230) {
+    throw new Error(`Specialization buff icons failed: ${JSON.stringify({ specialization, specializedBuffs })}`);
+  }
+  if (process.env.TD_BUILD_CAROUSEL_SCREENSHOT === "1") {
+    const screenshot = await command("Page.captureScreenshot", { format: "png", fromSurface: true });
+    fs.writeFileSync(path.join(os.tmpdir(), "td-carousel-selected-tower.png"), Buffer.from(screenshot.data, "base64"));
+  }
+  await evaluate("document.querySelector('#tower-buff-icons button').click()");
+  const buffInfo = await evaluate(`({ open: !document.querySelector('#battlefield-info-panel').hidden,
+    text: document.querySelector('#battlefield-info-content').textContent })`);
+  if (!buffInfo.open || !buffInfo.text.includes('ACTIVE BUFFS') || !buffInfo.text.includes('Arcane Triad')
+    || !buffInfo.text.includes('Stormcaller') || !buffInfo.text.includes('Veteran III')) {
+    throw new Error(`Buff details were not accessible through Info: ${JSON.stringify(buffInfo)}`);
+  }
+  console.log("Build UX browser test passed", JSON.stringify({ infoPanel: infoPanelState, milestoneWarnings, placed: placed.count, remainingGold: placed.gold, triad, selectedRing, unselectedRing, invalidResult, poorResult, switched, escaped, desktop, inactiveBuffs, veteranProgress, specialization, specializedBuffs, buffInfoOpen: buffInfo.open }));
 }
 
 main().catch((error) => { console.error(error); process.exitCode = 1; }).finally(async () => {

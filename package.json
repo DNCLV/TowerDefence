@@ -13,6 +13,7 @@
     "test:gameplay-depth": "node --import ./scripts/register-ts-loader.mjs scripts/test-gameplay-depth.mjs",
     "test:faction-bonuses": "node --import ./scripts/register-ts-loader.mjs scripts/test-faction-bonuses.mjs",
     "test:defender-specializations": "node --import ./scripts/register-ts-loader.mjs scripts/test-defender-specializations.mjs",
+    "test:holy-emperor": "node --import ./scripts/register-ts-loader.mjs scripts/test-holy-emperor.mjs",
     "test:build-ux": "node scripts/test-build-ux.cjs",
     "test:content-assets": "node scripts/test-content-assets.cjs",
     "test:enemy-animation": "node scripts/test-enemy-animation.cjs",

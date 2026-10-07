@@ -95,6 +95,7 @@ export function getTowerDps(stats: Pick<Tower, "damage" | "fireRate">): number {
 const ADJACENT8_HALF_EXTENT_CELLS = 1.5;
 
 export function isTowerInRange(tower: Tower, enemy: Enemy): boolean {
+  if (DEFENDER_CONFIG[tower.type].supportsMapWideTargeting) return true;
   if (tower.rangeMode === "adjacent8") {
     const dx = Math.abs(enemy.x - tower.cell.x);
     const dy = Math.abs(enemy.y - tower.cell.y);
@@ -181,6 +182,11 @@ export function getTowerSplashRatio(tower: Tower, mode: TowerAttackMode): number
 
 export function getTowerSplashRadiusMultiplier(tower: Tower): number {
   return tower.formationId ? FORMATION_BY_ID[tower.formationId].splashRadiusMultiplier ?? 1 : 1;
+}
+
+/** Splash range uses grid-cell coordinates; existing defenders retain their 1.5-cell default. */
+export function getTowerSplashRadiusTiles(tower: Tower): number {
+  return DEFENDER_CONFIG[tower.type].splashRadiusTiles?.[tower.level] ?? 1.5;
 }
 
 export function getTowerDamageType(tower: Tower, mode: TowerAttackMode = "ranged"): DamageType {
