@@ -1,7 +1,8 @@
 import "./style.css";
-import { BabylonGameRenderer } from "./game/rendering3d/BabylonGameRenderer";
+import type { BabylonGameRenderer } from "./game/rendering3d/BabylonGameRenderer";
 import { GameState } from "./game/GameState";
 import { createEnemy } from "./game/enemies/Enemy";
+import type { EnemyType } from "./game/config/EnemyConfig";
 import { getTotalTowerInvestment, getTowerDps, getTowerLevelStats, getTowerSellRefund } from "./game/towers/Tower";
 import { DEFENDER_CONFIG, DefenderType } from "./game/config/DefenderConfig";
 import { WORLD_UNITS_PER_CELL } from "./core/GameConstants";
@@ -10,6 +11,11 @@ import { MAP_CHOICES, MapDefinition } from "./game/config/MapConfig";
 import { FACTION_CHOICES, FactionDefinition } from "./game/config/FactionConfig";
 import { getMapPreviewGeometry } from "./game/config/MapPreview";
 import { MinimapRenderer } from "./game/minimap/MinimapRenderer";
+import { SPECIALIZATIONS_BY_DEFENDER, TOWER_SPECIALIZATIONS } from "./game/config/SpecializationConfig";
+import type { TowerSpecializationId } from "./game/config/SpecializationConfig";
+import { FORMATION_BY_ID } from "./game/config/FormationConfig";
+import { AFFIXES, AFFIX_MILESTONES } from "./game/config/EnemyAffixConfig";
+import { getEnemyHpMultiplier } from "./game/enemies/Enemy";
 
 const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) throw new Error("Missing #app root element");
@@ -50,9 +56,10 @@ mapSelect.innerHTML = `
         <span class="map-choice-meta"><span class="map-economy">✦ ${map.startingGold} GOLD</span><span class="map-pressure">${map.enemyCountMultiplier === 1 ? "NORMAL" : map.enemyCountMultiplier < 2 ? "HIGH" : "EXTREME"} PRESSURE</span></span>
       </button>`).join("")}
     </div>
-    <footer class="map-select-footer"><span id="map-select-hint">1 Spawn · 70 Gold</span><button id="start-selected-map" type="button">START <span aria-hidden="true">→</span></button></footer>
+    <footer class="map-select-footer"><span id="map-select-hint">${selectedMap.name} · ${selectedMap.startingGold} Gold</span><button id="start-selected-map" type="button">CONTINUE <span aria-hidden="true">→</span></button></footer>
   </section>`;
 app.append(mapSelect);
+performance.mark("tower-defence-app-shell-ready");
 
 const mapStartButton = mapSelect.querySelector<HTMLButtonElement>("#start-selected-map")!;
 function selectMap(map: MapDefinition, card: HTMLButtonElement): void {
@@ -98,7 +105,7 @@ function showFactionSelect(map: MapDefinition): void {
           <div class="faction-choice-copy"><strong>${faction.name}</strong><small>${faction.tagline}</small><p>${faction.description}</p></div>
           <div class="faction-unit-heading">AVAILABLE UNITS</div>
           <div class="faction-unit-list">${renderFactionUnits(faction)}</div>
-          <button class="faction-select-button" type="button" data-select-faction="${faction.id}">SELECT FACTION <span aria-hidden="true">→</span></button>
+          <button id="start-battlefield" class="faction-select-button" type="button" data-select-faction="${faction.id}">START BATTLEFIELD <span aria-hidden="true">→</span></button>
         </article>`).join("")}
       </div>
       <footer class="map-select-footer"><span>${map.name} · ${map.startingGold} Gold</span><button id="back-to-map-select" type="button" class="setup-back-button">← BACK TO MAPS</button></footer>
@@ -137,7 +144,27 @@ mapStartButton.addEventListener("click", () => {
   showFactionSelect(mapToStart);
 });
 
-function startGame(map: MapDefinition, faction: FactionDefinition): void {
+async function startGame(map: MapDefinition, faction: FactionDefinition): Promise<void> {
+performance.mark("tower-defence-battlefield-load-requested");
+const loadingOverlay = document.createElement("div");
+loadingOverlay.className = "battlefield-loading-overlay";
+loadingOverlay.setAttribute("role", "status");
+loadingOverlay.innerHTML = `<span class="battlefield-loading-mark" aria-hidden="true"></span><strong>PREPARING BATTLEFIELD</strong><small>Loading the 3D renderer…</small>`;
+app?.append(loadingOverlay);
+
+// Babylon is only needed after the player has selected a map and faction. Keep
+// its sizeable renderer and engine out of the first-load Map Select bundle.
+let BabylonGameRendererModule: typeof import("./game/rendering3d/BabylonGameRenderer");
+try {
+  BabylonGameRendererModule = await import("./game/rendering3d/BabylonGameRenderer");
+} catch (error) {
+  console.error("Battlefield renderer failed to load.", error);
+  loadingOverlay.innerHTML = `<strong>COULD NOT LOAD BATTLEFIELD</strong><small>Please refresh and try again.</small>`;
+  return;
+}
+performance.mark("tower-defence-renderer-module-ready");
+loadingOverlay.remove();
+
 const canvas = document.createElement("canvas");
 canvas.id = "game3d";
 app?.append(canvas);
@@ -154,6 +181,11 @@ ui.innerHTML = `
     <div class="stat-row"><span class="stat-icon icon-gold" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M14.5 8.5c-.6-.7-1.4-1-2.5-1-1.3 0-2.2.7-2.2 1.7 0 2.8 4.7 1.2 4.7 4 0 1.1-1 2-2.6 2-1.1 0-2.1-.4-2.8-1.2M12 5.5v13"/></svg></span><span class="stat-label">Gold</span><strong id="stat-gold" class="stat-value stat-gold-value">0</strong></div>
     <div class="stat-row"><span class="stat-icon icon-lives" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20.5 8.8c0 4.6-8.5 10-8.5 10s-8.5-5.4-8.5-10A4.3 4.3 0 0 1 12 6.4a4.3 4.3 0 0 1 8.5 2.4Z"/></svg></span><span class="stat-label">Lives</span><strong id="stat-lives" class="stat-value stat-lives-value">0</strong></div>
   </section>
+    <button id="battlefield-info-toggle" class="battlefield-info-toggle" type="button" aria-label="Battlefield info" aria-expanded="false">i</button>
+    <section id="battlefield-info-panel" class="battlefield-info-panel ui-panel" aria-labelledby="battlefield-info-title" hidden>
+      <div class="battlefield-info-heading"><h2 id="battlefield-info-title">BATTLEFIELD INFO</h2><button id="battlefield-info-close" type="button" aria-label="Close battlefield info">×</button></div>
+      <div id="battlefield-info-content" class="battlefield-info-content"></div>
+    </section>
     </div>
   <nav class="menu-panel" aria-label="Game menu">
     <button id="pause-button" class="menu-button" type="button"><span aria-hidden="true">Ⅱ</span>Pause</button>
@@ -179,9 +211,10 @@ ui.innerHTML = `
   <aside id="hp-scaling-warning" class="hp-scaling-warning" role="status" aria-live="polite" hidden>
     <span class="hp-warning-sigil" aria-hidden="true">⚔</span>
     <div class="hp-warning-copy">
-      <strong>THE HORDE GROWS STRONGER</strong>
-      <p>Dark forces gather beyond the gates.<br>Stronger enemies are approaching.</p>
-      <small>Prepare your defenses.</small>
+      <strong id="wave-warning-title">THE HORDE GROWS STRONGER</strong>
+      <p id="wave-warning-body">Dark forces gather beyond the gates.<br>Stronger enemies are approaching.</p>
+      <div id="wave-warning-affixes" class="wave-warning-affixes" hidden></div>
+      <small id="wave-warning-footer">Prepare your defenses.</small>
     </div>
   </aside>
 
@@ -194,10 +227,13 @@ ui.innerHTML = `
     <section class="build-unit-section" aria-label="Build units">
       <div class="bottom-section-heading"><span>BUILD UNITS</span></div>
   <nav class="defender-choice-panel" aria-label="Choose defender to build">
-    ${faction.units.map((type, index) => {
+    <button id="select-tool-button" class="defender-choice select-tool is-selected" type="button" aria-label="Select tool" aria-pressed="true">
+      <span class="select-tool-icon" aria-hidden="true">↖</span><span class="unit-card-copy"><strong>SELECT</strong><small>Tool</small></span><span class="unit-card-selection">ACTIVE</span>
+    </button>
+    ${faction.units.map((type) => {
       const defender = DEFENDER_CONFIG[type];
       const portrait = type === "blue-wizard" ? "wizard.png" : type === "holy-knight" ? "knight.png" : `${type}.png`;
-      return `<button id="build-${type}-button" class="defender-choice${index === 0 ? " is-selected" : ""}" type="button" aria-label="Select ${defender.name}" aria-pressed="${index === 0}">
+      return `<button id="build-${type}-button" class="defender-choice" type="button" aria-label="Select ${defender.name}" aria-pressed="false">
         <span class="unit-portrait-frame"><img src="${resolveAssetUrl(`assets/ui/defenders/${portrait}`)}" alt="" draggable="false"></span>
         <span class="unit-card-copy"><strong>${defender.name.replace("Blue ", "")}</strong><small class="unit-card-cost">${defender.buildCost}</small></span>
         <span class="unit-card-selection">SELECTED</span>
@@ -223,7 +259,7 @@ ui.innerHTML = `
           <span>Build Cost <strong id="build-unit-info-cost"></strong></span>
         </div>
         <div id="build-sovereign-profiles" class="sovereign-profile-list" hidden></div>
-        <small class="build-unit-info-hint">Click a tile to place</small>
+        <small class="build-unit-info-hint" aria-live="polite">Loading defender visuals…</small>
       </section>
   <section id="tower-panel" class="tower-panel" aria-label="Selected defender" hidden>
     <button id="close-tower-panel" class="panel-close" type="button" aria-label="Deselect tower">×</button>
@@ -231,6 +267,9 @@ ui.innerHTML = `
       <div class="tower-portrait" aria-hidden="true">✦</div>
       <div><div class="tower-name">Blue Wizard</div><div id="tower-level" class="tower-level">Level 1</div></div>
     </div>
+    <div id="tower-specialization" class="tower-specialization" hidden></div>
+    <small id="tower-specialization-detail" class="tower-specialization-detail" hidden></small>
+    <div id="tower-formation" class="tower-formation" hidden></div>
     <div class="tower-stats">
       <span>Damage <strong id="tower-damage">—</strong></span>
       <span>Range <strong id="tower-range">—</strong></span>
@@ -249,6 +288,10 @@ ui.innerHTML = `
       </div>
       <button id="sell-button" class="action-button sell-button" type="button">SELL</button>
     </div>
+    <section id="specialization-choice" class="specialization-choice" aria-label="Choose tower specialization" hidden>
+      <div class="specialization-choice-heading"><strong>CHOOSE SPECIALIZATION</strong><button id="cancel-specialization" type="button" aria-label="Cancel specialization choice">×</button></div>
+      <div id="specialization-options" class="specialization-options"></div>
+    </section>
     <div id="tower-message" class="tower-message" aria-live="polite"></div>
   </section>
 
@@ -268,12 +311,51 @@ for (const eventName of ["pointerdown", "pointerup", "pointermove", "pointercanc
 }
 
 const gameState = new GameState(map, faction.id);
+const { BabylonGameRenderer } = BabylonGameRendererModule;
 const renderer = new BabylonGameRenderer(canvas, map);
 const navigation = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined;
 console.info("APPLICATION BOOT", { navigationType: navigation?.type ?? "unknown" });
 const debugParams = new URLSearchParams(window.location.search);
-if (debugParams.get("waveDebug") === "1" || debugParams.get("perfDebug") === "1") {
+if (debugParams.get("waveDebug") === "1" || debugParams.get("perfDebug") === "1" || debugParams.get("enemyAnimationDebug") === "1") {
   (window as Window & { __towerDefenceGameState?: GameState }).__towerDefenceGameState = gameState;
+}
+
+if (debugParams.get("enemyAnimationDebug") === "1") {
+  let enemyAnimationTestSet = 0;
+  (window as Window & { __towerDefenceEnemyAnimationTest?: {
+    spawn: (count: number, type?: EnemyType) => object[];
+    kill: (id?: number) => number | undefined;
+    snapshot: () => object;
+  } }).__towerDefenceEnemyAnimationTest = {
+    /** Test-only presentation stress hook; does not call or alter tower/combat systems. */
+    spawn: (requestedCount, type: EnemyType = "skeletonKing") => {
+      const route = gameState.path.length > 1 ? gameState.path : gameState.spawnPaths.values().next().value;
+      if (!route || route.length < 2) return [];
+      const count = Math.max(1, Math.min(100, Math.floor(requestedCount)));
+      const testBaseId = -9300 - enemyAnimationTestSet++ * 100;
+      gameState.waveActive = false;
+      gameState.attackEvents.length = 0;
+      gameState.enemies = Array.from({ length: count }, (_, index) => {
+        const enemy = createEnemy(testBaseId - index, type, route, Math.max(1, gameState.currentWave));
+        enemy.x = route[0].x + (index % 10) * 0.03;
+        enemy.y = route[0].y + (Math.floor(index / 10) % 10) * 0.03;
+        enemy.speed = 0.25;
+        return enemy;
+      });
+      return gameState.enemies.map(({ id, type }) => ({ id, type }));
+    },
+    kill: (requestedId) => {
+      const enemy = gameState.enemies.find((candidate) => requestedId === undefined || candidate.id === requestedId);
+      if (!enemy) return undefined;
+      enemy.alive = false;
+      enemy.hp = 0;
+      gameState.attackEvents.push({ targetEnemyId: enemy.id, targetX: enemy.x, targetY: enemy.y, enemyDied: true } as GameState["attackEvents"][number]);
+      gameState.enemies = gameState.enemies.filter((candidate) => candidate.id !== enemy.id);
+      renderer.debugBeginEnemyDeathVisual(enemy.id);
+      return enemy.id;
+    },
+    snapshot: () => renderer.getEnemyAnimationDebugState(),
+  };
 }
 
 const query = <T extends HTMLElement>(selector: string): T => {
@@ -293,6 +375,9 @@ minimapDockObserver.observe(bottomHudBar);
 requestAnimationFrame(syncMinimapDock);
 const buildUnitSection = query<HTMLElement>(".build-unit-section");
 const defenderChoicePanel = query<HTMLElement>(".defender-choice-panel");
+const infoToggle = query<HTMLButtonElement>("#battlefield-info-toggle");
+const infoPanel = query<HTMLElement>("#battlefield-info-panel");
+const infoContent = query<HTMLElement>("#battlefield-info-content");
 const updateBuildTrayOverflow = (): void => {
   buildUnitSection.classList.toggle("has-overflow", defenderChoicePanel.scrollWidth > defenderChoicePanel.clientWidth + 1);
 };
@@ -311,10 +396,12 @@ const handleBuildTrayResize = (): void => {
 };
 const buildTrayResizeObserver = new ResizeObserver(updateBuildTrayOverflow);
 const buildTrayMutationObserver = new MutationObserver(updateBuildTrayOverflow);
+const uiLifecycle = new AbortController();
 window.addEventListener("resize", handleBuildTrayResize, { passive: true });
 buildTrayResizeObserver.observe(defenderChoicePanel);
 buildTrayMutationObserver.observe(defenderChoicePanel, { childList: true });
 const disposeBuildTrayObservers = (): void => {
+  uiLifecycle.abort();
   window.removeEventListener("resize", handleBuildTrayResize);
   buildTrayResizeObserver.disconnect();
   buildTrayMutationObserver.disconnect();
@@ -336,6 +423,10 @@ const confirmResetButton = query<HTMLButtonElement>("#confirm-reset-button");
 const returnMapSelectButton = query<HTMLButtonElement>("#return-map-select-button");
 const tryAgainButton = query<HTMLButtonElement>("#try-again-button");
 const hpScalingWarning = query<HTMLElement>("#hp-scaling-warning");
+const waveWarningTitle = query<HTMLElement>("#wave-warning-title");
+const waveWarningBody = query<HTMLElement>("#wave-warning-body");
+const waveWarningAffixes = query<HTMLElement>("#wave-warning-affixes");
+const waveWarningFooter = query<HTMLElement>("#wave-warning-footer");
 const towerPanel = query<HTMLElement>("#tower-panel");
 const towerEmptyState = query<HTMLElement>("#tower-empty-state");
 const buildUnitInfo = query<HTMLElement>("#build-unit-info");
@@ -346,6 +437,7 @@ const buildUnitInfoDamage = query<HTMLElement>("#build-unit-info-damage");
 const buildUnitInfoRange = query<HTMLElement>("#build-unit-info-range");
 const buildUnitInfoRate = query<HTMLElement>("#build-unit-info-rate");
 const buildUnitInfoCost = query<HTMLElement>("#build-unit-info-cost");
+const buildUnitInfoHint = query<HTMLElement>(".build-unit-info-hint");
 const buildSovereignProfiles = query<HTMLElement>("#build-sovereign-profiles");
 const towerPortrait = query<HTMLElement>(".tower-portrait");
 const towerLevel = query<HTMLElement>("#tower-level");
@@ -356,6 +448,11 @@ const towerStandardStats = query<HTMLElement>(".tower-stats");
 const towerSovereignProfiles = query<HTMLElement>("#tower-sovereign-profiles");
 const towerKills = query<HTMLElement>("#tower-kills");
 const towerDamageDone = query<HTMLElement>("#tower-damage-done");
+const towerSpecialization = query<HTMLElement>("#tower-specialization");
+const towerSpecializationDetail = query<HTMLElement>("#tower-specialization-detail");
+const towerFormation = query<HTMLElement>("#tower-formation");
+const specializationChoice = query<HTMLElement>("#specialization-choice");
+const specializationOptions = query<HTMLElement>("#specialization-options");
 const upgradeButton = query<HTMLButtonElement>("#upgrade-button");
 const upgradeInfoButton = query<HTMLButtonElement>("#upgrade-info-button");
 const upgradeActionWrap = query<HTMLElement>("#upgrade-action-wrap");
@@ -364,10 +461,12 @@ const towerMessage = query<HTMLElement>("#tower-message");
 const sellButton = query<HTMLButtonElement>("#sell-button");
 let pendingSellTowerId: number | undefined;
 let sellConfirmationTimer: number | undefined;
-let activeWarningWave: number | undefined;
+let activeWarningKey: string | undefined;
 let warningHideTimer: number | undefined;
 let selectedTowerId: number | undefined;
-let selectedBuildType: DefenderType | undefined = faction.units[0];
+let lastSelectedTowerRenderKey = "";
+let specializationChoiceTowerId: number | undefined;
+let selectedBuildType: DefenderType | undefined;
 let selectionMessage = "";
 let resetMenuWasPaused = false;
 
@@ -381,7 +480,9 @@ query<HTMLElement>("#tower-fire-rate").parentElement!.firstChild!.textContent = 
 
 const setSelection = (towerId?: number): void => {
   if (towerId !== selectedTowerId) cancelSellConfirmation();
+  if (towerId !== selectedTowerId) lastSelectedTowerRenderKey = "";
   selectedTowerId = towerId;
+  if (specializationChoiceTowerId !== towerId) closeSpecializationChoice();
   selectionMessage = "";
   if (towerId === undefined) hideUpgradeTooltip();
   renderSelectedTower(gameState);
@@ -390,9 +491,15 @@ const setSelection = (towerId?: number): void => {
 const buildButtons = Object.fromEntries(faction.units.map((type) => [
   type, query<HTMLButtonElement>(`#build-${type}-button`),
 ])) as Record<DefenderType, HTMLButtonElement>;
+const selectToolButton = query<HTMLButtonElement>("#select-tool-button");
+for (const button of Object.values(buildButtons)) button.disabled = true;
+startButton.disabled = true;
+let previousDefenderAssetsReady: boolean | undefined;
 const chooseBuildType = (type: DefenderType): void => {
   selectedBuildType = type;
   renderer.setBuildDefenderType(type);
+  selectToolButton.classList.remove("is-selected");
+  selectToolButton.setAttribute("aria-pressed", "false");
   for (const [buttonType, button] of Object.entries(buildButtons) as [DefenderType, HTMLButtonElement][]) {
     button.classList.toggle("is-selected", buttonType === type);
     button.setAttribute("aria-pressed", String(buttonType === type));
@@ -400,7 +507,38 @@ const chooseBuildType = (type: DefenderType): void => {
   buildButtons[type].scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
   if (selectedTowerId === undefined) renderBuildUnitInfo();
 };
+const chooseSelectTool = (): void => {
+  selectedBuildType = undefined;
+  renderer.setBuildDefenderType(undefined);
+  selectToolButton.classList.add("is-selected");
+  selectToolButton.setAttribute("aria-pressed", "true");
+  for (const button of Object.values(buildButtons)) {
+    button.classList.remove("is-selected");
+    button.setAttribute("aria-pressed", "false");
+  }
+  if (selectedTowerId === undefined) renderBuildUnitInfo();
+};
+selectToolButton.addEventListener("click", chooseSelectTool);
 for (const type of faction.units) buildButtons[type].addEventListener("click", () => chooseBuildType(type));
+
+const setInfoPanelOpen = (open: boolean): void => {
+  infoPanel.hidden = !open;
+  infoToggle.setAttribute("aria-expanded", String(open));
+  if (open) renderBattlefieldInfo(gameState);
+};
+infoToggle.addEventListener("click", () => setInfoPanelOpen(infoPanel.hidden));
+query<HTMLButtonElement>("#battlefield-info-close").addEventListener("click", () => setInfoPanelOpen(false));
+window.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape" || !resetConfirmation.hidden) return;
+  if (selectedBuildType !== undefined) {
+    chooseSelectTool();
+    return;
+  }
+  if (!infoPanel.hidden) {
+    setInfoPanelOpen(false);
+    infoToggle.focus({ preventScroll: true });
+  } else if (!specializationChoice.hidden) closeSpecializationChoice();
+}, { signal: uiLifecycle.signal });
 
 query<HTMLButtonElement>("#save-button").addEventListener("click", () => console.info("Save not implemented yet"));
 query<HTMLButtonElement>("#load-button").addEventListener("click", () => console.info("Load not implemented yet"));
@@ -476,9 +614,14 @@ upgradeButton.addEventListener("click", () => {
   cancelSellConfirmation();
   hideUpgradeTooltip();
   const result = gameState.upgradeBasicTower(selectedTowerId);
+  if (result === "specialization-required") {
+    openSpecializationChoice(selectedTowerId);
+    return;
+  }
   selectionMessage = result === "upgraded" ? "" : result === "not-enough-gold" ? "Not enough gold" : result === "max-level" ? "Max level reached" : "Upgrade unavailable";
   renderSelectedTower(gameState);
 });
+query<HTMLButtonElement>("#cancel-specialization").addEventListener("click", closeSpecializationChoice);
 upgradeInfoButton.addEventListener("click", () => {
   const isOpen = upgradeActionWrap.classList.toggle("is-open");
   upgradeInfoButton.setAttribute("aria-expanded", String(isOpen));
@@ -493,6 +636,7 @@ upgradeButton.addEventListener("blur", () => {
   if (!upgradeActionWrap.classList.contains("is-open")) hideUpgradeTooltip();
 });
 startButton.addEventListener("click", () => {
+  if (!renderer.areDefenderAssetsReady) return;
   renderer.logCameraState("BEFORE START WAVE");
   if (gameState.startWave()) {
     renderer.logCameraState("AFTER startWave()");
@@ -505,19 +649,29 @@ tryAgainButton.addEventListener("click", () => {
 });
 
 renderer.start(gameState, (state) => {
+  loadingOverlay.remove();
   minimap.update(state, renderer.getApproximateMinimapView());
   goldValue.textContent = String(state.gold);
   livesValue.textContent = String(state.lives);
   waveValue.textContent = String(state.currentWave);
   enemiesValue.textContent = String(state.enemiesRemaining);
-  startButton.disabled = state.waveActive || state.gameOver || Boolean(state.hpTierWarning);
+  const defenderAssetsReady = renderer.areDefenderAssetsReady;
+  if (previousDefenderAssetsReady !== defenderAssetsReady) {
+    previousDefenderAssetsReady = defenderAssetsReady;
+    if (defenderAssetsReady) performance.mark("tower-defence-defender-assets-ready");
+    ui.dataset.defenderAssetsReady = String(defenderAssetsReady);
+    for (const button of Object.values(buildButtons)) button.disabled = !defenderAssetsReady;
+    buildUnitInfoHint.textContent = defenderAssetsReady ? "Click or tap a tile to place" : "Loading defender visuals…";
+  }
+  startButton.disabled = !defenderAssetsReady || state.waveActive || state.gameOver || Boolean(state.hpTierWarning) || Boolean(state.affixWarning);
   autoButton.textContent = `AUTO: ${state.autoRun ? "ON" : "OFF"}`;
   autoButton.classList.toggle("is-on", state.autoRun);
   autoButton.disabled = state.gameOver;
   startButton.hidden = state.gameOver;
   autoButton.hidden = state.gameOver;
   tryAgainButton.hidden = !state.gameOver;
-  renderHpScalingWarning(state.hpTierWarning);
+  renderWaveWarning(state);
+  if (!infoPanel.hidden) renderBattlefieldInfo(state);
   renderSelectedTower(state);
 }, setSelection);
 
@@ -563,7 +717,9 @@ if (debugParams.get("waveDebug") === "1") {
     selectTower: (towerId?: number) => void;
     createDenseTowerTestLayout: () => number[];
     selectionVisual: () => ReturnType<BabylonGameRenderer["getSelectionVisualDebug"]>;
+    formationVisuals: () => ReturnType<BabylonGameRenderer["getFormationVisualDebug"]>;
     projectCell: (cell: { x: number; y: number }) => ReturnType<BabylonGameRenderer["getCellClientPosition"]>;
+    expectedAffixRoll: () => { id: keyof typeof AFFIXES; name: string }[];
   } }).__towerDefenceUi = {
     chooseBuildUnit: chooseBuildType,
     selectTower: (towerId?: number) => renderer.selectTower(towerId),
@@ -584,7 +740,9 @@ if (debugParams.get("waveDebug") === "1") {
       return ids;
     },
     selectionVisual: () => renderer.getSelectionVisualDebug(),
+    formationVisuals: () => renderer.getFormationVisualDebug(),
     projectCell: (cell: { x: number; y: number }) => renderer.getCellClientPosition(cell),
+    expectedAffixRoll: () => gameState.affixWarning?.affixes.map((id) => ({ id, name: AFFIXES[id].name })) ?? [],
   };
 }
 
@@ -614,6 +772,13 @@ function renderSelectedTower(state: GameState): void {
     setSelection();
     return;
   }
+  const renderKey = [
+    tower.id, tower.type, tower.level, tower.damage, tower.range, tower.fireRate,
+    tower.specializationId, tower.formationId, tower.combatStats.kills, tower.combatStats.damageDone,
+    state.gold, pendingSellTowerId, selectionMessage,
+  ].join("|");
+  if (renderKey === lastSelectedTowerRenderKey) return;
+  lastSelectedTowerRenderKey = renderKey;
   towerPanel.hidden = false;
   buildUnitInfo.hidden = true;
   towerEmptyState.hidden = true;
@@ -621,6 +786,25 @@ function renderSelectedTower(state: GameState): void {
   towerPortrait.textContent = "";
   towerPortrait.style.backgroundImage = `url("${defenderPortrait(tower.type)}")`;
   towerLevel.textContent = `Level ${tower.level}`;
+  const specialization = tower.specializationId ? TOWER_SPECIALIZATIONS[tower.specializationId] : undefined;
+  towerSpecialization.hidden = !specialization;
+  towerSpecialization.textContent = specialization ? specialization.name.toUpperCase() : "";
+  towerSpecializationDetail.hidden = !specialization;
+  towerSpecializationDetail.textContent = specialization?.description ?? "";
+  towerSpecializationDetail.style.setProperty("--specialization-color", specialization?.visualColor ?? "#bcf0f6");
+  towerFormation.hidden = !tower.formationId;
+  towerFormation.replaceChildren();
+  if (tower.formationId) {
+    const formation = FORMATION_BY_ID[tower.formationId];
+    const heading = document.createElement("span");
+    heading.className = "tower-formation-heading";
+    heading.textContent = `FORMATION · ${formation.name.toUpperCase()}`;
+    const bonus = document.createElement("strong");
+    bonus.className = "tower-formation-bonus";
+    bonus.textContent = formation.description;
+    towerFormation.append(heading, bonus);
+  }
+  if (specializationChoiceTowerId !== undefined && specializationChoiceTowerId !== tower.id) closeSpecializationChoice();
   const isSovereign = tower.type === "sovereign";
   towerStandardStats.hidden = isSovereign;
   towerSovereignProfiles.hidden = !isSovereign;
@@ -661,11 +845,58 @@ function renderSelectedTower(state: GameState): void {
     }
     tooltipLines.push(`Upgrade Cost: ${upgradeCost} gold`);
     tooltipLines.push(`Total Invested After Upgrade: ${getTotalTowerInvestment(nextLevel.level, tower.type)} gold`);
+    if (nextLevel.level === 3 && SPECIALIZATIONS_BY_DEFENDER[tower.type]) {
+      tooltipLines.push("Choose one specialization for this Level 3 upgrade.");
+      for (const id of SPECIALIZATIONS_BY_DEFENDER[tower.type]!) {
+        const choice = TOWER_SPECIALIZATIONS[id];
+        tooltipLines.push(`${choice.name}: ${choice.description}`);
+      }
+    }
   } else {
     tooltipLines.push("MAX LEVEL - no further upgrade");
   }
   upgradeTooltip.textContent = tooltipLines.join("\n");
   towerMessage.textContent = selectionMessage;
+}
+
+function openSpecializationChoice(towerId: number): void {
+  const tower = gameState.towers.find((candidate) => candidate.id === towerId);
+  if (!tower) return;
+  const choices = SPECIALIZATIONS_BY_DEFENDER[tower.type];
+  const next = getTowerLevelStats(3, tower.type);
+  const cost = next.upgradeCost;
+  if (!choices || cost === null) return;
+  specializationChoiceTowerId = towerId;
+  specializationOptions.replaceChildren();
+  for (const id of choices) {
+    const choice = TOWER_SPECIALIZATIONS[id];
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "specialization-option";
+    button.disabled = gameState.gold < cost;
+    const name = document.createElement("strong"); name.textContent = choice.name;
+    const role = document.createElement("small"); role.textContent = choice.role;
+    const description = document.createElement("span"); description.textContent = choice.description;
+    const price = document.createElement("em"); price.textContent = `Level 3 · ${cost} Gold`;
+    button.append(name, role, description, price);
+    button.addEventListener("click", () => {
+      const result = gameState.upgradeBasicTower(towerId, id as TowerSpecializationId);
+      if (result === "upgraded") {
+        selectionMessage = `${choice.name} selected.`;
+        closeSpecializationChoice();
+      } else {
+        selectionMessage = result === "not-enough-gold" ? "Not enough gold" : "Specialization unavailable";
+      }
+      renderSelectedTower(gameState);
+    });
+    specializationOptions.append(button);
+  }
+  specializationChoice.hidden = false;
+}
+
+function closeSpecializationChoice(): void {
+  specializationChoice.hidden = true;
+  specializationChoiceTowerId = undefined;
 }
 
 function renderBuildUnitInfo(): void {
@@ -762,7 +993,7 @@ function cancelResetMenu(): void {
 
 function clearRunFeedback(): void {
   cancelSellConfirmation();
-  activeWarningWave = undefined;
+  activeWarningKey = undefined;
   if (warningHideTimer !== undefined) window.clearTimeout(warningHideTimer);
   warningHideTimer = undefined;
   hpScalingWarning.hidden = true;
@@ -771,6 +1002,8 @@ function clearRunFeedback(): void {
 
 function resetRun(): void {
   clearRunFeedback();
+  chooseSelectTool();
+  setInfoPanelOpen(false);
   renderer.resetRunPresentation();
   setSelection();
   gameState.resetGame("try-again");
@@ -814,20 +1047,60 @@ function returnToMapSelect(): void {
   selectedCard.focus({ preventScroll: true });
 }
 
-function renderHpScalingWarning(warning: GameState["hpTierWarning"]): void {
-  if (warning) {
-    if (activeWarningWave === warning.completedWave) return;
-    activeWarningWave = warning.completedWave;
+function renderWaveWarning(state: GameState): void {
+  const affixWarning = state.affixWarning;
+  const hpWarning = state.hpTierWarning;
+  const key = affixWarning ? `affix-${affixWarning.wave}` : hpWarning ? `hp-${hpWarning.completedWave}` : undefined;
+  if (key) {
+    if (activeWarningKey === key && !hpScalingWarning.hidden) return;
+    activeWarningKey = key;
     if (warningHideTimer !== undefined) window.clearTimeout(warningHideTimer);
     warningHideTimer = undefined;
+    if (affixWarning) {
+      const warningCopy = {
+        1: {
+          title: "ENEMY AFFIXES AWAKEN",
+          body: "Dark enchantments now empower the horde. Affixed enemies may appear from this wave onward.",
+          footer: "This escalation remains active for the rest of the run.",
+        },
+        2: {
+          title: "THE HORDE GROWS DEADLIER",
+          body: "Stronger affixes now enter the battlefield and may affect eligible enemies from this point onward.",
+          footer: "Tier I remains unlocked; this stronger tier persists through the run.",
+        },
+        3: {
+          title: "THE CURSE DEEPENS",
+          body: "The affix pool intensifies again. Deadlier empowered enemies may continue to appear for the rest of the run.",
+          footer: "All unlocked affixes remain available through run end.",
+        },
+      } as const;
+      const copy = warningCopy[affixWarning.tier];
+      waveWarningTitle.textContent = copy.title;
+      waveWarningBody.textContent = copy.body;
+      waveWarningAffixes.replaceChildren(...affixWarning.affixes.map((id) => {
+        const item = document.createElement("span");
+        item.className = "wave-warning-affix";
+        const name = document.createElement("strong"); name.textContent = AFFIXES[id].name.toUpperCase();
+        const description = document.createElement("small"); description.textContent = formatAffixEffect(id, affixWarning.tier);
+        item.append(name, description);
+        return item;
+      }));
+      waveWarningAffixes.hidden = false;
+      waveWarningFooter.textContent = copy.footer;
+    } else if (hpWarning) {
+      waveWarningTitle.textContent = "THE HORDE GROWS STRONGER";
+      waveWarningBody.textContent = "Dark forces gather beyond the gates. Stronger enemies are approaching.";
+      waveWarningAffixes.hidden = true;
+      waveWarningFooter.textContent = `Wave ${hpWarning.nextWave} health multiplier: ${hpWarning.nextMultiplier}×`;
+    }
     hpScalingWarning.hidden = false;
     hpScalingWarning.classList.remove("is-hiding", "is-visible");
     void hpScalingWarning.offsetWidth;
     hpScalingWarning.classList.add("is-visible");
     return;
   }
-  if (activeWarningWave === undefined) return;
-  activeWarningWave = undefined;
+  if (activeWarningKey === undefined) return;
+  activeWarningKey = undefined;
   hpScalingWarning.classList.remove("is-visible");
   hpScalingWarning.classList.add("is-hiding");
   warningHideTimer = window.setTimeout(() => {
@@ -835,6 +1108,53 @@ function renderHpScalingWarning(warning: GameState["hpTierWarning"]): void {
     hpScalingWarning.classList.remove("is-hiding");
     warningHideTimer = undefined;
   }, 420);
+}
+
+function formatAffixEffect(id: keyof typeof AFFIXES, tier: 1 | 2 | 3): string {
+  const value = AFFIXES[id].values[tier];
+  const percent = `${Number((value * 100).toFixed(2))}%`;
+  switch (id) {
+    case "armored": return `${percent} physical resistance`;
+    case "arcane-ward": return `${percent} magic resistance`;
+    case "swift": return `+${percent} movement speed`;
+    case "fortified": return `+${percent} maximum health`;
+    case "regenerator": return `${percent} max HP restored / sec`;
+    case "shielded": return `${percent} max HP as shield`;
+    case "commander": return `+${percent} nearby enemy speed`;
+    case "frenzied": return `+${percent} speed below 35% HP`;
+  }
+}
+
+function renderBattlefieldInfo(state: GameState): void {
+  const wave = state.currentWave;
+  const hpMultiplier = getEnemyHpMultiplier(wave);
+  const nextHpWave = (Math.floor((wave - 1) / 10) + 1) * 10 + 1;
+  const milestones = Object.entries(AFFIX_MILESTONES).map(([milestone, tier]) => ({ wave: Number(milestone), tier }));
+  const nextAffix = milestones.find(({ wave: milestone }) => milestone > wave);
+  const activeTier = wave >= 45 ? 3 : wave >= 30 ? 2 : wave >= 15 ? 1 : undefined;
+  const romanTier = { 1: "I", 2: "II", 3: "III" } as const;
+  const progression = state.affixSystem.getProgression();
+  const parts: string[] = [
+    `<section class="battlefield-info-block"><h3>CURRENT WAVE</h3><p>Wave ${wave}</p></section>`,
+    `<section class="battlefield-info-block"><h3>ENEMY HP SCALING</h3><p>Current multiplier <strong>×${hpMultiplier}</strong></p><small>Enemy HP doubles every 10 waves. Next increase: Wave ${nextHpWave} → ×${getEnemyHpMultiplier(nextHpWave)}.</small></section>`,
+  ];
+  const activeAffixStatus = activeTier
+    ? `<strong>Tier ${romanTier[activeTier]} — active from Wave ${activeTier * 15} onward.</strong>`
+    : "Not unlocked yet — Tier I unlocks at Wave 15.";
+  parts.push(`<section class="battlefield-info-block"><h3>ENEMY AFFIXES</h3><p>${activeAffixStatus}</p><small>Eligible enemies may receive any affix unlocked this run. Each milestone expands the pool and increases affix strength; unlocked affixes remain available for the rest of the run.</small></section>`);
+  parts.push(`<section class="battlefield-info-block"><h3>AFFIXES UNLOCKED THIS RUN</h3><ul>${milestones.map(({ wave: milestone, tier }) => {
+    const rolled = progression[tier];
+    const contents = rolled?.length && wave >= milestone
+      ? rolled.map((id) => `<li><strong>${AFFIXES[id].name}</strong><small>${AFFIXES[id].description}</small></li>`).join("")
+      : `<li class="info-muted">${milestone > wave ? `Unlocks at Wave ${milestone}` : "No affixes recorded"}</li>`;
+    const status = milestone <= wave ? "UNLOCKED" : "UNLOCKS";
+    return `<li class="info-milestone"><strong>TIER ${romanTier[tier]} · ${status} AT WAVE ${milestone}</strong><ul>${contents}</ul></li>`;
+  }).join("")}</ul>${nextAffix ? `<p class="info-next-milestone">NEXT AFFIX TIER <strong>Tier ${romanTier[nextAffix.tier]} · Wave ${nextAffix.wave}</strong></p>` : "<p class=\"info-muted\">All affix tiers are unlocked for this run.</p>"}</section>`);
+  parts.push(`<section class="battlefield-info-block"><h3>RUN</h3><p>Map: ${state.map.name}<br>Faction: ${state.faction.name}</p></section>`);
+  const signature = parts.join("");
+  if (infoContent.dataset.signature === signature) return;
+  infoContent.dataset.signature = signature;
+  infoContent.innerHTML = signature;
 }
 
 function formatBalanceNumber(value: number): string {

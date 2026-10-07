@@ -16,39 +16,19 @@ export interface EnvironmentTheme {
   treeCount: number;
   rockCount: number;
   propCount: number;
-  clusters: readonly ("forest" | "rocks" | "camp")[];
+  clusters: readonly ("forest" | "rocks" | "camp" | "village")[];
 }
 
 export const ENVIRONMENT_THEMES: readonly EnvironmentTheme[] = [
   {
-    id: "frozen-forest", label: "Frozen Forest",
-    playableGround: new Color3(0.63, 0.73, 0.79), outskirtsGround: new Color3(0.28, 0.4, 0.47),
-    fogColor: new Color3(0.68, 0.78, 0.84), ambientTint: new Color3(0.76, 0.86, 0.94),
-    spawnAccent: new Color3(1, 0.08, 0.04), exitAccent: new Color3(0.2, 0.5, 1),
-    treeAssets: ["nature-pine-1", "nature-pine-3", "nature-pine-5"],
-    rockAssets: ["nature-rock-2", "nature-rock-3"], propAssets: ["nature-flowering-bush"],
-    treeCount: 10, rockCount: 6, propCount: 2,
-    clusters: ["forest", "rocks", "camp", "forest", "rocks", "forest", "camp", "rocks", "forest", "rocks", "forest", "camp"],
-  },
-  {
-    id: "winter-highlands", label: "Winter Highlands",
-    playableGround: new Color3(0.61, 0.68, 0.71), outskirtsGround: new Color3(0.21, 0.27, 0.29),
-    fogColor: new Color3(0.49, 0.57, 0.61), ambientTint: new Color3(0.66, 0.72, 0.75),
-    spawnAccent: new Color3(1, 0.12, 0.035), exitAccent: new Color3(0.28, 0.58, 1),
-    treeAssets: ["nature-pine-5"],
-    rockAssets: ["nature-rock-1", "nature-rock-2", "nature-rock-3"], propAssets: ["nature-mushroom"],
-    treeCount: 5, rockCount: 10, propCount: 3,
-    clusters: ["rocks", "forest", "rocks", "camp", "rocks", "forest", "camp", "rocks", "forest", "rocks", "forest", "camp"],
-  },
-  {
-    id: "fantasy-forest", label: "Fantasy Forest",
-    playableGround: new Color3(0.62, 0.71, 0.66), outskirtsGround: new Color3(0.23, 0.34, 0.27),
-    fogColor: new Color3(0.5, 0.61, 0.54), ambientTint: new Color3(0.86, 0.82, 0.67),
-    spawnAccent: new Color3(0.94, 0.12, 0.04), exitAccent: new Color3(0.24, 0.56, 0.92),
-    treeAssets: ["nature-pine-1", "nature-pine-3", "nature-pine-5"],
-    rockAssets: ["nature-rock-1", "nature-rock-3"], propAssets: ["nature-flowering-bush", "nature-mushroom"],
-    treeCount: 11, rockCount: 5, propCount: 6,
-    clusters: ["forest", "forest", "camp", "forest", "rocks", "forest", "camp", "rocks", "forest", "rocks", "forest", "camp"],
+    id: "royal-guard-stronghold", label: "Royal Guard Stronghold",
+    playableGround: new Color3(0.69, 0.65, 0.55), outskirtsGround: new Color3(0.38, 0.42, 0.32),
+    fogColor: new Color3(0.72, 0.76, 0.75), ambientTint: new Color3(0.91, 0.87, 0.77),
+    spawnAccent: new Color3(0.72, 0.17, 0.12), exitAccent: new Color3(0.76, 0.65, 0.30),
+    treeAssets: ["castle-tree", "castle-tree-large"],
+    rockAssets: ["castle-rock", "castle-rock-large"], propAssets: ["castle-flag"],
+    treeCount: 8, rockCount: 5, propCount: 4,
+    clusters: ["village", "forest", "camp", "rocks", "camp", "forest", "camp", "rocks", "forest", "camp", "forest", "village"],
   },
 ];
 

@@ -7,6 +7,8 @@ export interface DefenderVisualDefinition {
   fallbackAssetPath?: string;
   /** Vertical scale derived from the measured source GLB height. */
   modelScale: number;
+  /** Per-defender presentation-only crowding adjustment, independent of gameplay geometry. */
+  visualScaleMultiplier: number;
   /** Optional horizontal normalization to keep a model within one map cell. */
   modelScaleX?: number;
   modelScaleZ?: number;
@@ -36,14 +38,18 @@ function normalizedVisual(
 export const DEFENDER_VISUAL_CONFIG: Record<DefenderType, DefenderVisualDefinition> = {
   "blue-wizard": {
     displayName: "Blue Wizard", debugLabel: "WIZARD",
-    assetPath: "/assets/models/defenders/blue-wizard.glb",
+    assetPath: "/assets/models/defenders/optimized/blue-wizard.glb",
+    fallbackAssetPath: "/assets/models/defenders/blue-wizard.glb",
     ...normalizedVisual({ width: 1.31395, height: 1.89845, depth: 1.08782 }, 1.89845 * (1.13 * 0.75)),
+    visualScaleMultiplier: 0.9,
     rotationY: 0, primitiveFallback: "wizard",
   },
   "holy-knight": {
     displayName: "Holy Knight", debugLabel: "KNIGHT",
-    assetPath: "/assets/models/defenders/holy-knight.glb",
+    assetPath: "/assets/models/defenders/optimized/holy-knight.glb",
+    fallbackAssetPath: "/assets/models/defenders/holy-knight.glb",
     ...normalizedVisual({ width: 1.45042, height: 1.89834, depth: 1.10309 }, 1.89834 * (1.13 * 0.75)),
+    visualScaleMultiplier: 0.85,
     rotationY: 0, primitiveFallback: "knight",
   },
   "green-archer": {
@@ -51,6 +57,7 @@ export const DEFENDER_VISUAL_CONFIG: Record<DefenderType, DefenderVisualDefiniti
     assetPath: "/assets/models/defenders/optimized/green-archer.glb",
     fallbackAssetPath: "/assets/models/defenders/green-archer.glb",
     ...normalizedVisual({ width: 0.98466, height: 1.89733, depth: 0.84087 }, 1.518, { width: 0.8, depth: 0.8 }),
+    visualScaleMultiplier: 0.95,
     rotationY: 0, primitiveFallback: "green-archer",
   },
   battlemage: {
@@ -58,6 +65,7 @@ export const DEFENDER_VISUAL_CONFIG: Record<DefenderType, DefenderVisualDefiniti
     assetPath: "/assets/models/defenders/optimized/battlemage.glb",
     fallbackAssetPath: "/assets/models/defenders/battlemage.glb",
     ...normalizedVisual({ width: 1.44017, height: 1.89785, depth: 1.52045 }, 1.594, { width: 0.8, depth: 0.8 }),
+    visualScaleMultiplier: 0.9,
     rotationY: 0, primitiveFallback: "battlemage",
   },
   sovereign: {
@@ -65,6 +73,7 @@ export const DEFENDER_VISUAL_CONFIG: Record<DefenderType, DefenderVisualDefiniti
     assetPath: "/assets/models/defenders/optimized/sovereign.glb",
     fallbackAssetPath: "/assets/models/defenders/sovereign.glb",
     ...normalizedVisual({ width: 1.27846, height: 1.89844, depth: 1.12448 }, 1.747, { width: 0.8, depth: 0.8 }),
+    visualScaleMultiplier: 0.9,
     rotationY: 0, primitiveFallback: "sovereign",
   },
 };

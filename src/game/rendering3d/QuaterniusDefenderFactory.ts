@@ -16,25 +16,18 @@ export interface QuaterniusDefenderVisual {
 type ImportedDefenderType = "green-archer" | "battlemage" | "sovereign";
 type DefenderTemplateAudit = { type: ImportedDefenderType; assetPath?: string; optimized: boolean; triangleCount: number; textures: number; materials: number };
 
-/** Loads each imported defender once; a missing model gets a type-specific primitive, never another defender's model. */
+/** Loads each imported defender once. Pending loads stay visually quiet; only a small neutral marker is used on failure. */
 export class QuaterniusDefenderFactory {
   private readonly templates = new Map<ImportedDefenderType, AssetContainer>();
   private readonly loadedPaths = new Map<ImportedDefenderType, string>();
   private readonly debug = new URLSearchParams(window.location.search).get("defenderVisualDebug") === "1";
   private readonly reportedTypes = new Set<ImportedDefenderType>();
   private loadingComplete = false;
-  private readonly archerMaterial: StandardMaterial;
-  private readonly robeMaterial: StandardMaterial;
-  private readonly skinMaterial: StandardMaterial;
-  private readonly leatherMaterial: StandardMaterial;
-  private readonly arcaneMaterial: StandardMaterial;
+  private readonly neutralFallbackMaterial: StandardMaterial;
+  private readonly unavailableReported = new Set<ImportedDefenderType>();
 
   constructor(private readonly scene: Scene, private readonly shadows: ShadowGenerator) {
-    this.archerMaterial = this.material("defender-fallback-archer-green", new Color3(0.08, 0.36, 0.25));
-    this.robeMaterial = this.material("defender-fallback-battlemage-blue", new Color3(0.16, 0.19, 0.48));
-    this.skinMaterial = this.material("defender-fallback-skin", new Color3(0.78, 0.61, 0.45));
-    this.leatherMaterial = this.material("defender-fallback-leather", new Color3(0.25, 0.13, 0.07));
-    this.arcaneMaterial = this.material("defender-fallback-arcane", new Color3(0.29, 0.66, 1), new Color3(0.22, 0.32, 0.9));
+    this.neutralFallbackMaterial = this.material("defender-neutral-fallback", new Color3(0.38, 0.5, 0.53), new Color3(0.06, 0.09, 0.1));
   }
 
   private readonly importedTypes: ImportedDefenderType[] = ["green-archer", "battlemage", "sovereign"];
@@ -47,11 +40,7 @@ export class QuaterniusDefenderFactory {
     this.templates.forEach((template) => template.dispose());
     this.templates.clear();
     this.loadedPaths.clear();
-    this.archerMaterial.dispose();
-    this.robeMaterial.dispose();
-    this.skinMaterial.dispose();
-    this.leatherMaterial.dispose();
-    this.arcaneMaterial.dispose();
+    this.neutralFallbackMaterial.dispose();
   }
 
   async load(): Promise<void> {
@@ -75,13 +64,14 @@ export class QuaterniusDefenderFactory {
     }
   }
 
-  /** Always returns a visual for valid imported types, even while their GLBs are loading. */
+  /** Keeps towers visually quiet while loading; failed assets use a small neutral marker, never a large proxy body. */
   create(id: number, type: ImportedDefenderType, level: number): QuaterniusDefenderVisual {
     const definition = DEFENDER_VISUAL_CONFIG[type];
     const template = this.templates.get(type);
     if (!template) {
-      if (this.loadingComplete) this.reportResolution(type, undefined, true);
-      return this.createPrimitiveFallback(id, type, level);
+      return this.loadingComplete
+        ? this.createNeutralFallback(id, type, level)
+        : this.createPendingVisual(id, type, level);
     }
 
     const instance = template.instantiateModelsToScene((name) => `defender-${id}-${name}`, false);
@@ -107,7 +97,9 @@ export class QuaterniusDefenderFactory {
     const bounds = this.measureWorldBounds(meshes);
     const attackOrigin = new TransformNode(`defender-attack-origin-${id}`, this.scene);
     attackOrigin.parent = modelRoot;
-    attackOrigin.position.set(0, (bounds?.height ?? 1) * 0.68, type === "green-archer" ? 0.18 : 0.2);
+    // Keep the firing origin in the model's local frame so model-scale tuning
+    // moves it together with the defender without changing tower coordinates.
+    attackOrigin.position.set(0, definition.sourceBounds.height * 0.68, type === "green-archer" ? 0.18 : 0.2);
     instance.animationGroups.forEach((animation) => { animation.stop(); animation.dispose(); });
     this.reportResolution(type, this.loadedPaths.get(type), false);
     this.recordInstance(id, type, level, this.loadedPaths.get(type), bounds, modelRoot.position.y);
@@ -127,7 +119,7 @@ export class QuaterniusDefenderFactory {
       this.loadedPaths.set(type, definition.assetPath);
       return;
     } catch (optimizedError) {
-      if (!definition.fallbackAssetPath) throw optimizedError;
+      if (!import.meta.env.DEV || !definition.fallbackAssetPath) throw optimizedError;
       console.warn("Optimized defender visual failed; trying its own source GLB:", {
         type, optimizedPath: definition.assetPath, fallbackPath: definition.fallbackAssetPath,
         reason: optimizedError instanceof Error ? optimizedError.message : String(optimizedError),
@@ -138,66 +130,46 @@ export class QuaterniusDefenderFactory {
       this.templates.set(type, await this.loadContainer(definition.fallbackAssetPath!));
       this.loadedPaths.set(type, definition.fallbackAssetPath!);
     } catch (fallbackError) {
-      console.warn("Defender source GLB failed; using its type-specific primitive fallback:", {
+      console.warn("Defender source GLB failed; using a small neutral fallback marker:", {
         type, fallbackPath: definition.fallbackAssetPath,
         reason: fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
       });
     }
   }
 
-  private createPrimitiveFallback(id: number, type: ImportedDefenderType, level: number): QuaterniusDefenderVisual {
+  private createPendingVisual(id: number, _type: ImportedDefenderType, level: number): QuaterniusDefenderVisual {
     const root = new TransformNode(`defender-root-${id}`, this.scene);
     const bodyRoot = new TransformNode(`defender-body-root-${id}`, this.scene);
     bodyRoot.parent = root;
-    const add = (mesh: AbstractMesh, material: StandardMaterial) => {
-      mesh.parent = bodyRoot;
-      mesh.material = material;
-      mesh.isPickable = false;
-      this.shadows.addShadowCaster(mesh);
-      return mesh;
-    };
-
-    if (type === "green-archer") {
-      const tunic = add(MeshBuilder.CreateCylinder(`fallback-archer-tunic-${id}`, { height: 0.62, diameterTop: 0.25, diameterBottom: 0.48, tessellation: 7 }, this.scene), this.archerMaterial);
-      tunic.position.y = 0.52;
-      const head = add(MeshBuilder.CreateSphere(`fallback-archer-head-${id}`, { diameter: 0.27, segments: 8 }, this.scene), this.skinMaterial);
-      head.position.y = 0.98;
-      const bowPath = [new Vector3(0.3, 0.46, 0.02), new Vector3(0.48, 0.78, 0.02), new Vector3(0.3, 1.04, 0.02)];
-      const bow = MeshBuilder.CreateTube(`fallback-archer-bow-${id}`, { path: bowPath, radius: 0.025, tessellation: 5 }, this.scene);
-      add(bow, this.leatherMaterial);
-    } else if (type === "battlemage") {
-      const robe = add(MeshBuilder.CreateCylinder(`fallback-battlemage-robe-${id}`, { height: 0.82, diameterTop: 0.24, diameterBottom: 0.72, tessellation: 8 }, this.scene), this.robeMaterial);
-      robe.position.y = 0.53;
-      const head = add(MeshBuilder.CreateSphere(`fallback-battlemage-head-${id}`, { diameter: 0.28, segments: 8 }, this.scene), this.skinMaterial);
-      head.position.y = 1.08;
-      const staff = add(MeshBuilder.CreateCylinder(`fallback-battlemage-staff-${id}`, { height: 1.16, diameter: 0.045, tessellation: 6 }, this.scene), this.leatherMaterial);
-      staff.position.set(0.43, 0.62, 0.02);
-      const orb = add(MeshBuilder.CreateSphere(`fallback-battlemage-orb-${id}`, { diameter: 0.2, segments: 8 }, this.scene), this.arcaneMaterial);
-      orb.position.set(0.43, 1.25, 0.02);
-    } else {
-      const armor = add(MeshBuilder.CreateCylinder(`fallback-sovereign-armor-${id}`, { height: 0.9, diameterTop: 0.36, diameterBottom: 0.72, tessellation: 8 }, this.scene), this.leatherMaterial);
-      armor.position.y = 0.56;
-      const helm = add(MeshBuilder.CreateSphere(`fallback-sovereign-helm-${id}`, { diameter: 0.34, segments: 8 }, this.scene), this.skinMaterial);
-      helm.position.y = 1.16;
-      const crest = add(MeshBuilder.CreateCylinder(`fallback-sovereign-crest-${id}`, { height: 0.64, diameter: 0.08, tessellation: 5 }, this.scene), this.arcaneMaterial);
-      crest.position.set(0, 1.55, 0.04);
-      const sword = add(MeshBuilder.CreateBox(`fallback-sovereign-sword-${id}`, { width: 0.12, height: 0.75, depth: 0.06 }, this.scene), this.leatherMaterial);
-      sword.position.set(0.44, 0.68, 0.04);
-    }
-
-    const levelScale = VISUAL_CONFIG.towerLevelScaleMultipliers[level as 1 | 2 | 3] ?? 1;
-    bodyRoot.scaling.setAll(levelScale);
     const attackOrigin = new TransformNode(`defender-attack-origin-${id}`, this.scene);
     attackOrigin.parent = bodyRoot;
-    attackOrigin.position.set(0, type === "green-archer" ? 0.95 : type === "sovereign" ? 1.15 : 1.05, 0.18);
-    this.recordInstance(id, type, level, undefined, undefined, 0);
-    this.reportResolution(type, undefined, true);
+    attackOrigin.position.set(0, 0.9, 0.18);
     return {
       root, bodyRoot, attackOrigin, level,
-      dispose: () => {
-        root.getChildMeshes(false).forEach((mesh) => this.shadows.removeShadowCaster(mesh));
-      },
+      dispose: () => undefined,
     };
+  }
+
+  private createNeutralFallback(id: number, type: ImportedDefenderType, level: number): QuaterniusDefenderVisual {
+    const root = new TransformNode(`defender-root-${id}`, this.scene);
+    const bodyRoot = new TransformNode(`defender-body-root-${id}`, this.scene);
+    bodyRoot.parent = root;
+    const marker = MeshBuilder.CreatePolyhedron(`defender-neutral-marker-${id}`, { type: 1, size: 0.22 }, this.scene);
+    marker.parent = bodyRoot;
+    marker.position.y = 0.17;
+    marker.material = this.neutralFallbackMaterial;
+    marker.isPickable = false;
+    bodyRoot.scaling.setAll(VISUAL_CONFIG.towerLevelScaleMultipliers[level as 1 | 2 | 3] ?? 1);
+    const attackOrigin = new TransformNode(`defender-attack-origin-${id}`, this.scene);
+    attackOrigin.parent = bodyRoot;
+    attackOrigin.position.set(0, 0.72, 0.18);
+    if (!this.unavailableReported.has(type)) {
+      this.unavailableReported.add(type);
+      console.warn("Defender visual unavailable after preload; showing small neutral marker.", { type });
+    }
+    this.recordInstance(id, type, level, undefined, undefined, 0);
+    this.reportResolution(type, undefined, true);
+    return { root, bodyRoot, attackOrigin, level, dispose: () => undefined };
   }
 
   private reportResolution(type: ImportedDefenderType, assetPath: string | undefined, primitive: boolean): void {
@@ -217,6 +189,7 @@ export class QuaterniusDefenderFactory {
       id, type, config: type, optimized: assetPath === DEFENDER_VISUAL_CONFIG[type].assetPath,
       assetPath: assetPath ?? null, primitiveFallback: assetPath === undefined, level,
       sourceBounds: DEFENDER_VISUAL_CONFIG[type].sourceBounds,
+      visualScaleMultiplier: DEFENDER_VISUAL_CONFIG[type].visualScaleMultiplier,
       scale: {
         x: DEFENDER_VISUAL_CONFIG[type].modelScaleX ?? DEFENDER_VISUAL_CONFIG[type].modelScale,
         y: DEFENDER_VISUAL_CONFIG[type].modelScale,

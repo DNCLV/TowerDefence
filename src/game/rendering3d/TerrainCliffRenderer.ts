@@ -1,61 +1,86 @@
-import { Color3, DynamicTexture, Mesh, PBRMaterial, Scene, Texture, VertexData } from "@babylonjs/core";
-import { resolveAssetUrl } from "../../core/AssetUrl";
+import { Color3, DynamicTexture, Matrix, Mesh, MeshBuilder, PBRMaterial, Quaternion, Scene, Texture, VertexData, Vector3 } from "@babylonjs/core";
 import type { Cell } from "../../core/types";
 import type { TerrainRegion } from "../config/MapConfig";
+import { VISUAL_CONFIG } from "./VisualConfig";
 
 export type TerrainOutlinePoint = { x: number; z: number };
 type Point = TerrainOutlinePoint;
 type Edge = { from: Point; to: Point };
 
-// Taller than the thin prototype slab so the large blocked formations read clearly
-// from the fixed tactical camera. Grid/path footprints remain exactly unchanged.
-// Give the mountains 50% more visual height; their cell-union footprint is unchanged.
-const TERRAIN_TOP = 1.35 * 1.5;
+// A low visual rise makes blocked cells legible without obscuring units on the field.
+// The top and base contours still use the exact blocked-cell union.
+export const TERRAIN_PLATEAU_HEIGHT = 0.72;
+const TERRAIN_TOP = TERRAIN_PLATEAU_HEIGHT;
 const TERRAIN_BASE = -0.04;
+const ROCK_REPEAT_DISTANCE = 2.4;
+const GRASS_EDGE_HEIGHT = 0.085;
+const ROCK_BASE_BAND_HEIGHT = 0.18;
+const CLIFF_BEVEL_HEIGHT = 0.11;
+const CLIFF_BEVEL_INSET = 0.10;
 
-/**
- * Presentation-only terrain. Its top and vertical base share the exact cell-union
- * perimeter used by pathfinding; no bevel/chamfer is allowed to spill into open cells.
- */
+export interface TerrainRenderStats {
+  formationCount: number;
+  meshCount: number;
+  plateauHeight: number;
+  groundTextureNames: { albedo: string; roughness: string };
+  cliffTextureNames: { albedo: string; roughness: string };
+}
+
+/** Presentation only: each plateau and base face follows the exact blocked-cell outline. */
 export class TerrainCliffRenderer {
   private readonly topMaterial: PBRMaterial;
+  private readonly lipMaterial: PBRMaterial;
   private readonly faceMaterial: PBRMaterial;
-  private readonly snowTexture: DynamicTexture;
+  private readonly rubbleMaterial: PBRMaterial;
   private readonly rockAlbedo: Texture;
-  private readonly rockNormal: Texture;
-  private readonly rockOrm: Texture;
 
-  constructor(private readonly scene: Scene) {
-    this.snowTexture = this.createSnowTexture();
-    this.rockAlbedo = new Texture(resolveAssetUrl("assets/environment/medieval/T_RockTrim_BaseColor.png"), scene, true, false);
-    this.rockNormal = new Texture(resolveAssetUrl("assets/environment/medieval/T_RockTrim_Normal.png"), scene, true, false);
-    this.rockOrm = new Texture(resolveAssetUrl("assets/environment/medieval/T_RockTrim_ORM.png"), scene, true, false);
-    for (const texture of [this.rockAlbedo, this.rockNormal, this.rockOrm]) {
-      texture.uScale = 2.2;
-      texture.vScale = 2.2;
-      texture.wrapU = Texture.WRAP_ADDRESSMODE;
-      texture.wrapV = Texture.WRAP_ADDRESSMODE;
-    }
+  constructor(
+    private readonly scene: Scene,
+    private readonly groundAlbedo: Texture,
+    private readonly groundNormal: Texture,
+    private readonly mapWidth: number,
+    private readonly mapDepth: number,
+  ) {
+    this.rockAlbedo = this.createCastleStoneTexture();
+    this.rockAlbedo.wrapU = this.rockAlbedo.wrapV = Texture.WRAP_ADDRESSMODE;
 
-    this.topMaterial = this.snowMaterial("snow-cliff-plateau-top", new Color3(0.94, 0.975, 0.99));
-    this.faceMaterial = new PBRMaterial("snow-cliff-rock-face-material", scene);
-    this.faceMaterial.albedoColor = new Color3(0.78, 0.83, 0.88);
-    this.faceMaterial.emissiveColor = new Color3(0.055, 0.075, 0.095);
+    const plateauStone = this.createTerrainTopTexture();
+    plateauStone.name = "kenney-castle-plateau-stone";
+    plateauStone.uScale = this.mapWidth / 4;
+    plateauStone.vScale = this.mapDepth / 4;
+    plateauStone.wrapU = plateauStone.wrapV = Texture.WRAP_ADDRESSMODE;
+    this.topMaterial = new PBRMaterial("royal-cliff-stone-top", scene);
+    // Bias reflected light slightly toward the muted highland greens below.
+    this.topMaterial.albedoColor = new Color3(1.06, 1.10, 0.98);
+    this.topMaterial.albedoTexture = plateauStone;
+    this.topMaterial.bumpTexture = this.groundNormal;
+    this.topMaterial.bumpTexture.level = 0.06;
+    this.topMaterial.emissiveColor = new Color3(0.035, 0.055, 0.025);
+    this.topMaterial.roughness = 0.97;
+    this.lipMaterial = new PBRMaterial("royal-cliff-earth-edge", scene);
+    // A subdued moss-earth bevel joins the grassy top and neutral stone face.
+    this.lipMaterial.albedoColor = new Color3(0.50, 0.52, 0.38);
+    this.lipMaterial.roughness = 0.97;
+    this.lipMaterial.metallic = 0;
+    this.faceMaterial = new PBRMaterial("royal-cliff-natural-rock-face", scene);
+    this.faceMaterial.albedoColor = VISUAL_CONFIG.royalCliffTint;
     this.faceMaterial.albedoTexture = this.rockAlbedo;
-    this.faceMaterial.bumpTexture = this.rockNormal;
-    this.faceMaterial.metallicTexture = this.rockOrm;
-    this.faceMaterial.useRoughnessFromMetallicTextureGreen = true;
-    this.faceMaterial.useMetallnessFromMetallicTextureBlue = true;
     this.faceMaterial.metallic = 0;
-    this.faceMaterial.roughness = 0.9;
+    this.faceMaterial.roughness = 0.98;
     this.faceMaterial.backFaceCulling = false;
+
+    this.rubbleMaterial = new PBRMaterial("royal-cliff-top-rubble-material", scene);
+    this.rubbleMaterial.albedoColor = new Color3(0.55, 0.48, 0.39);
+    this.rubbleMaterial.roughness = 0.98;
+    this.rubbleMaterial.metallic = 0;
   }
 
-  render(regions: readonly TerrainRegion[]): void {
+  render(regions: readonly TerrainRegion[]): TerrainRenderStats {
     const cells = new Map<string, Cell>();
     for (const region of regions) for (const cell of region.cells) cells.set(`${cell.x},${cell.y}`, cell);
     const remaining = new Set(cells.keys());
-    let formation = 0;
+    let formationCount = 0;
+    let meshCount = 0;
     while (remaining.size > 0) {
       const first = remaining.values().next().value as string;
       const pending = [first];
@@ -71,98 +96,275 @@ export class TerrainCliffRenderer {
       }
       const outline = traceBoundary(component);
       if (outline.length < 3) continue;
-      this.renderFormation(`snow-cliff-formation-${formation++}`, outline);
+      const meshTotal = this.renderFormation(`snow-cliff-formation-${formationCount}`, outline);
+      if (meshTotal > 0) {
+        formationCount += 1;
+        meshCount += meshTotal;
+      }
     }
+    const rubbleMeshCount = this.createTopRubble([...cells.values()]) + this.createBasePebbles([...cells.values()]);
+    return {
+      formationCount,
+      meshCount: meshCount + rubbleMeshCount,
+      plateauHeight: TERRAIN_TOP,
+      groundTextureNames: { albedo: this.groundAlbedo.name, roughness: "packed-pbr-roughness" },
+      cliffTextureNames: { albedo: this.rockAlbedo.name, roughness: "constant-roughness" },
+    };
   }
 
-  private renderFormation(name: string, outline: Point[]): void {
+  private renderFormation(name: string, outline: Point[]): number {
     const triangles = triangulate(outline);
-    if (triangles.length < 3) return;
+    if (triangles.length < 3) return 0;
 
-    const top = new Mesh(`${name}-snow-top`, this.scene);
+    const top = new Mesh(`${name}-castle-stone-top`, this.scene);
     const topPositions: number[] = [];
     const topUvs: number[] = [];
     for (const point of outline) {
       topPositions.push(point.x, TERRAIN_TOP, point.z);
-      topUvs.push(point.x / 5, point.z / 5);
+      // Ground and plateau UVs use the same normalized world map, so the material tile
+      // frequency is continuous at the exact terrain edge.
+      topUvs.push(point.x / this.mapWidth, point.z / this.mapDepth);
     }
     const topData = new VertexData();
     topData.positions = topPositions;
     topData.indices = triangles;
     topData.uvs = topUvs;
-    // Plateau tops are horizontal by design; explicit up normals also avoid winding quirks
-    // from the X/Z map plane in different Babylon WebGL backends.
     topData.normals = outline.flatMap(() => [0, 1, 0]);
     topData.applyToMesh(top, true);
     top.material = this.topMaterial;
     top.material.backFaceCulling = false;
     top.isPickable = false;
-    top.receiveShadows = true;
+    // Avoid the shadow-map darkening the broad top planes into black slabs.
+    top.receiveShadows = false;
     top.freezeWorldMatrix();
 
     const facePositions: number[] = [];
+    const faceUvs: number[] = [];
     const faceIndices: number[] = [];
+    const faceColors: number[] = [];
+    const lipPositions: number[] = [];
+    const lipUvs: number[] = [];
+    const lipIndices: number[] = [];
+    const normalSign = signedArea(outline) >= 0 ? 1 : -1;
+    let perimeterDistance = 0;
     for (let index = 0; index < outline.length; index += 1) {
-      const next = (index + 1) % outline.length;
       const current = outline[index];
-      const following = outline[next];
-      // Keep every cliff wall directly on a grid edge from top to below ground.
-      // The plateau covers the complete blocked-cell footprint above it.
-      addQuad(facePositions, faceIndices,
+      const following = outline[(index + 1) % outline.length];
+      const edgeLength = Math.hypot(following.x - current.x, following.z - current.z);
+      const bandY = Math.min(TERRAIN_TOP - GRASS_EDGE_HEIGHT - 0.02, TERRAIN_BASE + ROCK_BASE_BAND_HEIGHT);
+      const shade = 0.93 + ((index * 37) % 9) / 100;
+      const inwardX = -((following.z - current.z) / edgeLength) * normalSign * CLIFF_BEVEL_INSET;
+      const inwardZ = ((following.x - current.x) / edgeLength) * normalSign * CLIFF_BEVEL_INSET;
+      const insetCurrent = [current.x + inwardX, current.z + inwardZ];
+      const insetFollowing = [following.x + inwardX, following.z + inwardZ];
+      const bevelY = TERRAIN_TOP - CLIFF_BEVEL_HEIGHT;
+      const midShade = shade * 0.90;
+      addQuadWithUvs(facePositions, faceUvs, faceIndices,
+        [insetCurrent[0], bevelY, insetCurrent[1]], [insetFollowing[0], bevelY, insetFollowing[1]],
+        [insetFollowing[0], bandY, insetFollowing[1]], [insetCurrent[0], bandY, insetCurrent[1]],
+        [perimeterDistance / ROCK_REPEAT_DISTANCE, 0.82, (perimeterDistance + edgeLength) / ROCK_REPEAT_DISTANCE, 0.82,
+          (perimeterDistance + edgeLength) / ROCK_REPEAT_DISTANCE, 0.24, perimeterDistance / ROCK_REPEAT_DISTANCE, 0.24]);
+      faceColors.push(midShade, midShade * 0.99, midShade * 0.96, 1, midShade, midShade * 0.99, midShade * 0.96, 1,
+        midShade, midShade * 0.99, midShade * 0.96, 1, midShade, midShade * 0.99, midShade * 0.96, 1);
+      const toeShade = shade * 0.82;
+      addQuadWithUvs(facePositions, faceUvs, faceIndices,
+        [insetCurrent[0], bandY, insetCurrent[1]], [insetFollowing[0], bandY, insetFollowing[1]],
+        [following.x, TERRAIN_BASE, following.z], [current.x, TERRAIN_BASE, current.z],
+        [perimeterDistance / ROCK_REPEAT_DISTANCE, 0.24, (perimeterDistance + edgeLength) / ROCK_REPEAT_DISTANCE, 0.24,
+          (perimeterDistance + edgeLength) / ROCK_REPEAT_DISTANCE, 0, perimeterDistance / ROCK_REPEAT_DISTANCE, 0]);
+      faceColors.push(toeShade, toeShade * 0.99, toeShade * 0.95, 1, toeShade, toeShade * 0.99, toeShade * 0.95, 1,
+        toeShade, toeShade * 0.99, toeShade * 0.95, 1, toeShade, toeShade * 0.99, toeShade * 0.95, 1);
+      // A thin light line follows the bevel without protruding into the buildable field.
+      addQuadWithUvs(lipPositions, lipUvs, lipIndices,
         [current.x, TERRAIN_TOP, current.z], [following.x, TERRAIN_TOP, following.z],
-        [following.x, TERRAIN_BASE, following.z], [current.x, TERRAIN_BASE, current.z]);
+        [insetFollowing[0], bevelY, insetFollowing[1]], [insetCurrent[0], bevelY, insetCurrent[1]],
+        [perimeterDistance / ROCK_REPEAT_DISTANCE, 1, (perimeterDistance + edgeLength) / ROCK_REPEAT_DISTANCE, 1,
+          (perimeterDistance + edgeLength) / ROCK_REPEAT_DISTANCE, 0.82, perimeterDistance / ROCK_REPEAT_DISTANCE, 0.82]);
+      perimeterDistance += edgeLength;
     }
-    this.createMesh(`${name}-rock-side`, facePositions, faceIndices, this.faceMaterial);
+    this.createMesh(`${name}-rock-side`, facePositions, faceUvs, faceIndices, this.faceMaterial, faceColors);
+    this.createMesh(`${name}-earth-lip`, lipPositions, lipUvs, lipIndices, this.lipMaterial);
+    return 3;
   }
 
-  private createMesh(name: string, positions: number[], indices: number[], material: PBRMaterial): void {
+  /** Sparse low-profile rubble sits only within blocked terrain cells; it uses one instanced mesh. */
+  private createTopRubble(cells: readonly Cell[]): number {
+    if (cells.length === 0) return 0;
+    const occupied = new Set(cells.map(({ x, y }) => `${x},${y}`));
+    const matrices: number[] = [];
+    for (const cell of cells) {
+      const key = `${cell.x},${cell.y}`;
+      const boundary = [[cell.x - 1, cell.y], [cell.x + 1, cell.y], [cell.x, cell.y - 1], [cell.x, cell.y + 1]]
+        .some(([x, y]) => !occupied.has(`${x},${y}`));
+      if (!boundary || Math.abs((cell.x * 47 + cell.y * 83 + 29) % 100) > 38) continue;
+      const hash = Math.abs(cell.x * 7919 + cell.y * 1049 + 101);
+      const x = cell.x + 0.5 + ((hash % 13) / 100 - 0.06);
+      const z = cell.y + 0.5 + (((hash >> 3) % 13) / 100 - 0.06);
+      const scale = new Vector3(0.075 + (hash % 7) * 0.008, 0.035 + (hash % 5) * 0.006, 0.075 + (hash % 11) * 0.008);
+      const position = new Vector3(x, TERRAIN_TOP + 0.035 + 100, z);
+      Matrix.Compose(scale, Quaternion.RotationYawPitchRoll(hash % 6, 0, 0), position).copyToArray(matrices, matrices.length);
+    }
+    if (matrices.length === 0) return 0;
+    const rubble = MeshBuilder.CreateIcoSphere("terrain-top-rubble", { radius: 1, subdivisions: 1 }, this.scene);
+    rubble.position.y = -100;
+    rubble.material = this.rubbleMaterial;
+    rubble.isPickable = false;
+    rubble.receiveShadows = false;
+    rubble.thinInstanceSetBuffer("matrix", new Float32Array(matrices), 16, true);
+    rubble.computeWorldMatrix(true);
+    rubble.freezeWorldMatrix();
+    return 1;
+  }
+
+  /** Pebbles share one thin-instanced mesh and stay entirely within terrain cells. */
+  private createBasePebbles(cells: readonly Cell[]): number {
+    const occupied = new Set(cells.map(({ x, y }) => `${x},${y}`));
+    const matrices: number[] = [];
+    for (const cell of cells) {
+      const boundary = [[cell.x - 1, cell.y], [cell.x + 1, cell.y], [cell.x, cell.y - 1], [cell.x, cell.y + 1]]
+        .some(([x, y]) => !occupied.has(`${x},${y}`));
+      const hash = Math.abs(cell.x * 1013 + cell.y * 7919 + 211);
+      if (!boundary || hash % 3 !== 0) continue;
+      const x = cell.x + 0.5 + ((hash % 17) / 100 - 0.08);
+      const z = cell.y + 0.5 + (((hash >> 4) % 17) / 100 - 0.08);
+      const scale = new Vector3(0.07 + (hash % 7) * 0.011, 0.022 + (hash % 5) * 0.005, 0.065 + (hash % 11) * 0.008);
+      const position = new Vector3(x, TERRAIN_BASE + 0.04 + 100, z);
+      Matrix.Compose(scale, Quaternion.RotationYawPitchRoll((hash % 8) * Math.PI / 4, 0, 0), position).copyToArray(matrices, matrices.length);
+    }
+    if (matrices.length === 0) return 0;
+    const pebbles = MeshBuilder.CreateIcoSphere("cliff-base-pebbles", { radius: 1, subdivisions: 1 }, this.scene);
+    pebbles.position.y = -100;
+    pebbles.material = this.rubbleMaterial;
+    pebbles.isPickable = false;
+    pebbles.receiveShadows = false;
+    pebbles.thinInstanceSetBuffer("matrix", new Float32Array(matrices), 16, true);
+    pebbles.computeWorldMatrix(true);
+    pebbles.freezeWorldMatrix();
+    return 1;
+  }
+
+  private createMesh(name: string, positions: number[], uvs: number[], indices: number[], material: PBRMaterial, colors?: number[]): void {
     if (positions.length === 0) return;
     const mesh = new Mesh(name, this.scene);
     const data = new VertexData();
     data.positions = positions;
     data.indices = indices;
-    data.uvs = positions.flatMap((value, index) => index % 3 === 1 ? [] : [value * 0.4]);
+    data.uvs = uvs;
+    data.colors = colors ?? null;
     data.normals = [];
     VertexData.ComputeNormals(positions, indices, data.normals);
     data.applyToMesh(mesh, true);
+    mesh.useVertexColors = colors !== undefined;
     mesh.material = material;
     mesh.isPickable = false;
-    mesh.receiveShadows = true;
+    mesh.receiveShadows = false;
     mesh.freezeWorldMatrix();
   }
 
-  private snowMaterial(name: string, albedo: Color3): PBRMaterial {
-    const material = new PBRMaterial(name, this.scene);
-    material.albedoColor = albedo;
-    material.albedoTexture = this.snowTexture;
-    material.roughness = 0.96;
-    material.metallic = 0;
-    return material;
+  /** Irregular low-contrast rock facets, shared by every mapped cliff formation. */
+  private createCastleStoneTexture(): DynamicTexture {
+    const texture = new DynamicTexture("kenney-castle-cliff-stone", { width: 256, height: 256 }, this.scene, true);
+    const ctx = texture.getContext();
+    ctx.fillStyle = "#766b5f";
+    ctx.fillRect(0, 0, 256, 256);
+    const palette = ["#918d82", "#9a9588", "#817d74", "#a39d90", "#88847b", "#969184"];
+    for (let i = 0; i < 42; i += 1) {
+      const cx = (i * 83 + 29) % 256, cy = (i * 137 + 17) % 256;
+      const rx = 12 + (i * 17) % 22, ry = 9 + (i * 11) % 19;
+      ctx.beginPath();
+      for (let vertex = 0; vertex < 7; vertex += 1) {
+        const angle = vertex * Math.PI * 2 / 7;
+        const variation = 0.76 + ((i * 13 + vertex * 7) % 25) / 100;
+        const x = cx + Math.cos(angle) * rx * variation;
+        const y = cy + Math.sin(angle) * ry * variation;
+        if (vertex === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+      ctx.fillStyle = palette[i % palette.length];
+      ctx.fill();
+      ctx.strokeStyle = "rgba(58,51,44,0.22)";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.strokeStyle = "rgba(241,230,209,0.12)";
+      ctx.beginPath();
+      ctx.moveTo(cx - rx * 0.48, cy - ry * 0.35);
+      ctx.lineTo(cx + rx * 0.45, cy - ry * 0.28);
+      ctx.stroke();
+    }
+    texture.update(false);
+    return texture;
   }
 
-  private createSnowTexture(): DynamicTexture {
-    const size = 256;
-    const texture = new DynamicTexture("snow-cliff-subtle-albedo", { width: size, height: size }, this.scene, true);
-    const context = texture.getContext();
-    context.fillStyle = "#e8f0f3";
-    context.fillRect(0, 0, size, size);
-    for (let i = 0; i < 24; i += 1) {
-      const x = (i * 73 + 19) % size;
-      const y = (i * 109 + 37) % size;
-      const radius = 22 + (i % 4) * 8;
-      const shade = i % 3 === 0 ? "rgba(255,255,255,0.25)" : "rgba(124,162,180,0.11)";
-      const gradient = context.createRadialGradient(x, y, 1, x, y, radius);
-      gradient.addColorStop(0, shade);
-      gradient.addColorStop(1, "rgba(220,235,241,0)");
-      context.fillStyle = gradient;
-      context.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+  private createTerrainTopTexture(): DynamicTexture {
+    const texture = new DynamicTexture("castle-terrain-top-earth-stone", { width: 512, height: 512 }, this.scene, true);
+    const ctx = texture.getContext();
+    // The base tone establishes green as the dominant top-surface color;
+    // restrained earth and exposed-stone patches provide the remaining variation.
+    ctx.fillStyle = "#829363";
+    ctx.fillRect(0, 0, 512, 512);
+    const patches = [
+      "rgba(78,111,57,0.18)",
+      "rgba(157,126,88,0.20)",
+      "rgba(58,82,47,0.12)",
+      "rgba(190,175,139,0.14)",
+    ];
+    for (let i = 0; i < 30; i += 1) {
+      const x = (i * 173 + 41) % 512, y = (i * 257 + 89) % 512;
+      const radius = 22 + ((i * 37) % 58);
+      const gradient = ctx.createRadialGradient(x, y, radius * 0.04, x, y, radius);
+      gradient.addColorStop(0, patches[i % patches.length]);
+      gradient.addColorStop(0.68, patches[i % patches.length].replace(/0\.\d+\)/, "0.035)"));
+      gradient.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.fillStyle = gradient;
+      ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
     }
-    // Fine, low-contrast grain breaks up the flat color without obscuring the grid.
-    for (let i = 0; i < 650; i += 1) {
-      const x = (i * 97 + 13) % size;
-      const y = (i * 149 + 41) % size;
-      context.fillStyle = i % 3 === 0 ? "rgba(255,255,255,0.12)" : "rgba(76,112,132,0.045)";
-      context.fillRect(x, y, 1, 1);
+    // Muted moss and grass islands make blocked plateaus feel alive without
+    // changing their outline. Wrapped copies keep this shared texture seamless.
+    let seed = 0x5a17;
+    const random = () => {
+      seed = (seed * 1664525 + 1013904223) >>> 0;
+      return seed / 0x100000000;
+    };
+    const mossPalette = [
+      "rgba(93,119,69,0.26)",
+      "rgba(112,130,77,0.24)",
+      "rgba(128,137,85,0.20)",
+      "rgba(76,101,62,0.19)",
+    ];
+    for (let i = 0; i < 42; i += 1) {
+      const x = random() * 512;
+      const y = random() * 512;
+      const radius = 13 + random() * 23;
+      const color = mossPalette[i % mossPalette.length];
+      for (const ox of [-512, 0, 512]) for (const oy of [-512, 0, 512]) {
+        const px = x + ox, py = y + oy;
+        if (px < -radius || px > 512 + radius || py < -radius || py > 512 + radius) continue;
+        const gradient = ctx.createRadialGradient(px, py, radius * 0.06, px, py, radius);
+        gradient.addColorStop(0, color);
+        gradient.addColorStop(0.62, color.replace(/0\.\d+\)/, "0.10)"));
+        gradient.addColorStop(1, "rgba(69,88,53,0)");
+        ctx.fillStyle = gradient;
+        ctx.fillRect(px - radius, py - radius, radius * 2, radius * 2);
+      }
+    }
+
+    // Short, low-contrast brush strokes suggest sparse grass blades at close zoom.
+    for (let i = 0; i < 430; i += 1) {
+      const x = random() * 512;
+      const y = random() * 512;
+      const length = 2 + random() * 4;
+      ctx.strokeStyle = i % 4 === 0 ? "rgba(70,96,53,0.16)" : "rgba(143,151,98,0.15)";
+      ctx.lineWidth = 0.7 + random() * 0.5;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + (random() - 0.5) * 2.2, y - length);
+      ctx.stroke();
+    }
+
+    for (let i = 0; i < 1050; i += 1) {
+      const x = (i * 73 + 17) % 512, y = (i * 151 + 43) % 512;
+      ctx.fillStyle = i % 3 === 0 ? "rgba(238,224,195,0.10)" : "rgba(65,59,49,0.025)";
+      ctx.fillRect(x, y, 1 + i % 2, 1);
     }
     texture.update(false);
     return texture;
@@ -234,9 +436,10 @@ export function triangulate(points: readonly Point[]): number[] {
   return indices;
 }
 
-function addQuad(positions: number[], indices: number[], a: number[], b: number[], c: number[], d: number[]): void {
+function addQuadWithUvs(positions: number[], uvs: number[], indices: number[], a: number[], b: number[], c: number[], d: number[], quadUvs: number[]): void {
   const offset = positions.length / 3;
   positions.push(...a, ...b, ...c, ...d);
+  uvs.push(...quadUvs);
   indices.push(offset, offset + 1, offset + 2, offset, offset + 2, offset + 3);
 }
 

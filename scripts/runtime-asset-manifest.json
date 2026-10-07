@@ -1,0 +1,87 @@
+{
+  "version": 1,
+  "description": "Production-only assets for the current Royal Guard faction and map environment. GLTF sidecar dependencies are included automatically.",
+  "groups": {
+    "defenders": [
+      "assets/models/defenders/optimized/blue-wizard.glb",
+      "assets/models/defenders/optimized/holy-knight.glb",
+      "assets/models/defenders/optimized/green-archer.glb",
+      "assets/models/defenders/optimized/battlemage.glb",
+      "assets/models/defenders/optimized/sovereign.glb"
+    ],
+    "enemies": [
+      "assets/models/enemies/optimized/goblin.glb",
+      "assets/models/enemies/optimized/goblin-meshy-casual-walk.glb",
+      "assets/models/enemies/optimized/goblin-brute.glb",
+      "assets/models/enemies/optimized/goblin-rider.glb",
+      "assets/models/enemies/optimized/giant-goblin.glb",
+      "assets/models/enemies/optimized/ghoul.glb",
+      "assets/models/enemies/optimized/wraith.glb",
+      "assets/models/enemies/optimized/undead-dragon.glb",
+      "assets/models/enemies/optimized/skeleton-king.glb",
+      "assets/models/enemies/optimized/skeletal-commander.glb",
+      "assets/models/animated-monsters/Skeleton.fbx"
+    ],
+    "environment": [
+      "assets/environment/kenney-castle/wall.glb",
+      "assets/environment/kenney-castle/wall-corner-half-tower.glb",
+      "assets/environment/kenney-castle/wall-doorway.glb",
+      "assets/environment/kenney-castle/tower-square-base.glb",
+      "assets/environment/kenney-castle/tower-square-roof.glb",
+      "assets/environment/kenney-castle/flag-banner-short.glb",
+      "assets/environment/kenney-castle/tree-small.glb",
+      "assets/environment/kenney-castle/tree-large.glb",
+      "assets/environment/kenney-castle/rocks-small.glb",
+      "assets/environment/kenney-castle/rocks-large.glb",
+      "assets/environment/kenney-castle/ground-hills.glb",
+      "assets/environment/kenney-castle/wall-narrow-wood-fence.glb",
+      "assets/environment/kenney-castle/siege-ballista.glb"
+    ],
+    "ui": [
+      "assets/ui/defenders/wizard.png",
+      "assets/ui/defenders/knight.png",
+      "assets/ui/defenders/green-archer.png",
+      "assets/ui/defenders/battlemage.png",
+      "assets/ui/defenders/sovereign.png"
+    ],
+    "fallbackAndAnimation": [
+      "assets/models/quaternius/runtime/Female_Ranger.gltf",
+      "assets/animations/quaternius/UAL1_Standard.glb"
+    ]
+  },
+  "developmentOnly": [
+    "assets/models/defenders/blue-wizard.glb",
+    "assets/models/defenders/holy-knight.glb",
+    "assets/models/defenders/green-archer.glb",
+    "assets/models/defenders/battlemage.glb",
+    "assets/models/defenders/sovereign.glb",
+    "assets/models/enemies/goblin.glb",
+    "assets/models/enemies/goblin-brute.glb",
+    "assets/models/enemies/goblin-rider.glb",
+    "assets/models/enemies/giant-goblin.glb",
+    "assets/models/enemies/ghoul.glb",
+    "assets/models/enemies/wraith.glb",
+    "assets/models/enemies/undead-dragon.glb",
+    "assets/models/enemies/skeleton-king.glb",
+    "assets/models/enemies/skeletal-commander.glb",
+    "assets/models/quaternius/Female_Ranger.gltf",
+    "assets/models/bestiary/Imp.glb",
+    "assets/models/bestiary/Puglin.glb",
+    "assets/models/animated-monsters/Bat.fbx",
+    "assets/models/animated-monsters/Dragon.fbx",
+    "assets/models/animated-monsters/Slime.fbx",
+    "assets/models/enemies/Male_Peasant.gltf"
+  ],
+  "sourceOnlyRoots": [
+    "assets/models/defenders/",
+    "assets/models/enemies/",
+    "assets/models/quaternius/",
+    "assets/models/bestiary/",
+    "assets/models/animated-monsters/",
+    "assets/environment/medieval/",
+    "assets/environment/nature/",
+    "assets/environment/nature-kit/",
+    "assets/environment/winter/",
+    "assets/ui/defenders/skeletal-commander.png"
+  ]
+}

@@ -661,14 +661,16 @@ try {
   assert.deepEqual(flyingEnemy.path, [flyingEnemy.path[0], flyingState.exit], "flying keeps a direct spawn-to-goal route over cliff terrain");
 
   }
-  assert.deepEqual([MAPS["single-spawn"].startingGold, MAPS["two-spawns"].startingGold, MAPS["three-spawns"].startingGold], [70, 110, 150]);
+  assert.deepEqual([MAPS["single-spawn"].startingGold, MAPS["two-spawns"].startingGold, MAPS["three-spawns"].startingGold], [100, 135, 150]);
   for (const [mapId, multiplier] of [["single-spawn", 1], ["two-spawns", 1.5], ["three-spawns", 2]]) {
     const special = new GameState(mapId);
     special.wavesStarted = 34;
     assert.equal(special.startWave(), true, `${mapId} keeps special Wave 35 startable`);
     assert.equal(special.enemiesRemaining, Math.round(20 * multiplier) + Math.round(4 * multiplier) + Math.round(multiplier),
       `${mapId} scales each type in the flying/commander special wave`);
+    special.gold = 1;
     special.resetGame("try-again");
+    assert.equal(special.gold, MAPS[mapId].startingGold, `${mapId} restart restores that map's configured starting gold`);
     special.wavesStarted = 49;
     assert.equal(special.startWave(), true, `${mapId} keeps boss Wave 50 startable`);
     assert.equal(special.enemiesRemaining, Math.round(multiplier), `${mapId} scales the boss-wave count without changing boss type`);
@@ -1052,7 +1054,9 @@ try {
       assert.ok(buildCell, `should find a build cell for ${type}`);
       assert.equal(sellState.placeBasicTower(buildCell, type), "placed");
       for (let level = 1; level < sellCase.level; level += 1) {
-        assert.equal(sellState.upgradeBasicTower(sellState.towers[0].id), "upgraded");
+        const nextLevel = sellState.towers[0].level + 1;
+        const specialization = nextLevel === 3 ? (type === "blue-wizard" ? "stormcaller" : "royal-champion") : undefined;
+        assert.equal(sellState.upgradeBasicTower(sellState.towers[0].id, specialization), "upgraded");
       }
       const tower = sellState.towers[0];
       tower.combatStats.kills = 8;

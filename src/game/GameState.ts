@@ -1,9 +1,9 @@
 import { Cell, cellKey, sameCell } from "../core/types";
 import { WORLD_UNITS_PER_CELL } from "../core/GameConstants";
-import { Enemy, createEnemy, getEnemyHpForWave, getEnemyHpMultiplier, getEnemyHpTier } from "./enemies/Enemy";
+import { Enemy, applyArcherMark, createEnemy, getEnemyHpForWave, getEnemyHpMultiplier, getEnemyHpTier, updateEnemySpecialStatuses } from "./enemies/Enemy";
 import { Grid } from "./grid/Grid";
 import { findPath, findPathThrough } from "./pathfinding/Pathfinder";
-import { Tower, TowerAttackMode, canTowerTargetEnemy, createBasicTower, getTowerAttackProfile, getTowerLevelStats, getTowerSellRefund, getTowerSplashRatio, isTowerInRange, upgradeTower } from "./towers/Tower";
+import { Tower, TowerAttackMode, canTowerTargetEnemy, createBasicTower, getTowerAttackProfile, getTowerDamageType, getTowerLevelStats, getTowerSellRefund, getTowerSplashRadiusMultiplier, getTowerSplashRatio, isTowerInRange, isTowerAdjacent8, upgradeTower } from "./towers/Tower";
 import { DEFENDER_CONFIG, DefenderType } from "./config/DefenderConfig";
 import { LEVEL_1 } from "./config/Level1";
 import { BALANCE } from "./config/BalanceConfig";
@@ -12,9 +12,14 @@ import { MAPS, MapDefinition, MapId } from "./config/MapConfig";
 import { FactionDefinition, getFaction } from "./config/FactionConfig";
 import { ENEMY_CONFIG, EnemyType } from "./config/EnemyConfig";
 import { ENEMY_THREAT_WEIGHT, MAX_ACTIVE_WAVE_ENEMIES, countWaveComposition, createWaveSpawnQueue, getWaveComposition, getWaveGoldReward } from "./config/WaveConfig";
+import { SPECIALIZATIONS_BY_DEFENDER, TOWER_SPECIALIZATIONS } from "./config/SpecializationConfig";
+import type { TowerSpecializationId } from "./config/SpecializationConfig";
+import { FORMATION_BY_ID, resolveFormation } from "./config/FormationConfig";
+import { EnemyAffixSystem, applyEnemySlow, getCommanderAuraMultiplier, getEnemyDamageMultiplier, getEnemySpeedMultiplier, updateEnemyAffixes, createRunSeed } from "./enemies/EnemyAffixSystem";
+import type { AffixMilestoneWarning, DamageType } from "./config/EnemyAffixConfig";
 
 export type PlacementResult = "placed" | "not-enough-gold" | "invalid-cell" | "enemy-occupied" | "blocks-path" | "game-over";
-export type UpgradeResult = "upgraded" | "not-enough-gold" | "max-level" | "game-over" | "tower-not-found";
+export type UpgradeResult = "upgraded" | "specialization-required" | "invalid-specialization" | "not-enough-gold" | "max-level" | "game-over" | "tower-not-found";
 export type SellResult = { refund: number } | "game-over" | "tower-not-found";
 export type ResetReason = "try-again";
 export interface HPTierWarning {
@@ -33,6 +38,11 @@ export interface TowerAttackEvent {
   enemyDied: boolean;
   attackMode: TowerAttackMode;
   isSplash: boolean;
+  effectKind: "primary" | "splash" | "chain" | "cleave";
+  specializationId?: TowerSpecializationId;
+  damageType: DamageType;
+  sourceX: number;
+  sourceY: number;
 }
 export interface WaveTelemetry {
   wave: number;
@@ -73,6 +83,8 @@ export class GameState {
   currentWave = 1;
   autoRun = false;
   hpTierWarning?: HPTierWarning;
+  affixWarning?: AffixMilestoneWarning;
+  readonly affixSystem: EnemyAffixSystem;
   gameOver = false;
   private nextTowerId = 1;
   private nextEnemyId = 1;
@@ -93,13 +105,15 @@ export class GameState {
   private enemiesLeaked = 0;
   private resetCount = 0;
   private hpTierWarningSecondsRemaining = 0;
+  private affixWarningSecondsRemaining = 0;
 
-  constructor(map: MapDefinition | MapId = "single-spawn", factionId: FactionDefinition["id"] = "arcane-kingdom") {
+  constructor(map: MapDefinition | MapId = "single-spawn", factionId: FactionDefinition["id"] = "arcane-kingdom", affixSeed = createRunSeed()) {
     this.map = typeof map === "string" ? MAPS[map] : map;
     this.faction = getFaction(factionId);
     this.factionId = this.faction.id;
     this.availableUnits = this.faction.units;
     this.grid = new Grid(this.map.width, this.map.height);
+    this.affixSystem = new EnemyAffixSystem(affixSeed);
     [
       ...this.map.terrain,
       ...this.map.layout.activeSpawns.map((spawn) => spawn.gateCell),
@@ -127,16 +141,22 @@ export class GameState {
     return pathExists ? "placed" : "blocks-path";
   }
 
-  upgradeBasicTower(towerId: number): UpgradeResult {
+  upgradeBasicTower(towerId: number, specializationId?: TowerSpecializationId): UpgradeResult {
     if (this.gameOver) return "game-over";
     const tower = this.towers.find((candidate) => candidate.id === towerId);
     if (!tower) return "tower-not-found";
     const next = getTowerLevelStats(tower.level + 1, tower.type);
     if (next.level === tower.level) return "max-level";
     if (next.level !== tower.level + 1 || next.upgradeCost === null) return "max-level";
+    const choices = SPECIALIZATIONS_BY_DEFENDER[tower.type];
+    if (next.level === 3 && choices) {
+      if (!specializationId) return "specialization-required";
+      if (!choices.includes(specializationId) || TOWER_SPECIALIZATIONS[specializationId].defenderType !== tower.type) return "invalid-specialization";
+    }
     if (this.gold < next.upgradeCost) return "not-enough-gold";
     this.gold -= next.upgradeCost;
-    upgradeTower(tower);
+    upgradeTower(tower, specializationId);
+    this.refreshFormations();
     return "upgraded";
   }
 
@@ -148,6 +168,7 @@ export class GameState {
     const refund = getTowerSellRefund(tower);
     this.gold += refund;
     this.grid.setBlocked(tower.cell, false);
+    this.refreshFormations();
     this.refreshSpawnPaths();
     if (this.waveActive) {
       this.wavePath = this.path.map((cell) => ({ ...cell }));
@@ -171,14 +192,17 @@ export class GameState {
       this.repathActiveEnemies();
     }
     this.towers.push(createBasicTower(this.nextTowerId++, cell, type));
+    this.refreshFormations();
     return "placed";
   }
 
   startWave(): boolean {
-    if (this.waveActive || this.lives <= 0 || this.gameOver || this.path.length === 0 || this.hpTierWarning) return false;
+    if (this.waveActive || this.lives <= 0 || this.gameOver || this.path.length === 0 || this.hpTierWarning || this.affixWarning) return false;
     this.currentWave = this.wavesStarted + 1;
     this.wavesStarted += 1;
     this.waveActive = true;
+    this.affixWarning = this.affixSystem.rollMilestone(this.currentWave);
+    this.affixWarningSecondsRemaining = this.affixWarning ? 5 : 0;
     const baseComposition = getWaveComposition(this.currentWave);
     const composition = {
       ...baseComposition,
@@ -265,6 +289,9 @@ export class GameState {
     this.autoRun = false;
     this.hpTierWarning = undefined;
     this.hpTierWarningSecondsRemaining = 0;
+    this.affixWarning = undefined;
+    this.affixWarningSecondsRemaining = 0;
+    this.affixSystem.reset();
     this.gameOver = false;
     this.nextTowerId = 1;
     this.nextEnemyId = 1;
@@ -298,13 +325,17 @@ export class GameState {
         if (this.autoRun && !this.gameOver) this.startWave();
       }
     }
+    if (this.affixWarning) {
+      this.affixWarningSecondsRemaining = Math.max(0, this.affixWarningSecondsRemaining - realDeltaSeconds);
+      if (this.affixWarningSecondsRemaining === 0) this.affixWarning = undefined;
+    }
     if (!this.waveActive) {
       return;
     }
     this.attackEvents.length = 0;
-    this.spawnTimer -= deltaSeconds;
+    if (!this.affixWarning) this.spawnTimer -= deltaSeconds;
     const activeEnemyCap = MAX_ACTIVE_WAVE_ENEMIES * this.layout.activeSpawns.length;
-    if (this.toSpawn > 0 && this.spawnTimer <= 0 && this.enemies.length < activeEnemyCap) {
+    if (!this.affixWarning && this.toSpawn > 0 && this.spawnTimer <= 0 && this.enemies.length < activeEnemyCap) {
       let spawnedThisTick = 0;
       const spawnCount = this.layout.activeSpawns.length;
       for (let offset = 0; offset < spawnCount; offset += 1) {
@@ -324,6 +355,7 @@ export class GameState {
           ? [{ ...spawn.entryCell }, { ...this.exit }]
           : groundRoute!;
         const enemy = createEnemy(this.nextEnemyId++, type, route, this.currentWave);
+        this.affixSystem.assign(enemy, this.currentWave);
         this.enemies.push(enemy);
         this.toSpawn -= 1;
         spawnedThisTick += 1;
@@ -335,7 +367,9 @@ export class GameState {
     }
     const survivors: Enemy[] = [];
     for (const enemy of this.enemies) {
-      this.moveEnemy(enemy, deltaSeconds);
+      updateEnemyAffixes(enemy, deltaSeconds);
+      updateEnemySpecialStatuses(enemy, deltaSeconds);
+      this.moveEnemy(enemy, deltaSeconds, getCommanderAuraMultiplier(enemy, this.enemies) * getEnemySpeedMultiplier(enemy));
     }
     this.updateTowers(deltaSeconds);
     for (const enemy of this.enemies) {
@@ -364,8 +398,8 @@ export class GameState {
   }
 
   /** Moves along the current route using only delta time and grid coordinates. */
-  private moveEnemy(enemy: Enemy, deltaSeconds: number): void {
-    let distanceLeft = enemy.speed * deltaSeconds;
+  private moveEnemy(enemy: Enemy, deltaSeconds: number, speedMultiplier = 1): void {
+    let distanceLeft = enemy.speed * speedMultiplier * deltaSeconds;
     while (distanceLeft > 0 && enemy.alive) {
       const nextIndex = enemy.currentPathIndex + 1;
       if (nextIndex >= enemy.path.length) {
@@ -401,33 +435,68 @@ export class GameState {
       const profile = getTowerAttackProfile(tower, target);
       const primaryDamage = profile.damage;
       tower.cooldownRemaining = 1 / profile.fireRate;
-      this.applyTowerDamage(tower, target, primaryDamage, profile.mode, false);
+      const primaryDamageType = getTowerDamageType(tower, profile.mode);
+      this.applyTowerDamage(tower, target, primaryDamage, profile.mode, false, "primary", primaryDamageType, tower.cell.x, tower.cell.y);
 
-      const splashRatio = getTowerSplashRatio(tower);
+      const specialization = tower.specializationId ? TOWER_SPECIALIZATIONS[tower.specializationId] : undefined;
+      if (specialization?.slow) applyEnemySlow(target, specialization.slow.multiplier, specialization.slow.durationSeconds);
+      if (specialization?.mark && target.alive) applyArcherMark(target, specialization.mark.durationSeconds);
+      const chain = specialization?.chain;
+      const chainTriggered = chain !== undefined
+        && (!chain.everyNthAttack || (tower.specializationAttackCounter + 1) % chain.everyNthAttack === 0);
+      if (chain?.everyNthAttack) tower.specializationAttackCounter += 1;
+      if (chain && chainTriggered) {
+        let previous = target;
+        const hitIds = new Set([target.id]);
+        for (let index = 0; index < chain.targetCount; index += 1) {
+          const candidate = this.findChainTarget(tower, previous, hitIds, chain.rangeCells);
+          if (!candidate) break;
+          hitIds.add(candidate.id);
+          const sourceX = previous.x, sourceY = previous.y;
+          const chainedProfile = getTowerAttackProfile(tower, candidate);
+          const chainDamage = Math.round(chainedProfile.damage * chain.damageRatios[index]);
+          this.applyTowerDamage(tower, candidate, chainDamage, chainedProfile.mode, false, "chain", getTowerDamageType(tower, chainedProfile.mode), sourceX, sourceY);
+          previous = candidate;
+        }
+        continue;
+      }
+
+      const splashRatio = getTowerSplashRatio(tower, profile.mode);
       if (splashRatio <= 0) continue;
       const splashDamage = Math.round(primaryDamage * splashRatio);
       if (splashDamage <= 0) continue;
       const targetCellX = Math.round(target.x);
       const targetCellY = Math.round(target.y);
       // Snapshot the candidates so each secondary is damaged once and never re-targeted recursively.
+      const isCleave = tower.specializationId === "dawn-paladin";
+      const radiusCells = 1.5 * getTowerSplashRadiusMultiplier(tower);
       const secondaryTargets = this.enemies.filter((enemy) => enemy !== target && enemy.alive && enemy.hp > 0
-        && Math.max(Math.abs(Math.round(enemy.x) - targetCellX), Math.abs(Math.round(enemy.y) - targetCellY)) === 1);
-      for (const secondary of secondaryTargets) {
-        this.applyTowerDamage(tower, secondary, splashDamage, "ranged", true);
+        && canTowerTargetEnemy(tower, enemy)
+        && Math.hypot(enemy.x - target.x, enemy.y - target.y) <= radiusCells
+        && (!isCleave || isTowerAdjacent8(tower, enemy)))
+        .sort((a, b) => Math.hypot(a.x - target.x, a.y - target.y) - Math.hypot(b.x - target.x, b.y - target.y));
+      const selectedSecondaries = isCleave ? secondaryTargets.slice(0, 2) : secondaryTargets;
+      for (const secondary of selectedSecondaries) {
+        this.applyTowerDamage(tower, secondary, splashDamage, profile.mode, true, isCleave ? "cleave" : "splash", primaryDamageType, target.x, target.y);
       }
     }
   }
 
-  private applyTowerDamage(tower: Tower, enemy: Enemy, damage: number, attackMode: TowerAttackMode, isSplash: boolean): void {
+  private applyTowerDamage(tower: Tower, enemy: Enemy, damage: number, attackMode: TowerAttackMode, isSplash: boolean, effectKind: TowerAttackEvent["effectKind"], damageType: DamageType, sourceX: number, sourceY: number): void {
+    const resistedDamage = Math.max(0, Math.round(damage * getEnemyDamageMultiplier(enemy, damageType)));
+    const shieldDamage = Math.min(enemy.shield, resistedDamage);
+    enemy.shield -= shieldDamage;
+    const remainingDamage = resistedDamage - shieldDamage;
     const hpBefore = enemy.hp;
-    enemy.hp = Math.max(0, hpBefore - damage);
-    const effectiveDamage = hpBefore - enemy.hp;
+    enemy.hp = Math.max(0, hpBefore - remainingDamage);
+    const effectiveDamage = shieldDamage + hpBefore - enemy.hp;
+    enemy.regenDelayRemaining = 1;
     tower.combatStats.damageDone += effectiveDamage;
     const enemyDied = hpBefore > 0 && enemy.hp <= 0;
     this.attackEvents.push({
       towerId: tower.id, defenderType: tower.type, towerCell: { ...tower.cell },
       targetEnemyId: enemy.id, targetX: enemy.x, targetY: enemy.y,
-      damageDealt: effectiveDamage, enemyDied, attackMode, isSplash,
+      damageDealt: effectiveDamage, enemyDied, attackMode, isSplash, effectKind, specializationId: tower.specializationId, damageType, sourceX, sourceY,
     });
     if (!enemyDied) return;
     tower.combatStats.kills += 1;
@@ -436,13 +505,16 @@ export class GameState {
     this.enemiesKilled += 1;
   }
 
-  private findTowerTarget(tower: Tower): Enemy | undefined {
-    const inRange = this.enemies.filter((enemy) => enemy.alive && enemy.hp > 0
+  private findTowerTarget(tower: Tower, excludeIds: ReadonlySet<number> = new Set(), from?: { x: number; y: number }, maxDistance?: number): Enemy | undefined {
+    const inRange = this.enemies.filter((enemy) => enemy.alive && enemy.hp > 0 && !excludeIds.has(enemy.id)
       && canTowerTargetEnemy(tower, enemy) && isTowerInRange(tower, enemy));
-    return inRange.sort((a, b) => {
+    const candidates = from && maxDistance !== undefined
+      ? inRange.filter((enemy) => Math.hypot(enemy.x - from.x, enemy.y - from.y) <= maxDistance)
+      : inRange;
+    return candidates.sort((a, b) => {
       // Archers are the dedicated anti-air tower: prefer flying targets
       // whenever one is available in range.
-      if (tower.type === "green-archer" && a.movementType !== b.movementType) {
+      if (tower.type === "green-archer" && tower.specializationId !== "ranger" && a.movementType !== b.movementType) {
         return a.movementType === "flying" ? -1 : 1;
       }
       const remainingDifference = this.remainingDistanceToExit(a) - this.remainingDistanceToExit(b);
@@ -451,6 +523,14 @@ export class GameState {
       const hpDifference = a.hp - b.hp;
       return hpDifference !== 0 ? hpDifference : this.distanceToTower(tower, a) - this.distanceToTower(tower, b);
     })[0];
+  }
+
+  private findChainTarget(tower: Tower, previous: Enemy, hitIds: ReadonlySet<number>, rangeCells: number): Enemy | undefined {
+    return this.findTowerTarget(tower, hitIds, previous, rangeCells);
+  }
+
+  private refreshFormations(): void {
+    for (const tower of this.towers) tower.formationId = resolveFormation(tower, this.towers)?.id;
   }
 
   private distanceToTower(tower: Tower, enemy: Enemy): number {

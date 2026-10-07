@@ -1,12 +1,20 @@
 import {
   AbstractMesh, ArcRotateCamera, Color3, Color4, DirectionalLight, DynamicTexture, Engine, HemisphericLight, Matrix, Mesh, MeshBuilder,
-  PointLight, Scene, ShadowGenerator, StandardMaterial, TransformNode, Vector3,
+  PBRMaterial, PointLight, Scene, ShadowGenerator, StandardMaterial, Texture, TransformNode, Vector3, VertexBuffer,
 } from "@babylonjs/core";
 import { MAPS, MapDefinition } from "../config/MapConfig";
+import { resolveAssetUrl } from "../../core/AssetUrl";
 import { gridToWorld3D, TILE_SIZE_3D, worldToGrid3D } from "./Grid3D";
 import { WORLD_UNITS_PER_CELL } from "../../core/GameConstants";
 import type { DefenderType } from "../config/DefenderConfig";
 import type { EnemyType } from "../config/EnemyConfig";
+import { AFFIXES } from "../config/EnemyAffixConfig";
+import type { EnemyAffixId } from "../config/EnemyAffixConfig";
+import { getSpecialization, TOWER_SPECIALIZATIONS } from "../config/SpecializationConfig";
+import type { TowerSpecializationId } from "../config/SpecializationConfig";
+import { FORMATIONS } from "../config/FormationConfig";
+import { getWaveComposition } from "../config/WaveConfig";
+import type { FormationId } from "../config/FormationConfig";
 import { GameState } from "../GameState";
 import { EnemyMeshFactory, GoblinVisual } from "./EnemyMeshFactory";
 import { Tower } from "../towers/Tower";
@@ -18,11 +26,13 @@ import { HolyKnightFactory, HolyKnightVisual } from "./HolyKnightFactory";
 import { QuaterniusEnemyFactory, QuaterniusEnemyVisual } from "./QuaterniusEnemyFactory";
 import { QuaterniusDefenderFactory, QuaterniusDefenderVisual } from "./QuaterniusDefenderFactory";
 import { ENEMY_VISUAL_CONFIG } from "./EnemyVisualConfig";
+import { DEFENDER_VISUAL_CONFIG } from "./DefenderVisualConfig";
+import { getCommanderAuraMultiplier, getEnemySpeedMultiplier } from "../enemies/EnemyAffixSystem";
 import { EnvironmentAssetLibrary } from "./EnvironmentAssetLibrary";
 import { VISUAL_CONFIG } from "./VisualConfig";
 import { EnvironmentTheme, themeForRun } from "./EnvironmentThemes";
 import { WinterArenaArt } from "./WinterArenaArt";
-import { TerrainCliffRenderer } from "./TerrainCliffRenderer";
+import { TERRAIN_PLATEAU_HEIGHT, TerrainCliffRenderer } from "./TerrainCliffRenderer";
 import { GameSpeedMultiplier, SimulationClock } from "../SimulationClock";
 import type { MinimapCameraView } from "../minimap/MinimapRenderer";
 import { groundPointToLogicalMap } from "../minimap/MinimapCoordinates";
@@ -55,6 +65,46 @@ function createPresentationSeed(): number {
   return Number.isFinite(debugSeed) ? debugSeed : Math.floor(Math.random() * 0x7fffffff);
 }
 
+/** Merges the exact blocked-cell lattice into contiguous elevated top-grid segments. */
+function mergeTerrainGridLines(cells: readonly { x: number; y: number }[], height: number): Vector3[][] {
+  const horizontal = new Map<number, Set<number>>();
+  const vertical = new Map<number, Set<number>>();
+  const add = (lines: Map<number, Set<number>>, fixed: number, start: number) => {
+    const segments = lines.get(fixed) ?? new Set<number>();
+    segments.add(start);
+    lines.set(fixed, segments);
+  };
+  for (const cell of cells) {
+    add(horizontal, cell.y, cell.x);
+    add(horizontal, cell.y + 1, cell.x);
+    add(vertical, cell.x, cell.y);
+    add(vertical, cell.x + 1, cell.y);
+  }
+
+  const result: Vector3[][] = [];
+  const merge = (lines: Map<number, Set<number>>, isHorizontal: boolean) => {
+    for (const [fixed, segments] of lines) {
+      const starts = [...segments].sort((a, b) => a - b);
+      let from = starts[0];
+      let previous = from;
+      const emit = (start: number, end: number) => {
+        result.push(isHorizontal
+          ? [new Vector3(start, height, fixed), new Vector3(end + 1, height, fixed)]
+          : [new Vector3(fixed, height, start), new Vector3(fixed, height, end + 1)]);
+      };
+      for (let index = 1; index < starts.length; index += 1) {
+        const current = starts[index];
+        if (current === previous + 1) previous = current;
+        else { emit(from, previous); from = previous = current; }
+      }
+      if (starts.length > 0) emit(from, previous);
+    }
+  };
+  merge(horizontal, true);
+  merge(vertical, false);
+  return result;
+}
+
 export class BabylonGameRenderer {
   private static readonly CAMERA_OUTSKIRTS_MARGIN = 1.5;
   private static readonly CAMERA_MIN_HEIGHT = 8.5;
@@ -64,7 +114,8 @@ export class BabylonGameRenderer {
   private readonly camera: ArcRotateCamera;
   private readonly highlight;
   private readonly arenaArt: WinterArenaArt;
-  private gridLines?: LinesMesh;
+  private readonly gridLayers: Array<{ mesh: LinesMesh; vertexColors: number[] }> = [];
+  private gridOpacity: number = VISUAL_CONFIG.gridAlpha;
   private isBuildModeVisual = false;
   private buildVisualUntil = 0;
   private readonly highlightOutline;
@@ -86,18 +137,40 @@ export class BabylonGameRenderer {
   private readonly holyKnightFactory: HolyKnightFactory;
   private readonly quaterniusDefenderFactory: QuaterniusDefenderFactory;
   private readonly enemyVisuals = new Map<number, EnemyVisual>();
+  /** Visual-only corpses; they never exist in GameState and are tightly capped. */
+  private readonly enemyDeathVisuals = new Map<number, EnemyVisual>();
+  private readonly maxEnemyDeathVisuals = 12;
+  private readonly activeEnemyIds = new Set<number>();
   private readonly enemyVisualDebug = new URLSearchParams(window.location.search).get("enemyVisualDebug") === "1";
+  private readonly enemyAnimationDebug = new URLSearchParams(window.location.search).get("enemyAnimationDebug") === "1";
   private readonly enemyGroundDebug = new URLSearchParams(window.location.search).get("enemyGroundDebug") === "1";
   private readonly enemyVisualDebugReportedTypes = new Set<EnemyType>();
   private readonly enemyVisualDebugLabels = new Map<number, Mesh>();
   private readonly enemyVisualDebugMaterials = new Map<string, StandardMaterial>();
   private enemyGroundDebugMaterial?: StandardMaterial;
   private readonly towerVisuals = new Map<number, TowerVisual>();
+  private readonly activeTowerIds = new Set<number>();
+  private readonly formationVisuals = new Map<number, { id: FormationId; meshes: AbstractMesh[] }>();
+  private readonly activeFormationIds = new Set<number>();
+  private readonly formationMaterials = new Map<FormationId, StandardMaterial>();
+  private readonly specializationVisuals = new Map<number, { id: TowerSpecializationId; mesh: AbstractMesh }>();
+  private readonly activeSpecializationIds = new Set<number>();
+  private readonly specializationMaterials = new Map<TowerSpecializationId, StandardMaterial>();
+  private readonly affixMaterials = new Map<EnemyAffixId, StandardMaterial>();
+  private readonly shieldBackMaterial: StandardMaterial;
+  private readonly shieldFillMaterial: StandardMaterial;
+  private readonly enemyAffixVisuals = new Map<number, { signature: string; icons: Mesh[] }>();
+  private readonly enemyShieldBars = new Map<number, { back: Mesh; fill: Mesh }>();
+  private readonly enemySlowIndicators = new Map<number, Mesh>();
+  private readonly enemySlowMaterial: StandardMaterial;
   private readonly combatEffects: CombatEffects3D;
   private readonly simulationClock = new SimulationClock();
   private readonly environmentAssets: EnvironmentAssetLibrary;
   private readonly inputAbortController = new AbortController();
   private readonly pendingInitialization: Promise<void>[] = [];
+  private readonly requestedEnemyVisualTypes = new Set<EnemyType>();
+  private lastEnemyPreloadWave = 0;
+  private readonly pendingEnemyPreloads = new Set<Promise<void>>();
   private readonly sky: HemisphericLight;
   private readonly themeProps: TransformNode[] = [];
   private readonly presentationSeed = createPresentationSeed();
@@ -110,17 +183,19 @@ export class BabylonGameRenderer {
   private readonly disableHpBars = new URLSearchParams(window.location.search).get("disableHpBars") === "1";
   private readonly disableEnvironmentProps = new URLSearchParams(window.location.search).get("disableEnvironmentProps") === "1";
   private readonly perfDebug = new URLSearchParams(window.location.search).get("perfDebug") === "1";
+  private readonly terrainArtDebug = new URLSearchParams(window.location.search).get("terrainArtDebug") === "1";
   // Dynamic skinned shadows are opt-in. They were disproportionately expensive
   // compared with their small visual contribution on mobile.
   private readonly enemyShadowsEnabled = new URLSearchParams(window.location.search).get("enemyShadows") === "1"
     && !this.disableEnemyShadows;
   private readonly waveDebug = new URLSearchParams(window.location.search).get("waveDebug") === "1";
   private currentTheme: EnvironmentTheme;
+  private defenderAssetsReady = false;
   private themeRunOrdinal = 0;
   private environmentReady = false;
   private wasGameOver = false;
   private firstEnemyCameraLogged = false;
-  private playableGroundMaterial?: StandardMaterial;
+  private playableGroundMaterial?: PBRMaterial;
   private outskirtsGroundMaterial?: StandardMaterial;
   private spawnAccentMaterial?: StandardMaterial;
   private exitAccentMaterial?: StandardMaterial;
@@ -130,7 +205,7 @@ export class BabylonGameRenderer {
   private exitLight?: PointLight;
   private gameState?: GameState;
   private selectedTowerId?: number;
-  private buildDefenderType: DefenderType = "blue-wizard";
+  private buildDefenderType: DefenderType | undefined;
   private onTowerSelectionChange?: (towerId?: number) => void;
   private lastFrameTime = performance.now();
   private lastValidCameraState: CameraState;
@@ -148,7 +223,10 @@ export class BabylonGameRenderer {
   private readonly cameraDebug = new URLSearchParams(window.location.search).get("cameraDebug") === "1";
   private lastCameraGestureAt = 0;
   private lastPreviewCellKey = "";
-  private readonly frameTimeSamples: number[] = [];
+  private readonly frameTimeSamples = new Float32Array(120);
+  private frameTimeSampleCount = 0;
+  private frameTimeSampleCursor = 0;
+  private frameTimeSampleSum = 0;
   private perfOverlay?: HTMLPreElement;
   private lastPerfOverlayAt = 0;
   private lastEnemyStatsAt = 0;
@@ -156,6 +234,7 @@ export class BabylonGameRenderer {
   private previousWaveActive = false;
   private simulationTimeSeconds = 0;
   private disposed = false;
+  private hasRenderedFirstFrame = false;
 
   constructor(private readonly canvas: HTMLCanvasElement, map: MapDefinition = MAPS["single-spawn"]) {
     this.map = map;
@@ -171,8 +250,10 @@ export class BabylonGameRenderer {
     // Do not attach Babylon's ArcRotate controls: its defaults orbit/pan unpredictably across pointer types.
     this.camera.computeWorldMatrix();
     this.lastValidCameraState = this.captureCameraState();
-    this.sky = new HemisphericLight("sky", new Vector3(0, 1, 0), this.scene); this.sky.intensity = VISUAL_CONFIG.ambientIntensity; this.sky.groundColor = new Color3(0.11, 0.15, 0.2);
-    const sun = new DirectionalLight("sun", new Vector3(-0.5, -1, 0.35), this.scene); sun.position = new Vector3(15, 30, -10); sun.intensity = VISUAL_CONFIG.directionalIntensity;
+    this.sky = new HemisphericLight("sky", new Vector3(0, 1, 0), this.scene); this.sky.intensity = VISUAL_CONFIG.royalAmbientIntensity; this.sky.groundColor = VISUAL_CONFIG.royalShadowColor;
+    const sun = new DirectionalLight("sun", new Vector3(-0.5, -1, 0.35), this.scene); sun.position = new Vector3(15, 30, -10);
+    sun.intensity = VISUAL_CONFIG.royalDirectionalIntensity;
+    sun.diffuse.copyFrom(VISUAL_CONFIG.royalSunColor);
     this.shadowGenerator = new ShadowGenerator(1024, sun); this.shadowGenerator.useBlurExponentialShadowMap = true;
     this.enemyFactory = new EnemyMeshFactory(this.scene, this.shadowGenerator, this.enemyShadowsEnabled);
     this.quaterniusEnemyFactory = new QuaterniusEnemyFactory(this.scene, this.shadowGenerator, this.enemyShadowsEnabled);
@@ -182,49 +263,79 @@ export class BabylonGameRenderer {
     this.holyKnightFactory = new HolyKnightFactory(this.scene, this.shadowGenerator);
     this.quaterniusDefenderFactory = new QuaterniusDefenderFactory(this.scene, this.shadowGenerator);
     this.combatEffects = new CombatEffects3D(this.scene);
+    for (const formation of FORMATIONS) {
+      const material = new StandardMaterial(`formation-${formation.id}`, this.scene);
+      const color = Color3.FromHexString(formation.visualColor);
+      material.diffuseColor = color;
+      material.emissiveColor = color.scale(0.48);
+      material.alpha = 0.64; material.disableLighting = true;
+      this.formationMaterials.set(formation.id, material);
+    }
+    for (const [id, config] of Object.entries(TOWER_SPECIALIZATIONS) as [TowerSpecializationId, typeof TOWER_SPECIALIZATIONS[TowerSpecializationId]][]) {
+      const color = Color3.FromHexString(config.visualColor);
+      const material = new StandardMaterial(`specialization-${id}`, this.scene);
+      material.diffuseColor = color; material.emissiveColor = color.scale(0.7); material.alpha = 0.75; material.disableLighting = true;
+      this.specializationMaterials.set(id, material);
+    }
+    for (const [id, config] of Object.entries(AFFIXES) as [EnemyAffixId, typeof AFFIXES[EnemyAffixId]][]) {
+      const color = Color3.FromHexString(config.color);
+      const texture = new DynamicTexture(`enemy-affix-icon-${id}`, { width: 64, height: 64 }, this.scene, true);
+      const context = texture.getContext() as unknown as CanvasRenderingContext2D;
+      context.clearRect(0, 0, 64, 64);
+      context.beginPath(); context.arc(32, 32, 29, 0, Math.PI * 2);
+      context.fillStyle = config.color; context.fill(); context.strokeStyle = "rgba(255,255,255,.9)"; context.lineWidth = 4; context.stroke();
+      context.fillStyle = "#101923"; context.font = "bold 24px Arial"; context.textAlign = "center"; context.textBaseline = "middle";
+      context.fillText(config.name.split(" ").map((part) => part[0]).join("").slice(0, 2), 32, 33);
+      texture.update(false);
+      const material = new StandardMaterial(`enemy-affix-material-${id}`, this.scene);
+      material.diffuseTexture = texture; material.opacityTexture = texture; material.emissiveColor = color.scale(0.35);
+      material.disableLighting = true; material.backFaceCulling = false;
+      this.affixMaterials.set(id, material);
+    }
+    this.enemySlowMaterial = new StandardMaterial("enemy-frost-slow-indicator", this.scene);
+    this.enemySlowMaterial.diffuseColor = Color3.FromHexString("#a9eaff");
+    this.enemySlowMaterial.emissiveColor = Color3.FromHexString("#64cfff");
+    this.enemySlowMaterial.alpha = 0.42; this.enemySlowMaterial.disableLighting = true;
+    this.shieldBackMaterial = new StandardMaterial("enemy-shield-bar-back", this.scene);
+    this.shieldBackMaterial.diffuseColor = Color3.FromHexString("#173149"); this.shieldBackMaterial.emissiveColor = Color3.FromHexString("#102c43");
+    this.shieldBackMaterial.disableLighting = true; this.shieldBackMaterial.alpha = 0.78;
+    this.shieldFillMaterial = new StandardMaterial("enemy-shield-bar-fill", this.scene);
+    this.shieldFillMaterial.diffuseColor = Color3.FromHexString("#74dcff"); this.shieldFillMaterial.emissiveColor = Color3.FromHexString("#329bff");
+    this.shieldFillMaterial.disableLighting = true;
     this.environmentAssets = new EnvironmentAssetLibrary(this.scene, this.shadowGenerator);
     this.arenaArt = new WinterArenaArt(this.scene, this.environmentAssets, this.shadowGenerator, this.map.width, this.map.height);
     this.applyThemeMaterials();
-    this.pendingInitialization.push(this.blueWizardFactory.load().then(() => {
-      if (!this.disposed) this.rebuildTowerVisuals();
-    }).catch((error: unknown) => {
+    const defenderAssetInitialization = Promise.all([
+      this.blueWizardFactory.load().catch((error: unknown) => {
+        if (this.disposed) return;
+        console.warn("Blue Wizard failed to load; loading the existing Quaternius archer fallback.", error);
+        return this.quaterniusFactory.load().catch((fallbackError: unknown) => {
+          if (!this.disposed) console.warn("Quaternius ranger fallback failed to load; using primitive archer.", fallbackError);
+        });
+      }),
+      this.holyKnightFactory.load().catch((error: unknown) => {
+        if (this.disposed) return;
+        console.warn("Holy Knight failed to load; loading the existing ranger fallback.", error);
+        return this.quaterniusFactory.load().catch((fallbackError: unknown) => {
+          if (!this.disposed) console.warn("Quaternius ranger fallback failed to load for Holy Knight.", fallbackError);
+        });
+      }),
+      this.quaterniusDefenderFactory.load().catch((error: unknown) => {
+        if (!this.disposed) console.warn("New defender GLB preload failed.", error);
+      }),
+    ]).then(() => {
       if (this.disposed) return;
-      console.warn("Blue Wizard failed to load; loading the existing Quaternius archer fallback.", error);
-      return this.quaterniusFactory.load().then(() => {
-        if (!this.disposed) this.rebuildTowerVisuals();
-      }).catch((fallbackError: unknown) => {
-        if (!this.disposed) console.warn("Quaternius ranger fallback failed to load; using primitive archer.", fallbackError);
-      });
-    }));
-    this.pendingInitialization.push(this.holyKnightFactory.load().then(() => {
-      if (!this.disposed) this.rebuildTowerVisuals();
-    }).catch((error: unknown) => {
-      if (this.disposed) return;
-      console.warn("Holy Knight failed to load; using the existing ranger fallback.", error);
-      return this.quaterniusFactory.load().then(() => {
-        if (!this.disposed) this.rebuildTowerVisuals();
-      }).catch((fallbackError: unknown) => {
-        if (!this.disposed) console.warn("Quaternius ranger fallback failed to load for Holy Knight.", fallbackError);
-      });
-    }));
-    this.pendingInitialization.push(this.quaterniusDefenderFactory.load().then(() => {
-      if (!this.disposed) this.rebuildTowerVisuals();
-    }).catch((error: unknown) => {
-      if (!this.disposed) console.warn("New defender GLBs failed to load; using existing presentation fallback.", error);
-    }));
-    this.pendingInitialization.push(this.quaterniusEnemyFactory.load().then(() => {
-      if (this.disposed) return;
-      for (const visual of this.enemyVisuals.values()) this.disposeEnemyVisual(visual);
-      this.enemyVisuals.clear();
-      for (const label of this.enemyVisualDebugLabels.values()) label.dispose();
-      this.enemyVisualDebugLabels.clear();
-      if (this.enemyVisualDebug) {
-        const debugWindow = window as Window & { __enemyVisualDebugLabels?: Record<number, string> };
-        debugWindow.__enemyVisualDebugLabels = {};
-      }
-    }).catch((error: unknown) => {
-      if (!this.disposed) console.warn("Quaternius enemy failed to load; using primitive goblin fallback.", error);
-    }));
+      this.defenderAssetsReady = true;
+      this.rebuildTowerVisuals();
+    });
+    this.pendingInitialization.push(defenderAssetInitialization);
+    // Diagnostic runs deliberately load the complete visual roster. A normal
+    // run starts with only Waves 1-5; later archetypes are requested ahead.
+    if (this.waveDebug || this.enemyVisualDebug) {
+      this.requestEnemyVisualTypes(Object.keys(ENEMY_VISUAL_CONFIG) as EnemyType[]);
+    } else {
+      this.preloadEnemyAssetsForWave(1);
+    }
     this.createGroundAndGrid();
     this.pendingInitialization.push(this.createArenaArt());
     this.highlight = MeshBuilder.CreateGround("selection", { width: 0.92, height: 0.92 }, this.scene);
@@ -331,24 +442,30 @@ export class BabylonGameRenderer {
     console.log("GameState bridge active");
     this.engine.runRenderLoop(() => {
       const now = performance.now();
-      const realDeltaSeconds = Math.min((now - this.lastFrameTime) / 1000, 0.1);
-      this.frameTimeSamples.push(realDeltaSeconds * 1000);
-      if (this.frameTimeSamples.length > 120) this.frameTimeSamples.shift();
-      const simulationDeltaSeconds = this.simulationClock.toSimulationDelta(realDeltaSeconds);
+      const realDeltaSeconds = Math.max(0, (now - this.lastFrameTime) / 1000);
+      this.recordFrameTime(realDeltaSeconds * 1000);
+      // Keep gameplay integration capped after a long frame, but pass true wall-clock
+      // time separately so UI/warning gates expire after their intended duration.
+      const simulationDeltaSeconds = this.simulationClock.toSimulationDelta(Math.min(realDeltaSeconds, 0.1));
       if (!this.simulationClock.isPaused) gameState.update(simulationDeltaSeconds, realDeltaSeconds);
       this.simulationTimeSeconds += simulationDeltaSeconds;
       this.lastFrameTime = now;
       this.sync(gameState, simulationDeltaSeconds, !this.simulationClock.isPaused);
-      this.updateBuildVisual(now, realDeltaSeconds);
+      this.updateBuildVisual(now, Math.min(realDeltaSeconds, 0.1));
       this.enforceCameraSafety();
       this.updateCameraDebugOverlay();
       onSync?.(gameState);
       this.scene.render();
+      if (!this.hasRenderedFirstFrame) {
+        this.hasRenderedFirstFrame = true;
+        performance.mark("tower-defence-first-battlefield-frame");
+      }
       this.updatePerformanceDebug(gameState, now);
     });
   }
 
   getGameSpeedMultiplier(): GameSpeedMultiplier { return this.simulationClock.speedMultiplier; }
+  get areDefenderAssetsReady(): boolean { return this.defenderAssetsReady; }
   isPaused(): boolean { return this.simulationClock.isPaused; }
   setPaused(paused: boolean): void { this.simulationClock.setPaused(paused); }
 
@@ -421,12 +538,14 @@ export class BabylonGameRenderer {
 
     // Let in-flight GLB/environment loads settle while the scene still exists,
     // then release their templates before destroying the WebGL engine.
-    await Promise.allSettled(this.pendingInitialization);
+    await Promise.allSettled([...this.pendingInitialization, ...this.pendingEnemyPreloads]);
     this.combatEffects.clear();
     for (const visual of this.towerVisuals.values()) this.disposeTowerVisual(visual);
     this.towerVisuals.clear();
     for (const visual of this.enemyVisuals.values()) this.disposeEnemyVisual(visual);
     this.enemyVisuals.clear();
+    for (const visual of this.enemyDeathVisuals.values()) this.disposeEnemyVisual(visual);
+    this.enemyDeathVisuals.clear();
     for (const label of this.enemyVisualDebugLabels.values()) label.dispose();
     this.enemyVisualDebugLabels.clear();
     this.environmentAssets.dispose();
@@ -442,8 +561,35 @@ export class BabylonGameRenderer {
     this.engine.dispose();
   }
 
-  setBuildDefenderType(type: DefenderType): void {
+  setBuildDefenderType(type: DefenderType | undefined): void {
     this.buildDefenderType = type;
+    if (type !== undefined) return;
+    this.highlight.isVisible = false;
+    this.highlightOutline.isVisible = false;
+    this.buildVisualUntil = 0;
+    this.lastPreviewCellKey = "";
+  }
+
+  /** Preloads only enemy visuals used now or in the next four scheduled waves. */
+  private preloadEnemyAssetsForWave(wave: number): void {
+    if (wave <= this.lastEnemyPreloadWave) return;
+    this.lastEnemyPreloadWave = wave;
+    const types = new Set<EnemyType>();
+    for (let upcomingWave = wave; upcomingWave < wave + 5; upcomingWave += 1) {
+      for (const entry of getWaveComposition(upcomingWave).entries) types.add(entry.type);
+    }
+    this.requestEnemyVisualTypes([...types]);
+  }
+
+  private requestEnemyVisualTypes(types: readonly EnemyType[]): void {
+    const missing = types.filter((type) => !this.requestedEnemyVisualTypes.has(type));
+    if (missing.length === 0) return;
+    for (const type of missing) this.requestedEnemyVisualTypes.add(type);
+    const pending = this.quaterniusEnemyFactory.load(missing).catch((error: unknown) => {
+      if (!this.disposed) console.warn("Enemy visual preload failed; primitive visuals will be used.", { types: missing, error });
+    });
+    this.pendingEnemyPreloads.add(pending);
+    void pending.then(() => this.pendingEnemyPreloads.delete(pending));
   }
 
   /** Keeps renderer and UI selection in sync for pointer input and explicit UI deselection. */
@@ -453,6 +599,8 @@ export class BabylonGameRenderer {
     if (this.selectedTowerId === undefined) {
       this.selectedTowerRing.isVisible = false;
       this.selectedTowerMarker.isVisible = false;
+    } else if (this.gameState) {
+      this.updateSelectedTowerIndicator(this.gameState);
     }
     this.onTowerSelectionChange?.(this.selectedTowerId);
   }
@@ -477,6 +625,55 @@ export class BabylonGameRenderer {
         z: this.selectedTowerMarker.position.z,
       },
     };
+  }
+
+  /** Small presentation audit hook used by the browser smoke test. */
+  getFormationVisualDebug(): Array<{ towerId: number; formationId: FormationId; markerCount: number; hasGroundRing: boolean }> {
+    return [...this.formationVisuals].map(([towerId, visual]) => ({
+      towerId,
+      formationId: visual.id,
+      markerCount: visual.meshes.length,
+      hasGroundRing: visual.meshes.some((mesh) => mesh.name.startsWith("formation-rune-")),
+    }));
+  }
+
+  getEnemyAnimationDebugState(): object {
+    const animated = (id: number, visual: EnemyVisual) => "animation" in visual && visual.animation ? {
+      id, type: visual.animation.enemyType, assetPath: visual.animation.assetPath,
+      state: visual.animation.currentState, clip: visual.animation.currentClipName,
+      speed: visual.animation.currentPlaybackSpeed,
+      effectiveGameplaySpeedCellsPerSecond: visual.animation.effectiveGameplaySpeedCellsPerSecond,
+      frame: visual.animation.currentFrame, isPlaying: visual.animation.isPlaying, loops: visual.animation.isLooping,
+      activeGroups: visual.animation.activeGroupCount,
+      rotationY: visual.root.rotation.y,
+      position: { x: visual.root.position.x, y: visual.root.position.y, z: visual.root.position.z },
+    } : undefined;
+    const enemyTypesById = new Map(this.gameState?.enemies.map((enemy) => [enemy.id, enemy.type]));
+    return {
+      active: [...this.enemyVisuals].map(([id, visual]) => animated(id, visual)).filter(Boolean),
+      dying: [...this.enemyDeathVisuals].map(([id, visual]) => animated(id, visual)).filter(Boolean),
+      activeVisuals: [...this.enemyVisuals].map(([id, visual]) => {
+        const type = enemyTypesById.get(id);
+        return {
+          id, type, assetPath: type ? this.quaterniusEnemyFactory.getLoadedAssetPath(type) : undefined,
+          animated: "animation" in visual && Boolean(visual.animation),
+        };
+      }),
+      skeletons: this.scene.skeletons.length,
+      animationGroups: this.scene.animationGroups.length,
+      activeAnimationGroups: this.scene.animationGroups.filter((group) => group.isStarted).length,
+      meshCount: this.scene.meshes.length,
+      affixIconCount: [...this.enemyAffixVisuals.values()].reduce((count, visual) => count + visual.icons.length, 0),
+      shieldBarCount: this.enemyShieldBars.size,
+      slowIndicatorCount: this.enemySlowIndicators.size,
+      fps: Math.round(this.engine.getFps()),
+      frameTimeMs: Number(this.averageFrameTimeMs().toFixed(2)),
+    };
+  }
+
+  /** Test-only, presentation-only death trigger available under ?enemyAnimationDebug=1. */
+  debugBeginEnemyDeathVisual(id: number): boolean {
+    return this.enemyAnimationDebug && this.beginEnemyDeathVisual(id);
   }
 
   /** Debug-only callers use this to drive precise touch-picking smoke tests. */
@@ -514,7 +711,7 @@ export class BabylonGameRenderer {
       gesture: this.inputGestureLabel,
       movementDistance: Number(this.inputMovementDistance.toFixed(1)),
       selectedCell: this.inputCellLabel,
-      buildMode: this.gameState?.waveActive ? `LOCKED · ${this.buildDefenderType}` : this.buildDefenderType,
+      buildMode: this.gameState?.waveActive ? `LOCKED · ${this.buildDefenderType ?? "SELECT"}` : this.buildDefenderType ?? "SELECT",
       lastAction: this.inputLastAction,
       cameraRadius: Number(this.camera.radius.toFixed(2)),
       cameraTarget: { x: Number(this.camera.target.x.toFixed(2)), z: Number(this.camera.target.z.toFixed(2)) },
@@ -543,12 +740,15 @@ export class BabylonGameRenderer {
     this.lastPreviewCellKey = "";
     this.buildVisualUntil = 0;
     this.wasGameOver = false;
+    for (const visual of this.enemyDeathVisuals.values()) this.disposeEnemyVisual(visual);
+    this.enemyDeathVisuals.clear();
     this.resetCameraView();
     void this.selectNextEnvironmentTheme();
   }
 
   /** Mirrors portable Enemy state into Babylon meshes without changing gameplay state. */
   sync(gameState: GameState, deltaSeconds = 0, processAttackEvents = true): void {
+    this.preloadEnemyAssetsForWave(gameState.currentWave);
     if (!gameState.waveActive && gameState.enemies.length === 0) this.firstEnemyCameraLogged = false;
     if (this.wasGameOver && !gameState.gameOver) {
       this.highlight.isVisible = false;
@@ -559,9 +759,13 @@ export class BabylonGameRenderer {
     }
     this.wasGameOver = gameState.gameOver;
     this.syncTowers(gameState);
+    this.syncFormationVisuals(gameState);
+    this.syncSpecializationVisuals(gameState);
     this.updateSelectedTowerRange(gameState);
     this.updateSelectedTowerIndicator(gameState);
-    const activeIds = new Set<number>();
+    if (processAttackEvents) this.beginEnemyDeathVisuals(gameState);
+    const activeIds = this.activeEnemyIds;
+    activeIds.clear();
     for (const enemy of gameState.enemies) {
       if (!enemy.alive) continue;
       activeIds.add(enemy.id);
@@ -569,7 +773,8 @@ export class BabylonGameRenderer {
       let visual = this.enemyVisuals.get(enemy.id);
       if (!visual) {
         const waitingForImportedEnemy = !this.quaterniusEnemyFactory.hasTemplate(enemy.type)
-          && !this.quaterniusEnemyFactory.isLoadCompleted;
+          && !this.quaterniusEnemyFactory.isTypeLoadCompleted(enemy.type);
+        if (waitingForImportedEnemy) this.requestEnemyVisualTypes([enemy.type]);
         // Do not disguise an in-flight model load as a permanent placeholder.
         // Once preload resolves, a real GLB is used or the failure is reported.
         if (waitingForImportedEnemy) continue;
@@ -605,18 +810,33 @@ export class BabylonGameRenderer {
           if (this.waveDebug) this.scene.onAfterRenderObservable.addOnce(() => this.dumpRuntimeMeshes());
         }
       }
-      this.updateEnemyVisual(visual, enemy);
+      const speedMultiplier = getEnemySpeedMultiplier(enemy) * getCommanderAuraMultiplier(enemy, gameState.enemies)
+        * this.simulationClock.speedMultiplier;
+      const effectiveGameplaySpeed = enemy.speed * speedMultiplier;
+      this.updateEnemyVisual(visual, enemy, speedMultiplier, effectiveGameplaySpeed);
+      if ("animation" in visual) visual.animation?.setPaused(this.simulationClock.isPaused);
+      this.syncEnemyAffixVisual(enemy.id, enemy, visual.root, visual.healthBack.position.y);
     }
     for (const [id, visual] of this.enemyVisuals) {
       if (activeIds.has(id)) continue;
       this.disposeEnemyVisual(visual);
       this.enemyVisuals.delete(id);
+      this.enemyAffixVisuals.delete(id);
+      this.enemyShieldBars.delete(id);
+      this.enemySlowIndicators.get(id)?.dispose(false, false);
+      this.enemySlowIndicators.delete(id);
       this.enemyVisualDebugLabels.get(id)?.dispose();
       this.enemyVisualDebugLabels.delete(id);
       if (this.enemyVisualDebug) {
         const debugWindow = window as Window & { __enemyVisualDebugLabels?: Record<number, string> };
         if (debugWindow.__enemyVisualDebugLabels) delete debugWindow.__enemyVisualDebugLabels[id];
       }
+    }
+    for (const [id, visual] of this.enemyDeathVisuals) {
+      if ("animation" in visual) visual.animation?.setPaused(this.simulationClock.isPaused);
+      if (!("animation" in visual) || !visual.animation?.isFinished) continue;
+      this.disposeEnemyVisual(visual);
+      this.enemyDeathVisuals.delete(id);
     }
     if (processAttackEvents) this.syncCombatEvents(gameState);
     this.combatEffects.update(deltaSeconds);
@@ -653,17 +873,25 @@ export class BabylonGameRenderer {
         trianglesByType[enemy.type] += (mesh.getTotalIndices() ?? 0) / 3;
       }
     }
-    const frameTimeMs = this.frameTimeSamples.length > 0
-      ? this.frameTimeSamples.reduce((sum, value) => sum + value, 0) / this.frameTimeSamples.length
-      : 0;
+    const frameTimeMs = this.averageFrameTimeMs();
+    const defenderTriangles: Partial<Record<DefenderType, number>> = {};
+    for (const tower of gameState.towers) {
+      const visual = this.towerVisuals.get(tower.id);
+      if (!visual) continue;
+      const triangles = visual.root.getChildMeshes().reduce((sum, mesh) => sum + (mesh.getTotalIndices() ?? 0) / 3, 0);
+      defenderTriangles[tower.type] = (defenderTriangles[tower.type] ?? 0) + triangles;
+    }
     const debugWindow = window as Window & { __enemySceneStats?: object };
     debugWindow.__enemySceneStats = {
       sceneMeshes: this.scene.meshes.length,
+      materials: this.scene.materials.length,
+      textures: this.scene.textures.length,
       enemyVisuals: this.enemyVisuals.size,
       visibleByType,
       modelMeshCount,
       trianglesByType,
       totalEnemyTriangles: Object.values(trianglesByType).reduce((sum, value) => sum + value, 0),
+      defenderTriangles,
       totalSceneTriangles: this.scene.meshes.reduce((sum, mesh) => sum + (mesh.getTotalIndices() ?? 0) / 3, 0),
       activeSceneMeshes: this.scene.getActiveMeshes().length,
       activeSceneTriangles: this.scene.getActiveIndices() / 3,
@@ -679,7 +907,8 @@ export class BabylonGameRenderer {
     if (this.selectedTowerId !== undefined && !gameState.towers.some((tower) => tower.id === this.selectedTowerId)) {
       this.selectTower(undefined);
     }
-    const activeIds = new Set<number>();
+    const activeIds = this.activeTowerIds;
+    activeIds.clear();
     for (const tower of gameState.towers) {
       activeIds.add(tower.id);
       const existing = this.towerVisuals.get(tower.id);
@@ -694,6 +923,111 @@ export class BabylonGameRenderer {
       if (activeIds.has(id)) continue;
       this.disposeTowerVisual(visual);
       this.towerVisuals.delete(id);
+    }
+  }
+
+  private syncFormationVisuals(gameState: GameState): void {
+    const activeIds = this.activeFormationIds;
+    activeIds.clear();
+    for (const tower of gameState.towers) {
+      const visual = this.towerVisuals.get(tower.id);
+      const existing = this.formationVisuals.get(tower.id);
+      if (!visual || !tower.formationId) {
+      existing?.meshes.forEach((mesh) => mesh.dispose(false, false));
+        this.formationVisuals.delete(tower.id);
+        continue;
+      }
+      activeIds.add(tower.id);
+      if (existing?.id === tower.formationId && existing.meshes.every((mesh) => mesh.parent === visual.root)) continue;
+      existing?.meshes.forEach((mesh) => mesh.dispose(false, false));
+      const material = this.formationMaterials.get(tower.formationId)!;
+      // Four tiny, formation-colored jewels keep the buff local without painting
+      // a large circle across the build grid or competing with the selection ring.
+      const marks = [0, 1, 2, 3].map((index) => {
+        const angle = index * Math.PI / 2;
+        const mark = MeshBuilder.CreatePolyhedron(`formation-mark-${tower.id}-${index}`, { type: 1, size: 0.085 }, this.scene);
+        mark.parent = visual.root;
+        mark.position.set(Math.cos(angle) * 0.27, 0.045, Math.sin(angle) * 0.27);
+        mark.rotation.y = angle;
+        mark.material = material;
+        mark.isPickable = false;
+        mark.renderingGroupId = 1;
+        return mark;
+      });
+      this.formationVisuals.set(tower.id, { id: tower.formationId, meshes: marks });
+    }
+    for (const [id, visual] of this.formationVisuals) {
+      if (activeIds.has(id)) continue;
+      visual.meshes.forEach((mesh) => mesh.dispose(false, false));
+      this.formationVisuals.delete(id);
+    }
+  }
+
+  private syncSpecializationVisuals(gameState: GameState): void {
+    const activeIds = this.activeSpecializationIds;
+    activeIds.clear();
+    for (const tower of gameState.towers) {
+      const specialization = getSpecialization(tower.specializationId);
+      const visual = this.towerVisuals.get(tower.id);
+      const existing = this.specializationVisuals.get(tower.id);
+      if (!specialization || !visual) {
+        existing?.mesh.dispose(false, false); this.specializationVisuals.delete(tower.id); continue;
+      }
+      activeIds.add(tower.id);
+      if (existing?.id === specialization.id && existing.mesh.parent === visual.root) continue;
+      existing?.mesh.dispose(false, false);
+      const aura = MeshBuilder.CreateTorus(`specialization-aura-${tower.id}`, { diameter: 0.57, thickness: 0.045, tessellation: 24 }, this.scene);
+      aura.parent = visual.root; aura.position.y = 0.044; aura.material = this.specializationMaterials.get(specialization.id)!; aura.isPickable = false;
+      this.specializationVisuals.set(tower.id, { id: specialization.id, mesh: aura });
+    }
+    for (const [id, visual] of this.specializationVisuals) {
+      if (activeIds.has(id)) continue;
+      visual.mesh.dispose(false, false); this.specializationVisuals.delete(id);
+    }
+  }
+
+  private syncEnemyAffixVisual(enemyId: number, enemy: GameState["enemies"][number], root: TransformNode, hpBarY: number): void {
+    const signature = enemy.affixes.map(({ id, tier }) => `${id}:${tier}`).join("|");
+    let visual = this.enemyAffixVisuals.get(enemyId);
+    if (visual?.signature !== signature) {
+      visual?.icons.forEach((icon) => icon.dispose(false, false));
+      const icons = enemy.affixes.slice(0, 2).map(({ id }, index) => {
+        const icon = MeshBuilder.CreatePlane(`enemy-affix-${id}-${enemyId}`, { width: 0.22, height: 0.22 }, this.scene);
+        icon.parent = root; icon.position.set((index - (Math.min(enemy.affixes.length, 2) - 1) / 2) * 0.26, hpBarY + 0.25, 0);
+        icon.billboardMode = Mesh.BILLBOARDMODE_ALL; icon.material = this.affixMaterials.get(id)!; icon.isPickable = false; icon.renderingGroupId = 2;
+        return icon;
+      });
+      visual = { signature, icons };
+      this.enemyAffixVisuals.set(enemyId, visual);
+    }
+    if (enemy.maxShield > 0 && !this.enemyShieldBars.has(enemyId)) {
+      const back = MeshBuilder.CreatePlane(`enemy-shield-back-${enemyId}`, { width: 0.72, height: 0.055 }, this.scene);
+      const fill = MeshBuilder.CreatePlane(`enemy-shield-fill-${enemyId}`, { width: 0.68, height: 0.035 }, this.scene);
+      back.parent = root; fill.parent = root;
+      back.position.set(0, hpBarY + 0.11, 0.005); fill.position.set(0, hpBarY + 0.11, -0.006);
+      back.billboardMode = Mesh.BILLBOARDMODE_ALL; fill.billboardMode = Mesh.BILLBOARDMODE_ALL;
+      back.material = this.shieldBackMaterial; fill.material = this.shieldFillMaterial;
+      back.isPickable = false; fill.isPickable = false; back.renderingGroupId = 1; fill.renderingGroupId = 2;
+      this.enemyShieldBars.set(enemyId, { back, fill });
+    }
+    const shield = this.enemyShieldBars.get(enemyId);
+    if (shield) {
+      const ratio = enemy.maxShield > 0 ? Math.max(0, Math.min(1, enemy.shield / enemy.maxShield)) : 0;
+      shield.fill.setEnabled(ratio > 0);
+      shield.fill.scaling.x = ratio;
+      shield.fill.position.x = -0.34 + ratio * 0.34;
+    }
+    let slowIndicator = this.enemySlowIndicators.get(enemyId);
+    if (enemy.slowSecondsRemaining > 0) {
+      if (!slowIndicator) {
+        slowIndicator = MeshBuilder.CreateTorus(`enemy-frost-slow-${enemyId}`, { diameter: 0.64, thickness: 0.035, tessellation: 20 }, this.scene);
+        slowIndicator.parent = root; slowIndicator.position.y = 0.045;
+        slowIndicator.material = this.enemySlowMaterial; slowIndicator.isPickable = false; slowIndicator.renderingGroupId = 1;
+        this.enemySlowIndicators.set(enemyId, slowIndicator);
+      }
+      slowIndicator.setEnabled(true);
+    } else if (slowIndicator) {
+      slowIndicator.setEnabled(false);
     }
   }
 
@@ -776,6 +1110,12 @@ export class BabylonGameRenderer {
       if (!tower) continue;
       const target = gridToWorld3D({ x: event.targetX, y: event.targetY });
       const targetPosition = new Vector3(target.x, 0.82, target.z);
+      const specialization = event.specializationId ? TOWER_SPECIALIZATIONS[event.specializationId] : undefined;
+      if (event.effectKind === "chain") {
+        const source = gridToWorld3D({ x: event.sourceX, y: event.sourceY });
+        this.combatEffects.showLightningArc(new Vector3(source.x, 0.82, source.z), targetPosition, specialization?.visualColor);
+        continue;
+      }
       if (event.isSplash) {
         this.combatEffects.showSplashHit(targetPosition);
         continue;
@@ -792,13 +1132,20 @@ export class BabylonGameRenderer {
       if (!attackOrigin) continue;
       const originPosition = attackOrigin.getAbsolutePosition();
       if (event.defenderType === "green-archer") {
-        this.combatEffects.showShot(originPosition, targetPosition, event.enemyDied);
+        const trail = specialization?.id === "dragon-slayer"
+          ? { color: specialization.visualColor, alpha: 0.92 }
+          : specialization?.id === "ranger"
+            ? { color: specialization.visualColor, alpha: 0.48 }
+            : undefined;
+        this.combatEffects.showShot(originPosition, targetPosition, event.enemyDied, trail);
+        if (specialization?.mark) this.combatEffects.showArcherMark(targetPosition);
         continue;
       }
       if (event.defenderType === "battlemage" && event.attackMode === "melee") {
         this.combatEffects.showMeleeHit(targetPosition, event.enemyDied);
         continue;
       }
+      if (specialization?.id === "war-sovereign") this.combatEffects.showWarImpact(targetPosition, event.enemyDied);
       // Skeletal ranger playback controls only the presentation release moment; GameState already dealt damage.
       if ("attack" in tower) tower.attack(() => this.combatEffects.showShot(
         originPosition, targetPosition, event.enemyDied,
@@ -810,7 +1157,12 @@ export class BabylonGameRenderer {
     }
   }
 
-  private updateEnemyVisual(visual: EnemyVisual, enemy: GameState["enemies"][number]): void {
+  private updateEnemyVisual(
+    visual: EnemyVisual,
+    enemy: GameState["enemies"][number],
+    speedMultiplier = 1,
+    effectiveGameplaySpeed = enemy.speed * speedMultiplier,
+  ): void {
     const world = gridToWorld3D({ x: enemy.x, y: enemy.y });
     const walkTime = this.simulationTimeSeconds * 12 + enemy.id;
     const visualHeight = enemy.movementType === "flying"
@@ -825,6 +1177,11 @@ export class BabylonGameRenderer {
     const next = enemy.path[enemy.currentPathIndex + 1];
     if (next) visual.root.rotation.y = Math.atan2(next.x - enemy.x, next.y - enemy.y);
 
+    if ("animation" in visual && visual.animation) {
+      const isMoving = enemy.speed * speedMultiplier > 0.005 && Boolean(next);
+      visual.animation.setState(isMoving ? "moving" : "idle", speedMultiplier, effectiveGameplaySpeed);
+    }
+
     if (this.disableHpBars) return;
     const hpRatio = Math.max(0, Math.min(1, enemy.hp / enemy.maxHp));
     if (!visual.healthBack.isEnabled()) visual.healthBack.setEnabled(true);
@@ -833,6 +1190,41 @@ export class BabylonGameRenderer {
     visual.lastHpRatio = hpRatio;
     visual.healthFill.scaling.x = hpRatio;
     visual.healthFill.position.x = -0.34 + hpRatio * 0.34;
+  }
+
+  private beginEnemyDeathVisuals(gameState: GameState): void {
+    for (const event of gameState.attackEvents) {
+      if (!event.enemyDied) continue;
+      this.beginEnemyDeathVisual(event.targetEnemyId);
+    }
+  }
+
+  private beginEnemyDeathVisual(id: number): boolean {
+    const visual = this.enemyVisuals.get(id);
+    if (!visual || !("animation" in visual) || !visual.animation) return false;
+    visual.animation.setState("dying");
+    if (visual.animation.currentState !== "dying" || visual.animation.isFinished) return false;
+    this.enemyVisuals.delete(id);
+    visual.healthBack.setEnabled(false);
+    visual.healthFill.setEnabled(false);
+    this.enemyDeathVisuals.set(id, visual);
+    const affixes = this.enemyAffixVisuals.get(id);
+    affixes?.icons.forEach((icon) => icon.dispose());
+    this.enemyAffixVisuals.delete(id);
+    const shield = this.enemyShieldBars.get(id);
+    shield?.back.dispose(); shield?.fill.dispose();
+    this.enemyShieldBars.delete(id);
+    this.enemySlowIndicators.get(id)?.dispose(false, false);
+    this.enemySlowIndicators.delete(id);
+    this.enemyVisualDebugLabels.get(id)?.dispose();
+    this.enemyVisualDebugLabels.delete(id);
+    while (this.enemyDeathVisuals.size > this.maxEnemyDeathVisuals) {
+      const oldest = this.enemyDeathVisuals.entries().next().value as [number, EnemyVisual] | undefined;
+      if (!oldest) break;
+      this.disposeEnemyVisual(oldest[1]);
+      this.enemyDeathVisuals.delete(oldest[0]);
+    }
+    return true;
   }
 
   private reportEnemyVisualSpawn(id: number, type: EnemyType, fallback: boolean): void {
@@ -896,49 +1288,112 @@ export class BabylonGameRenderer {
 
   private createGroundAndGrid(): void {
     const width = this.map.width * TILE_SIZE_3D; const depth = this.map.height * TILE_SIZE_3D;
-    const outskirts = MeshBuilder.CreateGround("outskirts-ground", { width: width + 12, height: depth + 12, subdivisions: 1 }, this.scene);
+    const outskirts = MeshBuilder.CreateGround("outskirts-ground", { width: width + 72, height: depth + 72, subdivisions: 1 }, this.scene);
     outskirts.position = new Vector3(width / 2, -0.035, depth / 2);
-    const outskirtsMaterial = new StandardMaterial("outskirts-snow", this.scene);
+    const outskirtsMaterial = new StandardMaterial("royal-meadow-outskirts", this.scene);
     outskirtsMaterial.diffuseColor = Color3.White();
     outskirtsMaterial.diffuseTexture = this.arenaArt.outskirtsTexture(this.currentTheme);
     outskirtsMaterial.specularColor = Color3.Black();
     outskirts.material = outskirtsMaterial;
     this.outskirtsGroundMaterial = outskirtsMaterial;
-    const ground = MeshBuilder.CreateGround("snowGround", { width, height: depth, subdivisions: 2 }, this.scene);
+    const ground = MeshBuilder.CreateGround("snowGround", { width, height: depth, subdivisions: 1 }, this.scene);
     ground.position = new Vector3(width / 2, 0, depth / 2);
-    const snow = new StandardMaterial("snow", this.scene); snow.diffuseColor = this.currentTheme.playableGround; snow.specularColor = VISUAL_CONFIG.snowSpecularColor; snow.specularPower = VISUAL_CONFIG.snowSpecularPower; ground.material = snow; ground.receiveShadows = true;
-    this.playableGroundMaterial = snow;
-    snow.diffuseTexture = this.arenaArt.snowTexture();
+    const grassAlbedo = this.arenaArt.playableGroundTexture();
+    const grass = new PBRMaterial("royal-grass-packed-earth-pbr", this.scene);
+    const grassNormal = this.arenaArt.playableGroundNormal();
+    grass.albedoColor = VISUAL_CONFIG.royalGroundBaseColor;
+    grass.albedoTexture = grassAlbedo;
+    grass.bumpTexture = grassNormal;
+    grass.bumpTexture.level = 0.12;
+    grass.metallicTexture = this.arenaArt.playableGroundRoughness();
+    grass.useRoughnessFromMetallicTextureGreen = true;
+    grass.useMetallnessFromMetallicTextureBlue = true;
+    grass.roughness = 0.96;
+    grass.metallic = 0;
+    ground.material = grass;
+    ground.receiveShadows = true;
+    this.playableGroundMaterial = grass;
     const lines: Vector3[][] = [];
     for (let x = 0; x <= this.map.width; x += 1) lines.push([new Vector3(x, 0.012, 0), new Vector3(x, 0.012, depth)]);
     for (let z = 0; z <= this.map.height; z += 1) lines.push([new Vector3(0, 0.012, z), new Vector3(width, 0.012, z)]);
-    const gridColor = VISUAL_CONFIG.gridColor;
-    const vertexColors = lines.map(line => line.map(() => new Color4(gridColor.r, gridColor.g, gridColor.b, 1)));
-    // LinesMesh only blends alpha through vertex alpha; its visibility scalar alone
-    // is ignored by its default material.
-    const grid = MeshBuilder.CreateLineSystem("grid", { lines, colors: vertexColors, useVertexAlpha: true }, this.scene);
-    grid.alpha = VISUAL_CONFIG.gridAlpha;
-    grid.isPickable = false;
-    grid.setEnabled(false);
-    this.gridLines = grid;
+    this.createGridLayer("grid", lines);
+    const raisedGridLines = mergeTerrainGridLines(this.map.terrainRegions.flatMap((region) => region.cells), TERRAIN_PLATEAU_HEIGHT + 0.008);
+    this.createGridLayer("terrain-grid-top", raisedGridLines);
 
-    new TerrainCliffRenderer(this.scene).render(this.map.terrainRegions);
+    const terrain = new TerrainCliffRenderer(this.scene, grassAlbedo, grassNormal, width, depth);
+    const terrainStats = terrain.render(this.map.terrainRegions);
+    if (this.terrainArtDebug) {
+      const report: {
+        map: MapDefinition["id"];
+        groundMaterial: string;
+        cliffTopMaterial: string;
+        cliffSideMaterial: string;
+        cliffLipMaterial: string;
+        terrainRegionCount: number;
+        renderedFormationCount: number;
+        terrainMeshCount: number;
+        plateauHeight: number;
+        gridLineCount: number;
+        terrainGridLineCount: number;
+        gridOpacity: number;
+        buildGridOpacity: number;
+        texturesReady: boolean;
+        environmentReady: boolean;
+        groundTextures: typeof terrainStats.groundTextureNames;
+        cliffTextures: typeof terrainStats.cliffTextureNames;
+        terrainMeshes: Array<{ name: string; enabled: boolean; visible: boolean; vertices: number }>;
+      } = {
+        map: this.map.id,
+        groundMaterial: grass.name,
+        cliffTopMaterial: "royal-cliff-stone-top",
+        cliffSideMaterial: "royal-cliff-natural-rock-face",
+        cliffLipMaterial: "royal-cliff-earth-edge",
+        terrainRegionCount: this.map.terrainRegions.length,
+        renderedFormationCount: terrainStats.formationCount,
+        terrainMeshCount: terrainStats.meshCount,
+        plateauHeight: terrainStats.plateauHeight,
+        gridLineCount: lines.length,
+        terrainGridLineCount: raisedGridLines.length,
+        gridOpacity: VISUAL_CONFIG.gridAlpha,
+        buildGridOpacity: VISUAL_CONFIG.buildGridAlpha,
+        texturesReady: grassAlbedo.isReady(),
+        environmentReady: false,
+        groundTextures: terrainStats.groundTextureNames,
+        cliffTextures: terrainStats.cliffTextureNames,
+        terrainMeshes: this.scene.meshes.filter((mesh) => mesh.name.startsWith("snow-cliff-formation-")).map((mesh) => ({
+          name: mesh.name,
+          enabled: mesh.isEnabled(),
+          visible: mesh.isVisible,
+          vertices: mesh.getTotalVertices(),
+        })),
+      };
+      (window as Window & { __terrainArtDebug?: typeof report }).__terrainArtDebug = report;
+      console.info("Terrain art debug", report);
+      const readyObserver = this.scene.onAfterRenderObservable.add(() => {
+        if (!grassAlbedo.isReady()) return;
+        report.texturesReady = true;
+        this.scene.onAfterRenderObservable.remove(readyObserver);
+        console.info("Terrain textures ready", report);
+      });
+    }
   }
 
   /** Places cached glTF environment art; a per-asset primitive remains only as a load-failure fallback. */
   private async createArenaArt(): Promise<void> {
-    await this.environmentAssets.preload();
+    await this.environmentAssets.preload(this.arenaArt.requiredAssetKeys(this.currentTheme));
     if (this.disposed) return;
     this.arenaArt.perimeter([
       ...this.map.layout.activeSpawns.map(({ gateCell, side }) => ({ x: gateCell.x, z: gateCell.y, side })),
       { x: this.map.layout.castle.gateCell.x, z: this.map.layout.castle.gateCell.y, side: this.map.layout.castle.side },
     ]);
     this.arenaArt.warmOutskirtsAccents();
-    const red = this.material("spawn-ember", new Color3(0.65, 0.12, 0.035), new Color3(0.5, 0.055, 0.012));
-    const blue = this.material("exit-cyan", new Color3(0.13, 0.62, 0.8), new Color3(0.055, 0.35, 0.5));
-    this.spawnAccentMaterial = red; this.exitAccentMaterial = blue;
+    const red = this.material("spawn-ember", this.currentTheme.spawnAccent,
+      this.currentTheme.spawnAccent.scale(VISUAL_CONFIG.spawnGlowStrength));
+    const gold = this.material("exit-gold", this.currentTheme.exitAccent,
+      this.currentTheme.exitAccent.scale(VISUAL_CONFIG.exitGlowStrength));
+    this.spawnAccentMaterial = red; this.exitAccentMaterial = gold;
     red.backFaceCulling = false; red.alpha = 0.36;
-    blue.backFaceCulling = false; blue.alpha = 0.5;
+    gold.backFaceCulling = false; gold.alpha = 0.5;
     this.spawnZoneMaterial = this.material("spawn-zone-material", this.currentTheme.spawnAccent);
     for (const spawn of this.map.layout.activeSpawns) {
       const point = gridToWorld3D(spawn.entryCell);
@@ -947,8 +1402,12 @@ export class BabylonGameRenderer {
     }
     const goal = gridToWorld3D(this.map.layout.castle.approachCell);
     this.exitZoneMaterial = this.zoneMarker("castle-zone", goal.x, goal.z, this.currentTheme.exitAccent);
-    this.createEndpointVisual("exit", goal.x, goal.z, blue, this.currentTheme.exitAccent, this.map.layout.castle.side);
+    this.createEndpointVisual("exit", goal.x, goal.z, gold, this.currentTheme.exitAccent, this.map.layout.castle.side);
     this.environmentReady = true;
+    if (this.terrainArtDebug) {
+      const terrainDebug = (window as Window & { __terrainArtDebug?: { environmentReady: boolean } }).__terrainArtDebug;
+      if (terrainDebug) terrainDebug.environmentReady = true;
+    }
     if (!this.disableEnvironmentProps) this.rebuildThemeProps();
     if (this.environmentSafeMode) this.applyEnvironmentSafeMode();
     if (this.environmentSafeMode || this.shouldDumpSceneMeshes) {
@@ -1033,8 +1492,8 @@ export class BabylonGameRenderer {
     this.scene.fogDensity = VISUAL_CONFIG.fogDensity;
     this.scene.fogColor = theme.fogColor;
     this.scene.clearColor.set(theme.fogColor.r * 0.28, theme.fogColor.g * 0.32, theme.fogColor.b * 0.38, 1);
-    this.sky.diffuse = theme.ambientTint;
-    this.playableGroundMaterial?.diffuseColor.copyFrom(theme.playableGround);
+    this.sky.diffuse.copyFrom(Color3.Lerp(theme.ambientTint, VISUAL_CONFIG.royalAmbientColor, 0.24));
+    this.playableGroundMaterial?.albedoColor.copyFrom(VISUAL_CONFIG.royalGroundBaseColor);
     if (this.outskirtsGroundMaterial) {
       this.outskirtsGroundMaterial.diffuseColor.copyFrom(Color3.White());
       this.outskirtsGroundMaterial.diffuseTexture = this.arenaArt.outskirtsTexture(theme);
@@ -1067,6 +1526,17 @@ export class BabylonGameRenderer {
     this.themeProps.length = 0;
 
     this.themeProps.push(...this.arenaArt.clusters(this.currentTheme, this.presentationSeed + this.themeRunOrdinal));
+  }
+
+  /** One thin vertex-alpha line overlay for the playfield and one for raised blocked cells. */
+  private createGridLayer(name: string, lines: Vector3[][]): void {
+    if (lines.length === 0) return;
+    const color = VISUAL_CONFIG.gridColor;
+    const colors = lines.map((line) => line.map(() => new Color4(color.r, color.g, color.b, this.gridOpacity)));
+    const mesh = MeshBuilder.CreateLineSystem(name, { lines, colors, useVertexAlpha: true }, this.scene);
+    mesh.isPickable = false;
+    mesh.setEnabled(true);
+    this.gridLayers.push({ mesh, vertexColors: Array.from(mesh.getVerticesData(VertexBuffer.ColorKind) ?? []) });
   }
 
   private material(name: string, color: Color3, emissive?: Color3): StandardMaterial {
@@ -1295,10 +1765,16 @@ export class BabylonGameRenderer {
 
   private updateBuildVisual(now: number, deltaSeconds: number): void {
     this.isBuildModeVisual = now < this.buildVisualUntil && !this.gesture?.dragging && !this.gameState?.gameOver;
-    if (this.gridLines) {
+    if (this.gridLayers.length > 0) {
       const target = this.isBuildModeVisual ? VISUAL_CONFIG.buildGridAlpha : VISUAL_CONFIG.gridAlpha;
-      this.gridLines.alpha += (target - this.gridLines.alpha) * Math.min(1, deltaSeconds * 9);
-      this.gridLines.setEnabled(this.isBuildModeVisual);
+      const nextOpacity = this.gridOpacity + (target - this.gridOpacity) * Math.min(1, deltaSeconds * 9);
+      if (Math.abs(nextOpacity - this.gridOpacity) > 0.0005) {
+        this.gridOpacity = nextOpacity;
+        for (const layer of this.gridLayers) {
+          for (let index = 3; index < layer.vertexColors.length; index += 4) layer.vertexColors[index] = this.gridOpacity;
+          layer.mesh.updateVerticesData(VertexBuffer.ColorKind, layer.vertexColors);
+        }
+      }
     }
     if (!this.isBuildModeVisual) {
       this.highlight.isVisible = false; this.highlightOutline.isVisible = false;
@@ -1328,6 +1804,20 @@ export class BabylonGameRenderer {
       this.inputLastAction = this.selectedTowerId === tower.id ? `Tower selected #${tower.id}` : `Tower deselected #${tower.id}`;
       return;
     }
+    if (!this.buildDefenderType) {
+      this.selectTower(undefined);
+      this.highlight.isVisible = false;
+      this.highlightOutline.isVisible = false;
+      this.lastPreviewCellKey = "";
+      this.buildVisualUntil = 0;
+      this.inputLastAction = "Select tool: empty cell ignored";
+      return;
+    }
+    if (!this.defenderAssetsReady) {
+      this.inputLastAction = "Defender visuals are loading; placement is temporarily disabled";
+      this.refreshInputDebugOverlay();
+      return;
+    }
     if (this.selectedTowerId !== undefined) {
       this.selectTower(undefined);
     }
@@ -1341,6 +1831,13 @@ export class BabylonGameRenderer {
   }
 
   private previewCell(clientX: number, clientY: number): void {
+    if (!this.buildDefenderType) {
+      this.highlight.isVisible = false;
+      this.highlightOutline.isVisible = false;
+      this.lastPreviewCellKey = "";
+      this.buildVisualUntil = 0;
+      return;
+    }
     const cell = this.cellAtPointer(clientX, clientY);
     if (!cell || !this.gameState) return;
     this.buildVisualUntil = performance.now() + VISUAL_CONFIG.buildVisualHoldMs;
@@ -1348,7 +1845,9 @@ export class BabylonGameRenderer {
     if (key === this.lastPreviewCellKey) return;
     this.lastPreviewCellKey = key;
     const point = gridToWorld3D(cell);
-    const color = this.gameState.towerAt(cell)
+    const color = !this.defenderAssetsReady
+      ? VISUAL_CONFIG.invalidPlacementColor
+      : this.gameState.towerAt(cell)
       ? VISUAL_CONFIG.selectedCellColor
       : this.gameState.canPlaceBasicTower(cell, this.buildDefenderType) === "placed"
         ? VISUAL_CONFIG.validPlacementColor
@@ -1523,7 +2022,11 @@ export class BabylonGameRenderer {
         throw new Error(`No defender visual mapping for ${unreachableType}`);
       }
     }
-    visual.bodyRoot.scaling.scaleInPlace(VISUAL_CONFIG.unitVisualScaleMultiplier);
+    // Apply roster-specific breathing room to visuals only. Placement/world
+    // coordinates stay on the unchanged outer root at the exact grid center.
+    visual.bodyRoot.scaling.scaleInPlace(
+      VISUAL_CONFIG.unitVisualScaleMultiplier * DEFENDER_VISUAL_CONFIG[tower.type].visualScaleMultiplier,
+    );
     visual.root.position.set(world.x, 0, world.z);
     const factionRing = MeshBuilder.CreateTorus(`ally-faction-ring-${tower.id}`, {
       diameter: 0.68 + tower.level * 0.035,
@@ -1584,6 +2087,21 @@ export class BabylonGameRenderer {
     ].join("\n");
   }
 
+  private recordFrameTime(milliseconds: number): void {
+    if (this.frameTimeSampleCount === this.frameTimeSamples.length) {
+      this.frameTimeSampleSum -= this.frameTimeSamples[this.frameTimeSampleCursor];
+    } else {
+      this.frameTimeSampleCount += 1;
+    }
+    this.frameTimeSamples[this.frameTimeSampleCursor] = milliseconds;
+    this.frameTimeSampleSum += milliseconds;
+    this.frameTimeSampleCursor = (this.frameTimeSampleCursor + 1) % this.frameTimeSamples.length;
+  }
+
+  private averageFrameTimeMs(): number {
+    return this.frameTimeSampleCount > 0 ? this.frameTimeSampleSum / this.frameTimeSampleCount : 0;
+  }
+
   private recordPerformanceSnapshot(phase: PerformanceSnapshot["phase"], gameState: GameState): void {
     const snapshot = this.performanceSnapshot(phase, gameState);
     console.info("Performance snapshot", snapshot);
@@ -1592,9 +2110,7 @@ export class BabylonGameRenderer {
   }
 
   private performanceSnapshot(phase: PerformanceSnapshot["phase"], gameState: GameState): PerformanceSnapshot {
-    const averageFrameTime = this.frameTimeSamples.length > 0
-      ? this.frameTimeSamples.reduce((sum, value) => sum + value, 0) / this.frameTimeSamples.length
-      : 0;
+    const averageFrameTime = this.averageFrameTimeMs();
     const shadowCasters = this.shadowGenerator.getShadowMap()?.renderList?.length ?? 0;
     return {
       phase,

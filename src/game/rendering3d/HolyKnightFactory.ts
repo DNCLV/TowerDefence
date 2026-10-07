@@ -15,6 +15,7 @@ export interface HolyKnightVisual {
 export class HolyKnightFactory {
   private template?: AssetContainer;
   private rawBounds?: { min: Vector3; max: Vector3 };
+  private loadedAssetPath?: string;
   private readonly visualDebug = new URLSearchParams(window.location.search).get("defenderVisualDebug") === "1";
 
   constructor(private readonly scene: Scene, private readonly shadows: ShadowGenerator) {}
@@ -25,13 +26,23 @@ export class HolyKnightFactory {
     this.template?.dispose();
     this.template = undefined;
     this.rawBounds = undefined;
+    this.loadedAssetPath = undefined;
   }
 
   async load(): Promise<void> {
-    const path = DEFENDER_VISUAL_CONFIG["holy-knight"].assetPath;
-    const resolvedPath = resolveAssetUrl(path);
-    const separator = resolvedPath.lastIndexOf("/");
-    const template = await SceneLoader.LoadAssetContainerAsync(resolvedPath.slice(0, separator + 1), resolvedPath.slice(separator + 1), this.scene);
+    const definition = DEFENDER_VISUAL_CONFIG["holy-knight"];
+    let path = definition.assetPath;
+    let template: AssetContainer;
+    try {
+      template = await this.loadContainer(path);
+    } catch (optimizedError) {
+      // Full source-resolution GLBs stay in public/assets for local recovery, not Pages.
+      if (!import.meta.env.DEV || !definition.fallbackAssetPath) throw optimizedError;
+      console.warn("Optimized Holy Knight failed; loading its unchanged runtime GLB:", optimizedError);
+      path = definition.fallbackAssetPath;
+      template = await this.loadContainer(path);
+    }
+    this.loadedAssetPath = path;
     const renderMeshes = template.meshes.filter((mesh) => mesh.getTotalVertices() > 0);
     if (renderMeshes.length === 0) {
       template.dispose();
@@ -53,8 +64,15 @@ export class HolyKnightFactory {
     this.rawBounds = { min, max };
     this.logAssetAudit(template, renderMeshes, min, max);
     if (this.visualDebug) console.info("Defender visual:", {
-      type: "holy-knight", config: "holy-knight", asset: DEFENDER_VISUAL_CONFIG["holy-knight"].assetPath, fallback: false,
+      type: "holy-knight", config: "holy-knight", asset: this.loadedAssetPath,
+      fallback: this.loadedAssetPath !== definition.assetPath,
     });
+  }
+
+  private async loadContainer(assetPath: string): Promise<AssetContainer> {
+    const resolvedPath = resolveAssetUrl(assetPath);
+    const separator = resolvedPath.lastIndexOf("/");
+    return SceneLoader.LoadAssetContainerAsync(resolvedPath.slice(0, separator + 1), resolvedPath.slice(separator + 1), this.scene);
   }
 
   create(id: number, level: number): HolyKnightVisual {
@@ -107,7 +125,7 @@ export class HolyKnightFactory {
     const vertices = renderMeshes.reduce((sum, mesh) => sum + mesh.getTotalVertices(), 0);
     const triangles = renderMeshes.reduce((sum, mesh) => sum + mesh.getTotalIndices() / 3, 0);
     const audit = {
-      asset: "/assets/models/defenders/holy-knight.glb",
+      asset: this.loadedAssetPath,
       rootNodes: template.rootNodes.map((node) => ({
         name: node.name,
         position: node instanceof TransformNode ? node.position.asArray() : null,

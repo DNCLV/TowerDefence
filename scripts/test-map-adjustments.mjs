@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { GameState } from "../src/game/GameState.ts";
 import { MAPS } from "../src/game/config/MapConfig.ts";
 import { getMapPreviewGeometry } from "../src/game/config/MapPreview.ts";
-import { findPath } from "../src/game/pathfinding/Pathfinder.ts";
+import { findPath, findPathThrough } from "../src/game/pathfinding/Pathfinder.ts";
 import { VISUAL_CONFIG } from "../src/game/rendering3d/VisualConfig.ts";
 
 const originalSizes = {
@@ -33,7 +33,19 @@ for (const [id, map] of Object.entries(MAPS)) {
     assert.deepEqual(route[0], spawn.entryCell);
     assert.deepEqual(route.at(-1), map.layout.castle.approachCell);
     assert.ok(route.every((cell) => !state.grid.isTerrain(cell)), `${id}: route avoids mountains`);
-    assert.deepEqual(route, findPath(state.grid, spawn.entryCell, state.exit), `${id}: spawn uses shortest path`);
+    if (id === "three-spawns" && spawn.id === "spawn-north") {
+      // The middle three-spawn front intentionally alternates between two routed lanes.
+      // Its current first variant goes left, so it is valid but not necessarily the BFS tie winner.
+      const leftLaneRoute = findPathThrough(state.grid, spawn.entryCell, [
+        { x: 9, y: 29 }, { x: 9, y: 41 }, { x: 17, y: 52 }, state.exit,
+      ]);
+      assert.ok(leftLaneRoute, `${id}: middle spawn has a left routed lane`);
+      assert.deepEqual(route, leftLaneRoute, `${id}: middle spawn uses the first routed lane`);
+      const shortestRoute = findPath(state.grid, spawn.entryCell, state.exit);
+      assert.ok(shortestRoute && route.length >= shortestRoute.length, `${id}: routed lane remains path-valid`);
+    } else {
+      assert.deepEqual(route, findPath(state.grid, spawn.entryCell, state.exit), `${id}: spawn uses shortest path`);
+    }
   }
   assert.ok(!state.grid.isBuildable(map.layout.castle.gateCell), `${id}: castle gate is reserved`);
   console.log(`${map.name}: ${map.width}x${map.height}, ${map.terrain.length} mountain cells, ${state.spawnPaths.size} routes`);

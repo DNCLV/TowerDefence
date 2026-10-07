@@ -68,7 +68,7 @@ export const MAPS: Record<MapId, MapDefinition> = {
       rectangle("left-mountain", 0, 5, 5, 22),
       rectangle("right-mountain", 12, 5, 5, 22),
     ),
-    startingGold: 70, enemyCountMultiplier: 1,
+    startingGold: 100, enemyCountMultiplier: 1,
   },
   "two-spawns": {
     id: "two-spawns", name: "Split Advance", subtitle: "2 Spawns · Late merge", description: "Two open fronts stay apart until the final quarter.",
@@ -92,7 +92,7 @@ export const MAPS: Record<MapId, MapDefinition> = {
       ),
       rectangle("central-split-ridge", 10, 0, 3, 29),
     ),
-    startingGold: 110, enemyCountMultiplier: 1.5,
+    startingGold: 135, enemyCountMultiplier: 1.5,
   },
   "three-spawns": {
     id: "three-spawns", name: "Triple Convergence", subtitle: "3 Spawns · Three fronts to one", description: "Three open approaches become two broad fronts, then one shared goal lane.",

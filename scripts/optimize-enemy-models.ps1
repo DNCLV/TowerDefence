@@ -1,3 +1,4 @@
+param([string[]]$Only = @())
 $ErrorActionPreference = 'Stop'
 
 # Reproducible offline asset pass. Source GLBs under 3D/ are read-only inputs.
@@ -10,8 +11,8 @@ $toolPackage = '@gltf-transform/cli@4.5.1'
 $models = @(
   @{ Name = 'goblin'; Source = 'Goblin'; Ratio = '0.075'; TextureLimit = 1024 },
   @{ Name = 'goblin-brute'; Source = 'Goblin Brute'; Ratio = '0.07'; TextureLimit = 1024 },
-  @{ Name = 'goblin-rider'; Source = 'Goblin Rider'; Ratio = '0.14'; TextureLimit = 2048 },
-  @{ Name = 'giant-goblin'; Source = 'Giant Goblin'; Ratio = '0.09'; TextureLimit = 2048 },
+  @{ Name = 'goblin-rider'; Source = 'Goblin Rider'; Ratio = '0.14'; TextureLimit = 1024 },
+  @{ Name = 'giant-goblin'; Source = 'Giant Goblin'; Ratio = '0.09'; TextureLimit = 1024 },
   @{ Name = 'ghoul'; Source = 'Ghoul'; Ratio = '0.10'; TextureLimit = 1024 },
   @{ Name = 'wraith'; Source = 'Wraith'; Ratio = '0.09'; TextureLimit = 1024 }
 )
@@ -19,6 +20,7 @@ $models = @(
 New-Item -ItemType Directory -Force -Path $outputDirectory, $temporaryDirectory | Out-Null
 try {
   foreach ($model in $models) {
+    if ($Only.Count -gt 0 -and $model.Name -notin $Only) { continue }
     $sourcePath = Join-Path $projectRoot "3D\$($model.Source).glb"
     $simplifiedPath = Join-Path $temporaryDirectory "$($model.Name).glb"
     $outputPath = Join-Path $outputDirectory "$($model.Name).glb"

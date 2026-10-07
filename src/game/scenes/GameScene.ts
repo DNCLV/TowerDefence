@@ -144,6 +144,8 @@ export class GameScene extends Phaser.Scene {
     const result = this.gameState.upgradeBasicTower(this.selectedTowerId);
     const messages = {
       upgraded: "Tower upgraded.",
+      "specialization-required": "Choose a specialization first.",
+      "invalid-specialization": "That specialization is unavailable.",
       "not-enough-gold": "Not enough gold to upgrade.",
       "max-level": "Tower is already max level.",
       "game-over": "Game over.",

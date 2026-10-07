@@ -49,7 +49,10 @@ export class QuaterniusArcherFactory {
   }
 
   async load(): Promise<void> {
-    this.template = await SceneLoader.LoadAssetContainerAsync(resolveAssetUrl("assets/models/quaternius/"), "Female_Ranger.gltf", this.scene);
+    const rangerAssetRoot = import.meta.env.DEV
+      ? "assets/models/quaternius/"
+      : "assets/models/quaternius/runtime/";
+    this.template = await SceneLoader.LoadAssetContainerAsync(resolveAssetUrl(rangerAssetRoot), "Female_Ranger.gltf", this.scene);
     try {
       this.animationTemplate = await SceneLoader.LoadAssetContainerAsync(
         resolveAssetUrl("assets/animations/quaternius/"), "UAL1_Standard.glb", this.scene,
@@ -69,12 +72,14 @@ export class QuaterniusArcherFactory {
     if (!this.template) throw new Error("Quaternius ranger template has not loaded.");
     const entries = this.template.instantiateModelsToScene((name) => `ranger-${id}-${name}`, false);
     const root = new TransformNode(`ranger-placement-${id}`, this.scene);
+    const facingRoot = new TransformNode(`ranger-facing-${id}`, this.scene);
+    facingRoot.parent = root;
     const importedRoot = entries.rootNodes[0];
     const bodyRoot = importedRoot instanceof TransformNode
       ? importedRoot
       : new TransformNode(`ranger-model-${id}`, this.scene);
     if (!(importedRoot instanceof TransformNode)) entries.rootNodes.forEach((node) => { node.parent = bodyRoot; });
-    bodyRoot.parent = root;
+    bodyRoot.parent = facingRoot;
     // Quaternius exports are character-sized; normalize them to one grid cell and +Z gameplay facing.
     // +25% readability from the normal RTS camera; gameplay still owns one grid cell.
     bodyRoot.scaling.setAll((0.525 + (level - 1) * 0.019) * VISUAL_CONFIG.allyScaleMultiplier * VISUAL_CONFIG.defenderVisualScaleMultiplier);
@@ -92,8 +97,8 @@ export class QuaterniusArcherFactory {
     const animationState = this.createAnimationState(id, animatedTargets);
     return {
       root,
-      // The placement root is aimed by the renderer; the imported model retains its axis correction below it.
-      bodyRoot: root,
+      // The renderer aims/scales this child while the outer placement root and its markers stay cell-centered.
+      bodyRoot: facingRoot,
       arrowOrigin,
       level,
       attack: animationState.attack,

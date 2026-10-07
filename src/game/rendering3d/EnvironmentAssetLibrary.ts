@@ -11,10 +11,9 @@ import {
 import { resolveAssetUrl } from "../../core/AssetUrl";
 
 export type EnvironmentAssetKey =
-  | "wall" | "corner" | "gate" | "arch" | "pine" | "rock" | "fence" | "crate"
-  | "nature-pine-1" | "nature-pine-3" | "nature-pine-5"
-  | "nature-rock-1" | "nature-rock-2" | "nature-rock-3"
-  | "nature-flowering-bush" | "nature-mushroom";
+  | "castle-wall" | "castle-corner" | "castle-gate" | "castle-tower-base" | "castle-tower-roof"
+  | "castle-flag" | "castle-tree" | "castle-tree-large" | "castle-rock" | "castle-rock-large"
+  | "castle-ground-hills" | "castle-fence" | "castle-ballista";
 
 interface AssetSource {
   rootUrl: string;
@@ -28,29 +27,26 @@ export interface EnvironmentSizeLimits {
 }
 
 const ASSETS: Record<EnvironmentAssetKey, AssetSource> = {
-  wall: { rootUrl: "/assets/environment/medieval/", fileName: "Wall_UnevenBrick_Straight.gltf" },
-  corner: { rootUrl: "/assets/environment/medieval/", fileName: "Corner_Exterior_Brick.gltf" },
-  gate: { rootUrl: "/assets/environment/medieval/", fileName: "Wall_UnevenBrick_Door_Round.gltf" },
-  arch: { rootUrl: "/assets/environment/medieval/", fileName: "Wall_Arch.gltf" },
-  fence: { rootUrl: "/assets/environment/medieval/", fileName: "Prop_WoodenFence_Single.gltf" },
-  crate: { rootUrl: "/assets/environment/medieval/", fileName: "Prop_Crate.gltf" },
-  pine: { rootUrl: "/assets/environment/nature/", fileName: "Pine_3.gltf" },
-  rock: { rootUrl: "/assets/environment/nature/", fileName: "Rock_Medium_2.gltf" },
-  "nature-pine-1": { rootUrl: "/assets/environment/nature-kit/", fileName: "Pine_1.gltf" },
-  "nature-pine-3": { rootUrl: "/assets/environment/nature-kit/", fileName: "Pine_3.gltf" },
-  "nature-pine-5": { rootUrl: "/assets/environment/nature-kit/", fileName: "Pine_5.gltf" },
-  "nature-rock-1": { rootUrl: "/assets/environment/nature-kit/", fileName: "Rock_Medium_1.gltf" },
-  "nature-rock-2": { rootUrl: "/assets/environment/nature-kit/", fileName: "Rock_Medium_2.gltf" },
-  "nature-rock-3": { rootUrl: "/assets/environment/nature-kit/", fileName: "Rock_Medium_3.gltf" },
-  "nature-flowering-bush": { rootUrl: "/assets/environment/nature-kit/", fileName: "Bush_Common_Flowers.gltf" },
-  "nature-mushroom": { rootUrl: "/assets/environment/nature-kit/", fileName: "Mushroom_Common.gltf" },
+  "castle-wall": { rootUrl: "/assets/environment/kenney-castle/", fileName: "wall.glb" },
+  "castle-corner": { rootUrl: "/assets/environment/kenney-castle/", fileName: "wall-corner-half-tower.glb" },
+  "castle-gate": { rootUrl: "/assets/environment/kenney-castle/", fileName: "wall-doorway.glb" },
+  "castle-tower-base": { rootUrl: "/assets/environment/kenney-castle/", fileName: "tower-square-base.glb" },
+  "castle-tower-roof": { rootUrl: "/assets/environment/kenney-castle/", fileName: "tower-square-roof.glb" },
+  "castle-flag": { rootUrl: "/assets/environment/kenney-castle/", fileName: "flag-banner-short.glb" },
+  "castle-tree": { rootUrl: "/assets/environment/kenney-castle/", fileName: "tree-small.glb" },
+  "castle-tree-large": { rootUrl: "/assets/environment/kenney-castle/", fileName: "tree-large.glb" },
+  "castle-rock": { rootUrl: "/assets/environment/kenney-castle/", fileName: "rocks-small.glb" },
+  "castle-rock-large": { rootUrl: "/assets/environment/kenney-castle/", fileName: "rocks-large.glb" },
+  "castle-ground-hills": { rootUrl: "/assets/environment/kenney-castle/", fileName: "ground-hills.glb" },
+  "castle-fence": { rootUrl: "/assets/environment/kenney-castle/", fileName: "wall-narrow-wood-fence.glb" },
+  "castle-ballista": { rootUrl: "/assets/environment/kenney-castle/", fileName: "siege-ballista.glb" },
 };
 
 // Only the environment pieces already verified in the original arena cast shadows.
 // Nature Kit foliage contains large/double-sided surfaces whose shadow silhouettes
 // become solid slabs in Babylon's shadow pass.
 const SHADOW_SAFE_ASSETS = new Set<EnvironmentAssetKey>([
-  "wall", "corner", "gate", "arch", "fence", "crate", "pine", "rock",
+  // Current Kenney castle set uses generated/soft shadows; imported foliage is not a caster.
 ]);
 
 /**
@@ -60,12 +56,13 @@ const SHADOW_SAFE_ASSETS = new Set<EnvironmentAssetKey>([
  */
 export class EnvironmentAssetLibrary {
   private readonly templates = new Map<EnvironmentAssetKey, AssetContainer>();
+  private readonly pendingLoads = new Map<EnvironmentAssetKey, Promise<AssetContainer>>();
   private readonly debugEnvironment = new URLSearchParams(window.location.search).has("debugEnvironment");
 
   constructor(private readonly scene: Scene, private readonly shadows: ShadowGenerator) {}
 
-  async preload(): Promise<void> {
-    await Promise.all((Object.keys(ASSETS) as EnvironmentAssetKey[]).map(async (key) => {
+  async preload(keys: readonly EnvironmentAssetKey[] = Object.keys(ASSETS) as EnvironmentAssetKey[]): Promise<void> {
+    await Promise.all([...new Set(keys)].map(async (key) => {
       try {
         await this.load(key);
       } catch (error) {
@@ -124,6 +121,7 @@ export class EnvironmentAssetLibrary {
       mesh.metadata = { ...mesh.metadata, environmentSource: ASSETS[key].fileName, environmentRoot: name };
       mesh.receiveShadows = false;
       if (effectiveShadowCasting) this.shadows.addShadowCaster(mesh);
+      mesh.freezeWorldMatrix();
     });
     return root;
   }
@@ -135,13 +133,23 @@ export class EnvironmentAssetLibrary {
   dispose(): void {
     this.templates.forEach((template) => template.dispose());
     this.templates.clear();
+    this.pendingLoads.clear();
   }
 
   private async load(key: EnvironmentAssetKey): Promise<void> {
     if (this.templates.has(key)) return;
-    const asset = ASSETS[key];
-    const template = await SceneLoader.LoadAssetContainerAsync(resolveAssetUrl(asset.rootUrl), asset.fileName, this.scene);
-    this.templates.set(key, template);
+    let pending = this.pendingLoads.get(key);
+    if (!pending) {
+      const asset = ASSETS[key];
+      pending = SceneLoader.LoadAssetContainerAsync(resolveAssetUrl(asset.rootUrl), asset.fileName, this.scene)
+        .then((template) => {
+          this.templates.set(key, template);
+          return template;
+        })
+        .finally(() => this.pendingLoads.delete(key));
+      this.pendingLoads.set(key, pending);
+    }
+    await pending;
   }
 
   private placeOnGround(root: TransformNode): void {

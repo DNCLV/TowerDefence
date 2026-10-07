@@ -26,6 +26,7 @@ export interface BlueWizardVisual {
 export class BlueWizardFactory {
   private template?: AssetContainer;
   private rawBounds?: { min: Vector3; max: Vector3 };
+  private loadedAssetPath?: string;
   private boundsLogged = false;
   private readonly visualDebug = new URLSearchParams(window.location.search).get("defenderVisualDebug") === "1";
 
@@ -37,13 +38,22 @@ export class BlueWizardFactory {
     this.template?.dispose();
     this.template = undefined;
     this.rawBounds = undefined;
+    this.loadedAssetPath = undefined;
   }
 
   async load(): Promise<void> {
-    const path = DEFENDER_VISUAL_CONFIG["blue-wizard"].assetPath;
-    const resolvedPath = resolveAssetUrl(path);
-    const separator = resolvedPath.lastIndexOf("/");
-    this.template = await SceneLoader.LoadAssetContainerAsync(resolvedPath.slice(0, separator + 1), resolvedPath.slice(separator + 1), this.scene);
+    const definition = DEFENDER_VISUAL_CONFIG["blue-wizard"];
+    let path = definition.assetPath;
+    try {
+      this.template = await this.loadContainer(path);
+    } catch (optimizedError) {
+      // Full source-resolution GLBs stay in public/assets for local recovery, not Pages.
+      if (!import.meta.env.DEV || !definition.fallbackAssetPath) throw optimizedError;
+      console.warn("Optimized Blue Wizard failed; loading its unchanged runtime GLB:", optimizedError);
+      path = definition.fallbackAssetPath;
+      this.template = await this.loadContainer(path);
+    }
+    this.loadedAssetPath = path;
     const bounds = this.measureTemplateBounds(this.template);
     if (!bounds || !(bounds.max.y > bounds.min.y)) {
       this.template.dispose();
@@ -53,7 +63,8 @@ export class BlueWizardFactory {
     this.rawBounds = bounds;
     this.logAssetAudit(this.template, bounds);
     if (this.visualDebug) console.info("Defender visual:", {
-      type: "blue-wizard", config: "blue-wizard", asset: DEFENDER_VISUAL_CONFIG["blue-wizard"].assetPath, fallback: false,
+      type: "blue-wizard", config: "blue-wizard", asset: this.loadedAssetPath,
+      fallback: this.loadedAssetPath !== definition.assetPath,
     });
   }
 
@@ -98,11 +109,17 @@ export class BlueWizardFactory {
     }
     return {
       root,
-      bodyRoot: root,
+      bodyRoot,
       attackOrigin,
       level,
       dispose: () => shadowCasters.forEach((mesh) => this.shadows.removeShadowCaster(mesh)),
     };
+  }
+
+  private async loadContainer(assetPath: string): Promise<AssetContainer> {
+    const resolvedPath = resolveAssetUrl(assetPath);
+    const separator = resolvedPath.lastIndexOf("/");
+    return SceneLoader.LoadAssetContainerAsync(resolvedPath.slice(0, separator + 1), resolvedPath.slice(separator + 1), this.scene);
   }
 
   private measureTemplateBounds(container: AssetContainer): { min: Vector3; max: Vector3 } | undefined {
@@ -124,7 +141,7 @@ export class BlueWizardFactory {
     const meshes = container.meshes.filter((mesh) => mesh.getTotalVertices() > 0);
     const triangleCount = meshes.reduce((sum, mesh) => sum + mesh.getTotalIndices() / 3, 0);
     const audit = {
-      asset: "/assets/models/defenders/blue-wizard.glb",
+      asset: this.loadedAssetPath,
       meshNames: meshes.map((mesh) => mesh.name),
       rootNames: container.rootNodes.map((node) => node.name),
       materialNames: container.materials.map((material) => material.name),

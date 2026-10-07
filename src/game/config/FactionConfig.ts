@@ -15,7 +15,7 @@ export interface FactionDefinition {
 export const FACTIONS: Record<FactionId, FactionDefinition> = {
   "arcane-kingdom": {
     id: "arcane-kingdom",
-    name: "Arcane Kingdom",
+    name: "Royal Guard",
     tagline: "Balanced & Versatile",
     description: "A balanced faction combining disciplined warriors with powerful arcane magic. Knights hold the frontline while Wizards and Battlemages control the battlefield from behind, making the faction adaptable to most situations without being overly specialized.",
     units: ["blue-wizard", "holy-knight", "green-archer", "battlemage", "sovereign"],

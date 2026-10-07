@@ -42,6 +42,7 @@ interface ArcaneBurst {
 
 /** Visual-only, short-lived combat feedback. It never reads or alters gameplay. */
 export class CombatEffects3D {
+  private static readonly MAX_TIMED_EFFECTS = 96;
   private readonly effects: TimedEffect[] = [];
   private readonly arrows: ArrowEffect[] = [];
   private readonly arcaneProjectiles: ArcaneProjectile[] = [];
@@ -56,6 +57,8 @@ export class CombatEffects3D {
   private readonly arcaneHalo: StandardMaterial;
   private readonly arcaneTrail: StandardMaterial;
   private readonly arcaneRing: StandardMaterial;
+  private readonly archerMarkMaterial: StandardMaterial;
+  private readonly warImpactMaterial: StandardMaterial;
   private arcaneProjectilesCreated = 0;
   private arcaneBurstsCreated = 0;
 
@@ -70,6 +73,8 @@ export class CombatEffects3D {
     this.arcaneHalo = this.glowMaterial("arcaneProjectileHalo", VISUAL_CONFIG.arcaneHighlightColor, 0.17);
     this.arcaneTrail = this.glowMaterial("arcaneProjectileTrail", VISUAL_CONFIG.arcaneGlowColor, 0.48);
     this.arcaneRing = this.glowMaterial("arcaneImpactRing", VISUAL_CONFIG.arcaneHighlightColor, 0.78);
+    this.archerMarkMaterial = this.glowMaterial("rangerMark", Color3.FromHexString("#8ddd72"), 0.76);
+    this.warImpactMaterial = this.glowMaterial("warSovereignImpact", Color3.FromHexString("#e8b358"), 0.88);
   }
 
   get activeEffectCount(): number { return this.effects.length + this.arcaneBursts.length; }
@@ -79,10 +84,18 @@ export class CombatEffects3D {
   get totalArcaneProjectilesCreated(): number { return this.arcaneProjectilesCreated; }
   get totalArcaneBurstsCreated(): number { return this.arcaneBurstsCreated; }
 
-  showShot(from: Vector3, target: Vector3, enemyDied: boolean): void {
-    this.createArrow(from, target);
+  showShot(from: Vector3, target: Vector3, enemyDied: boolean, trail?: { color: string; alpha: number }): void {
+    this.createArrow(from, target, trail);
     this.addBurst(target, this.hitMaterial, 0.11, 0.12, false);
     if (enemyDied) this.addBurst(target, this.deathMaterial, 0.22, 0.22, true);
+  }
+
+  showArcherMark(target: Vector3): void {
+    this.addBurst(target, this.archerMarkMaterial, 0.14, 0.2, true);
+  }
+
+  showWarImpact(target: Vector3, enemyDied: boolean): void {
+    this.addBurst(target, this.warImpactMaterial, enemyDied ? 0.25 : 0.18, 0.16, true);
   }
 
   /** Short contact flash only; Holy Knight attacks do not create a projectile. */
@@ -94,6 +107,23 @@ export class CombatEffects3D {
   /** Small secondary-target cue for splash; it carries no gameplay timing. */
   showSplashHit(target: Vector3): void {
     this.addBurst(target, this.hitMaterial, 0.085, 0.075, false);
+  }
+
+  /** Brief non-recursive chain arc between already-resolved attack targets. */
+  showLightningArc(from: Vector3, target: Vector3, color = "#60ccff"): void {
+    const points = [from.clone()];
+    for (let index = 1; index < 5; index += 1) {
+      const point = Vector3.Lerp(from, target, index / 5);
+      point.x += (index % 2 ? 1 : -1) * 0.12;
+      point.y += 0.08 + (index % 2) * 0.06;
+      points.push(point);
+    }
+    points.push(target.clone());
+    const arc = MeshBuilder.CreateLines("stormcaller-chain-arc", { points, updatable: false }, this.scene);
+    arc.color = Color3.FromHexString(color);
+    arc.alpha = 0.9;
+    arc.isPickable = false;
+    this.pushTimedEffect({ mesh: arc, remaining: 0.13, duration: 0.13, grows: false });
   }
 
   /** Arcane bolt is presentation-only; GameState has already applied its attack event. */
@@ -155,7 +185,7 @@ export class CombatEffects3D {
     this.arcaneBursts.length = 0;
   }
 
-  private createArrow(from: Vector3, target: Vector3): void {
+  private createArrow(from: Vector3, target: Vector3, trail?: { color: string; alpha: number }): void {
     const root = new TransformNode("archer-arrow", this.scene);
     root.position.copyFrom(from);
     root.rotation.y = Math.atan2(target.x - from.x, target.z - from.z);
@@ -163,6 +193,15 @@ export class CombatEffects3D {
     shaft.parent = root; shaft.rotation.x = Math.PI / 2; shaft.position.z = 0.05; shaft.material = this.arrowWood;
     const tip = MeshBuilder.CreateCylinder("arrow-tip", { height: 0.1, diameterTop: 0, diameterBottom: 0.06, tessellation: 4 }, this.scene);
     tip.parent = root; tip.rotation.x = Math.PI / 2; tip.position.z = 0.29; tip.material = this.arrowMetal;
+    if (trail) {
+      const tail = MeshBuilder.CreateLines("specialized-arrow-trail", {
+        points: [new Vector3(0, 0, -0.08), new Vector3(0, 0, -0.42)],
+      }, this.scene);
+      tail.parent = root;
+      tail.color = Color3.FromHexString(trail.color);
+      tail.alpha = trail.alpha;
+      tail.isPickable = false;
+    }
     const duration = 0.18;
     if (this.arrows.length >= VISUAL_CONFIG.arcaneMaxProjectiles) {
       this.arrows.shift()?.root.dispose(false, false);
@@ -174,7 +213,12 @@ export class CombatEffects3D {
     const burst = MeshBuilder.CreateSphere("combat-burst", { diameter: size, segments: 4 }, this.scene);
     burst.position.copyFrom(position);
     burst.material = material;
-    this.effects.push({ mesh: burst, remaining: duration, duration, grows });
+    this.pushTimedEffect({ mesh: burst, remaining: duration, duration, grows });
+  }
+
+  private pushTimedEffect(effect: TimedEffect): void {
+    if (this.effects.length >= CombatEffects3D.MAX_TIMED_EFFECTS) this.effects.shift()?.mesh.dispose(false, false);
+    this.effects.push(effect);
   }
 
   private material(name: string, color: Color3): StandardMaterial {
