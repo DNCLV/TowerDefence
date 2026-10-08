@@ -85,7 +85,7 @@ assert.deepEqual(FACTIONS["ancient-grove"].units, ["treant", "thorn-owl", "druid
 assert.deepEqual(["treant", "thorn-owl", "druid", "seer"].map((id) => DEFENDER_CONFIG[id].buildCost), [7, 15, 55, 75]);
 assert.deepEqual(["treant", "thorn-owl", "druid", "seer"].map((id) => DEFENDER_CONFIG[id].levels.map(({ damage, fireRate, upgradeCost }) => [damage, fireRate, upgradeCost])), [
   [[18, 1, null], [32, 1.05, 15], [52, 1.15, 25]],
-  [[18, 1.1, null], [34, 1.3, 25], [82, 1.7, 125]],
+  [[22, 1.25, null], [38, 1.4, 25], [82, 1.7, 125]],
   [[60, 1.05, null], [100, 1.15, 70], [310, 0.8, 110]],
   [[65, 0.85, null], [110, 0.95, 100], [95, 1.1, 150]],
 ]);

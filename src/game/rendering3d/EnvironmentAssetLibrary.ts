@@ -13,9 +13,8 @@ import {
   Vector3,
 } from "@babylonjs/core";
 import { resolveAssetUrl } from "../../core/AssetUrl";
+import { FOREST_PALETTE } from "./EnvironmentThemes";
 
-/** Shared tint for forest foliage templates; trunks retain their source color. */
-const FOREST_TREE_FOLIAGE_TINT = new Color3(0.76, 0.84, 0.72);
 
 export type EnvironmentAssetKey =
   | "castle-wall" | "castle-corner" | "castle-gate" | "castle-tower-base" | "castle-tower-roof"
@@ -213,7 +212,7 @@ export class EnvironmentAssetLibrary {
       root.getChildMeshes().forEach((mesh) => {
         const material = mesh.material;
         if (material instanceof PBRMaterial && /leaf|foliage|plant|tree/i.test(`${mesh.name} ${material.name}`)) {
-          material.albedoColor.multiplyInPlace(FOREST_TREE_FOLIAGE_TINT);
+          material.albedoColor.multiplyInPlace(FOREST_PALETTE.foliageTint);
         }
       });
     }

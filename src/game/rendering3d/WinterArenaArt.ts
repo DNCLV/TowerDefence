@@ -1,6 +1,7 @@
 import { Color3, DynamicTexture, MeshBuilder, PBRMaterial, PointLight, Scene, ShadowGenerator, StandardMaterial, Texture, TransformNode, Vector3 } from "@babylonjs/core";
 import { EnvironmentAssetKey, EnvironmentAssetLibrary } from "./EnvironmentAssetLibrary";
 import { EnvironmentTheme } from "./EnvironmentThemes";
+import { FOREST_PALETTE } from "./EnvironmentThemes";
 import { VISUAL_CONFIG } from "./VisualConfig";
 import type { TerrainRegion } from "../config/MapConfig";
 
@@ -197,7 +198,7 @@ export class WinterArenaArt {
   private createForestFloorTexture(name: string, width: number, height: number, seed: number): DynamicTexture {
     const texture = new DynamicTexture(name, { width, height }, this.scene, true);
     const context = texture.getContext();
-    context.fillStyle = "#78a84e";
+    context.fillStyle = FOREST_PALETTE.floorHex;
     context.fillRect(0, 0, width, height);
     let state = seed >>> 0;
     const random = () => {
@@ -223,7 +224,7 @@ export class WinterArenaArt {
     for (let index = 0; index < 42; index += 1) {
       const x = random() * width, y = random() * height;
       const radius = Math.min(width, height) * (0.012 + random() * 0.028);
-      const color = index % 3 === 0 ? "rgba(100,69,39,0.29)" : "rgba(145,101,56,0.22)";
+      const color = FOREST_PALETTE.dirtPatchColors[index % FOREST_PALETTE.dirtPatchColors.length];
       const gradient = context.createRadialGradient(x, y, radius * 0.08, x, y, radius);
       gradient.addColorStop(0, color);
       gradient.addColorStop(0.62, color.replace(/0\.\d+\)/, "0.10)"));

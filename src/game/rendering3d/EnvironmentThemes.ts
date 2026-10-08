@@ -2,6 +2,15 @@ import { Color3 } from "@babylonjs/core";
 import type { FactionId } from "../config/FactionConfig";
 import type { EnvironmentAssetKey } from "./EnvironmentAssetLibrary";
 
+/** Shared Forest presentation palette: dark border foliage, readable clearing, earthy scatter. */
+export const FOREST_PALETTE = {
+  playableGround: new Color3(0.31, 0.52, 0.22),
+  outskirtsGround: new Color3(0.15, 0.31, 0.13),
+  floorHex: "#4f8338",
+  foliageTint: new Color3(0.62, 0.72, 0.57),
+  dirtPatchColors: ["rgba(92,61,35,0.29)", "rgba(128,86,48,0.22)"],
+} as const;
+
 export interface EnvironmentTheme {
   id: string;
   label: string;
@@ -39,7 +48,7 @@ export const ENVIRONMENT_THEMES: readonly EnvironmentTheme[] = [
   {
     id: "ancient-grove-forest", label: "Ancient Grove Forest",
     style: "forest",
-    playableGround: new Color3(0.45, 0.67, 0.30), outskirtsGround: new Color3(0.22, 0.43, 0.18),
+    playableGround: FOREST_PALETTE.playableGround, outskirtsGround: FOREST_PALETTE.outskirtsGround,
     fogColor: new Color3(0.58, 0.70, 0.57), ambientTint: new Color3(0.78, 0.90, 0.70),
     spawnAccent: new Color3(0.80, 0.24, 0.14), exitAccent: new Color3(0.92, 0.73, 0.26),
     treeAssets: ["forest-tree", "forest-tree-high"],
