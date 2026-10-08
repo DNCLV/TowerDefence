@@ -84,13 +84,13 @@ for (const [type, choices] of Object.entries({
 assert.deepEqual(FACTIONS["ancient-grove"].units, ["treant", "thorn-owl", "druid", "seer"]);
 assert.deepEqual(["treant", "thorn-owl", "druid", "seer"].map((id) => DEFENDER_CONFIG[id].buildCost), [7, 15, 55, 75]);
 assert.deepEqual(["treant", "thorn-owl", "druid", "seer"].map((id) => DEFENDER_CONFIG[id].levels.map(({ damage, fireRate, upgradeCost }) => [damage, fireRate, upgradeCost])), [
-  [[22, 1, null], [38, 1.05, 15], [60, 1.15, 25]],
+  [[18, 1, null], [32, 1.05, 15], [52, 1.15, 25]],
   [[12, 0.95, null], [22, 1.1, 25], [70, 1.5, 125]],
   [[60, 1.05, null], [100, 1.15, 70], [310, 0.8, 110]],
   [[65, 0.85, null], [110, 0.95, 100], [95, 1.1, 150]],
 ]);
 assert.deepEqual(DEFENDER_CONFIG.treant.targetTypes, ["ground"], "Treants remain ground-only");
-assert.deepEqual(DEFENDER_CONFIG.treant.levels.map(({ damage, fireRate }) => Number((damage * fireRate).toFixed(1))), [22, 39.9, 69]);
+assert.deepEqual(DEFENDER_CONFIG.treant.levels.map(({ damage, fireRate }) => Number((damage * fireRate).toFixed(1))), [18, 33.6, 59.8]);
 const treantEconomy = new GameState("single-spawn", "ancient-grove", 100);
 const treantBuildCell = Array.from({ length: treantEconomy.map.width * treantEconomy.map.height }, (_, index) => ({
   x: index % treantEconomy.map.width, y: Math.floor(index / treantEconomy.map.width),
@@ -141,9 +141,9 @@ assert.equal(rotEnemy.thornRotStacks, 0, "all stacks expire together after four 
 const flyingRot = makeEnemy(702, "goblinRider");
 groveStatuses.updateEnemy(flyingRot, 2, 3);
 assert.equal(flyingRot.thornRotStacks, 0, "flying enemies are immune to Thorn Rot");
-assert.deepEqual([1, 2, 3].map((level) => FACTION_BONUS_CONFIG.thornRot.damagePerStackPerSecond[level]), [8, 12, 16]);
+assert.deepEqual([1, 2, 3].map((level) => FACTION_BONUS_CONFIG.thornRot.damagePerStackPerSecond[level]), [6, 9, 13]);
 assert.deepEqual([1, 2, 3].map((level) => FACTION_BONUS_CONFIG.thornRot.maxStacks[level]), [5, 5, 6]);
-assert.deepEqual([1, 2, 3].map((level) => getThornRotDamage({ thornRotStacks: FACTION_BONUS_CONFIG.thornRot.maxStacks[level] }, level)), [40, 60, 96]);
+assert.deepEqual([1, 2, 3].map((level) => getThornRotDamage({ thornRotStacks: FACTION_BONUS_CONFIG.thornRot.maxStacks[level] }, level)), [30, 45, 78]);
 
 // Sunbrand: per-hit stacks, four-second grace, one stack/sec decay, refresh and fixed priority.
 const brandEnemy = makeEnemy(703);
@@ -222,7 +222,7 @@ rotState.factionBonuses.rebuildLivingMazeInfluence(rotState.towers, [rotState.pa
 rotState.waveActive = true; rotState.toSpawn = 1; rotState.enemies = [rotTarget];
 rotState.update(1);
 assert.equal(rotTarget.thornRotStacks, 1, "four overlapping Treants still add one Thorn Rot stack/sec");
-assert.equal(rotTarget.hp, 9992, "one L1 Thorn Rot stack deals 8 DPS through GameState");
+assert.equal(rotTarget.hp, 9994, "one L1 Thorn Rot stack deals 6 DPS through GameState");
 
 const sunDotEnemy = makeEnemy(722);
 sunDotEnemy.sunbrandStacks = 4; sunDotEnemy.sunbrandGraceSecondsRemaining = 4; sunDotEnemy.speed = 0;
@@ -419,34 +419,28 @@ assert.equal(regenDelay.hp, 50, "regen pauses during the full hit delay");
 updateEnemyAffixes(regenDelay, 1);
 assert.equal(regenDelay.hp, 50.75, "a delta crossing the delay heals only for time after the pause");
 
-// Deterministic Wave 1 sanity: spend 70 of the normal 100 starting gold on
-// ten valid, route-covering Treants, then let the platform-neutral game model run.
+// Deterministic Wave 1 sanity: spend 56 of the normal 100 starting gold on
+// eight valid, route-covering Treants, then let the platform-neutral game model run.
 const groveWave1 = new GameState("single-spawn", "ancient-grove", 100);
-const treantRangeTiles = DEFENDER_CONFIG.treant.levels[0].range / WORLD_UNITS_PER_CELL;
-for (let count = 0; count < 10; count += 1) {
-  const covered = new Set(groveWave1.path.flatMap((pathCell, pathIndex) => (
-    groveWave1.towers.some((tower) => Math.hypot(tower.cell.x - pathCell.x, tower.cell.y - pathCell.y) <= treantRangeTiles)
-      ? [pathIndex] : []
-  )));
-  let selectedCell;
-  let selectedCoverage = -1;
+const groveReferenceRoute = [...groveWave1.path];
+for (let count = 0; count < 8; count += 1) {
+  const target = groveReferenceRoute[Math.round((count + 1) * (groveReferenceRoute.length - 1) / 9)];
+  const buildCells = [];
   for (let y = 0; y < groveWave1.map.height; y += 1) for (let x = 0; x < groveWave1.map.width; x += 1) {
     const cell = { x, y };
     if (!groveWave1.grid.isBuildable(cell)) continue;
-    const coverage = groveWave1.path.reduce((total, pathCell, pathIndex) => total
-      + (!covered.has(pathIndex) && Math.hypot(x - pathCell.x, y - pathCell.y) <= treantRangeTiles ? 1 : 0), 0);
-    if ((selectedCell && coverage <= selectedCoverage) || groveWave1.canPlaceBasicTower(cell, "treant") !== "placed") continue;
-    selectedCell = cell;
-    selectedCoverage = coverage;
+    buildCells.push({ cell, distance: Math.hypot(x - target.x, y - target.y) });
   }
+  buildCells.sort((a, b) => a.distance - b.distance || a.cell.x - b.cell.x || a.cell.y - b.cell.y);
+  const selectedCell = buildCells.find(({ cell }) => groveWave1.canPlaceBasicTower(cell, "treant") === "placed")?.cell;
   assert.ok(selectedCell, `Treant ${count + 1} has a valid non-blocking build cell`);
   assert.equal(groveWave1.placeBasicTower(selectedCell, "treant"), "placed");
 }
-assert.equal(groveWave1.gold, 30, "ten L1 Treants cost 70 gold, leaving 30 from normal starting gold");
+assert.equal(groveWave1.gold, 44, "eight L1 Treants cost 56 gold, leaving 44 from normal starting gold");
 assert.equal(groveWave1.startWave(), true);
 for (let frame = 0; frame < 2000 && groveWave1.waveActive; frame += 1) groveWave1.update(0.1);
 assert.equal(groveWave1.waveActive, false, "the real Wave 1 simulation completes");
-assert.ok(groveWave1.lives > 0, "Ancient Grove survives the first wave with ten L1 Treants");
+assert.ok(groveWave1.lives > 0, "Ancient Grove survives the first wave with eight L1 Treants");
 assert.ok(groveWave1.towers.reduce((total, tower) => total + tower.combatStats.kills, 0) > 0,
   "Treants deal enough real combat damage to kill Wave 1 enemies");
 
