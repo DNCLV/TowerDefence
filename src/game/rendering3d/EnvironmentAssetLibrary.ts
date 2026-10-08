@@ -2,7 +2,9 @@ import "@babylonjs/loaders/glTF";
 import {
   AbstractMesh,
   AssetContainer,
+  Color3,
   Mesh,
+  PBRMaterial,
   Quaternion,
   Scene,
   SceneLoader,
@@ -11,6 +13,9 @@ import {
   Vector3,
 } from "@babylonjs/core";
 import { resolveAssetUrl } from "../../core/AssetUrl";
+
+/** Shared tint for forest foliage templates; trunks retain their source color. */
+const FOREST_TREE_FOLIAGE_TINT = new Color3(0.76, 0.84, 0.72);
 
 export type EnvironmentAssetKey =
   | "castle-wall" | "castle-corner" | "castle-gate" | "castle-tower-base" | "castle-tower-roof"
@@ -203,6 +208,15 @@ export class EnvironmentAssetLibrary {
     const root = new TransformNode(`environment-source-${key}`, this.scene);
     entries.rootNodes.forEach((node) => { node.parent = root; });
     root.computeWorldMatrix(true);
+
+    if (key === "forest-tree" || key === "forest-tree-high") {
+      root.getChildMeshes().forEach((mesh) => {
+        const material = mesh.material;
+        if (material instanceof PBRMaterial && /leaf|foliage|plant|tree/i.test(`${mesh.name} ${material.name}`)) {
+          material.albedoColor.multiplyInPlace(FOREST_TREE_FOLIAGE_TINT);
+        }
+      });
+    }
 
     const meshes = root.getChildMeshes().filter((mesh): mesh is Mesh => mesh instanceof Mesh && mesh.getTotalVertices() > 0)
       .map((mesh) => {
