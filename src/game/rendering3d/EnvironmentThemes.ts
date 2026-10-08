@@ -16,7 +16,7 @@ export interface EnvironmentTheme {
   treeCount: number;
   rockCount: number;
   propCount: number;
-  clusters: readonly ("forest" | "rocks" | "camp" | "village")[];
+  clusters: readonly ("forest" | "rocks" | "camp" | "village" | "storage")[];
 }
 
 export const ENVIRONMENT_THEMES: readonly EnvironmentTheme[] = [
@@ -27,8 +27,8 @@ export const ENVIRONMENT_THEMES: readonly EnvironmentTheme[] = [
     spawnAccent: new Color3(0.72, 0.17, 0.12), exitAccent: new Color3(0.76, 0.65, 0.30),
     treeAssets: ["castle-tree", "castle-tree-large"],
     rockAssets: ["castle-rock", "castle-rock-large"], propAssets: ["castle-flag"],
-    treeCount: 8, rockCount: 5, propCount: 4,
-    clusters: ["village", "forest", "camp", "rocks", "camp", "forest", "camp", "rocks", "forest", "camp", "forest", "village"],
+    treeCount: 12, rockCount: 30, propCount: 18,
+    clusters: ["village", "rocks", "storage", "forest", "camp", "rocks", "storage", "forest", "village", "rocks", "storage", "village"],
   },
 ];
 

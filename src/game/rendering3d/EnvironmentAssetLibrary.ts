@@ -13,7 +13,7 @@ import { resolveAssetUrl } from "../../core/AssetUrl";
 export type EnvironmentAssetKey =
   | "castle-wall" | "castle-corner" | "castle-gate" | "castle-tower-base" | "castle-tower-roof"
   | "castle-flag" | "castle-tree" | "castle-tree-large" | "castle-rock" | "castle-rock-large"
-  | "castle-ground-hills" | "castle-fence" | "castle-ballista";
+  | "castle-ground-hills" | "castle-fence" | "castle-ballista" | "medieval-wagon" | "medieval-crate";
 
 interface AssetSource {
   rootUrl: string;
@@ -40,6 +40,8 @@ const ASSETS: Record<EnvironmentAssetKey, AssetSource> = {
   "castle-ground-hills": { rootUrl: "/assets/environment/kenney-castle/", fileName: "ground-hills.glb" },
   "castle-fence": { rootUrl: "/assets/environment/kenney-castle/", fileName: "wall-narrow-wood-fence.glb" },
   "castle-ballista": { rootUrl: "/assets/environment/kenney-castle/", fileName: "siege-ballista.glb" },
+  "medieval-wagon": { rootUrl: "/assets/environment/medieval/", fileName: "Prop_Wagon.gltf" },
+  "medieval-crate": { rootUrl: "/assets/environment/medieval/", fileName: "Prop_Crate.gltf" },
 };
 
 // Only the environment pieces already verified in the original arena cast shadows.

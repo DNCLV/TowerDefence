@@ -34,6 +34,7 @@ export class WinterArenaArt {
     return [...new Set<EnvironmentAssetKey>([
       "castle-wall", "castle-corner", "castle-gate", "castle-tower-base", "castle-tower-roof",
       "castle-flag", "castle-fence", "castle-ballista", "castle-rock", "castle-ground-hills",
+      "medieval-wagon", "medieval-crate",
       ...theme.treeAssets,
       ...theme.rockAssets,
       ...theme.propAssets,
@@ -413,6 +414,49 @@ export class WinterArenaArt {
 
   clusters(theme: EnvironmentTheme, seed: number): TransformNode[] {
     const roots: TransformNode[] = [];
+    const addOutskirtsAsset = (key: EnvironmentAssetKey, name: string, x: number, z: number,
+      rotation: number, scale: number): void => {
+      const root = this.assets.instantiate(key, name, new Vector3(x, 0, z), rotation, scale, false,
+        { maxWidth: VISUAL_CONFIG.outskirtsMaxPropWidth, maxHeight: VISUAL_CONFIG.outskirtsMaxPropHeight,
+          maxDepth: VISUAL_CONFIG.outskirtsMaxPropDepth });
+      if (!root) return;
+      const bounds = root.getHierarchyBoundingVectors(true);
+      if (bounds.max.x > 0 && bounds.min.x < this.width && bounds.max.z > 0 && bounds.min.z < this.depth) {
+        root.dispose(false, false);
+        return;
+      }
+      root.getChildMeshes().forEach((mesh) => {
+        mesh.isPickable = false;
+        mesh.receiveShadows = false;
+        mesh.computeWorldMatrix(true);
+        mesh.freezeWorldMatrix();
+      });
+      root.computeWorldMatrix(true);
+      root.freezeWorldMatrix();
+      roots.push(root);
+    };
+    // Dress both shoulders of each gate while leaving the cobblestone approach open.
+    this.protectedGateZones.forEach((gate, gateIndex) => {
+      const horizontal = gate.side === "north" || gate.side === "south";
+      const outwardX = gate.side === "west" ? -1 : gate.side === "east" ? 1 : 0;
+      const outwardZ = gate.side === "north" ? -1 : gate.side === "south" ? 1 : 0;
+      for (const direction of [-1, 1]) {
+        const tangentX = horizontal ? direction : 0;
+        const tangentZ = horizontal ? 0 : direction;
+        addOutskirtsAsset("castle-rock-large", `gate-shoulder-rock-${gateIndex}-${direction}`,
+          gate.x + tangentX * 2.35 + outwardX * 2.35, gate.z + tangentZ * 2.35 + outwardZ * 2.35,
+          (gateIndex + direction) * 0.31, 0.86);
+        addOutskirtsAsset("castle-rock", `gate-shoulder-stones-${gateIndex}-${direction}`,
+          gate.x + tangentX * 3.55 + outwardX * 3.25, gate.z + tangentZ * 3.55 + outwardZ * 3.25,
+          (gateIndex - direction) * 0.47, 0.76);
+        addOutskirtsAsset("castle-fence", `gate-approach-fence-${gateIndex}-${direction}`,
+          gate.x + tangentX * 4.0 + outwardX * 2.8, gate.z + tangentZ * 4.0 + outwardZ * 2.8,
+          horizontal ? 0 : Math.PI / 2, 0.56);
+        addOutskirtsAsset("medieval-crate", `gate-supply-crate-${gateIndex}-${direction}`,
+          gate.x + tangentX * 3.15 + outwardX * 4.35, gate.z + tangentZ * 3.15 + outwardZ * 4.35,
+          (gateIndex * 3 + direction) * 0.38, 0.56);
+      }
+    });
     // Low Kenney hill meshes break up the flat outer plane while staying clear of the map.
     const hillAnchors: Array<[number, number, number]> = [
       [-5.4, -5.4, 0], [this.width + 5.4, -5.4, Math.PI / 2],
@@ -439,9 +483,16 @@ export class WinterArenaArt {
       [-4.2, this.depth * 0.25], [-4.2, this.depth * 0.75], [this.width + 4.2, this.depth * 0.25], [this.width + 4.2, this.depth * 0.75],
       [quarter, this.depth + 4.2], [quarter * 2, this.depth + 4.2], [quarter * 3, this.depth + 4.2], [this.width - quarter, this.depth + 4.2],
     ];
-    const forest = [["tree", -0.72, 0], ["tree", 0.78, 0.5], ["rock", 1.2, -0.95], ["rock", -0.1, 1.15]] as const;
-    const rocks = [["wall", -0.75, 0], ["rock", 0.75, 0.55], ["rock", 0.0, -1.1], ["fence", 0.2, 1.05]] as const;
-    const camp = [["ballista", -0.45, 0], ["flag", 0.95, -0.45], ["fence", 0.75, 1.05], ["tree", -1.15, -1.05]] as const;
+    // Irregular, layered compositions keep the outskirts lively without forming a
+    // second maze. Each pocket is still bounded by the existing playable-area test.
+    const forest = [["tree", -0.82, -0.2], ["tree", 0.95, 0.55], ["rockLarge", 1.25, -1.05],
+      ["rock", -0.1, 1.28], ["rock", 1.75, 1.05], ["rock", -1.55, -1.2]] as const;
+    const rocks = [["rockLarge", -0.1, 0], ["rock", -1.15, 0.58], ["rock", 1.1, 0.7],
+      ["rock", 0.2, -1.25], ["rock", 1.7, -1.05], ["tree", -1.55, 1.25], ["fence", 0.05, 1.7]] as const;
+    const camp = [["ballista", -0.45, 0], ["flag", 0.95, -0.45], ["fence", 0.75, 1.2],
+      ["tree", -1.35, -1.2], ["rock", 1.7, 1.2], ["rock", -1.8, 0.9]] as const;
+    const storage = [["wagon", 0.1, 0], ["crate", -1.4, 0.45], ["crate", 1.25, 0.9],
+      ["fence", -0.25, 1.6], ["rock", 1.65, -1.25], ["tree", -1.65, -1.4]] as const;
     theme.clusters.forEach((kind, index) => {
       const [cx, cz] = anchors[index % anchors.length];
       // Keep the visual corridor behind each spawn and the shared castle gate clear.
@@ -451,23 +502,29 @@ export class WinterArenaArt {
         const cottage = this.createVillageCottage(index, cx, cz, index % 2 === 0 ? 0 : Math.PI);
         roots.push(cottage);
       } else {
-        const composition = kind === "forest" ? forest : kind === "rocks" ? rocks : camp;
+        const composition = kind === "forest" ? forest : kind === "rocks" ? rocks : kind === "storage" ? storage : camp;
         composition.forEach(([category, dx, dz], part) => {
           const variation = Math.abs(seed + index * 7 + part * 11);
           const key: EnvironmentAssetKey = category === "tree" ? theme.treeAssets[variation % theme.treeAssets.length]
-            : category === "rock" ? theme.rockAssets[variation % theme.rockAssets.length]
+            : category === "rock" ? "castle-rock"
+              : category === "rockLarge" ? "castle-rock-large"
             : category === "flag" ? theme.propAssets[variation % theme.propAssets.length]
-            : category === "wall" ? "castle-wall" : category === "fence" ? "castle-fence" : "castle-ballista";
+            : category === "fence" ? "castle-fence"
+              : category === "wagon" ? "medieval-wagon" : category === "crate" ? "medieval-crate" : "castle-ballista";
           const scale = category === "tree" ? VISUAL_CONFIG.outskirtsTreeScale
-            : category === "rock" ? VISUAL_CONFIG.outskirtsRockScale
-              : category === "ballista" ? VISUAL_CONFIG.outskirtsWagonScale
-                : category === "fence" ? VISUAL_CONFIG.outskirtsFenceScale
-                  : category === "wall" ? VISUAL_CONFIG.outskirtsWallScale : VISUAL_CONFIG.outskirtsCrateScale;
-          const rotation = category === "fence" ? 0 : category === "wall" ? (variation % 2) * Math.PI / 2 : (variation % 12) * Math.PI / 6;
+            : category === "rock" || category === "rockLarge"
+              ? VISUAL_CONFIG.outskirtsRockScale * (0.84 + (variation % 5) * 0.08)
+            : category === "ballista" || category === "wagon" ? VISUAL_CONFIG.outskirtsWagonScale
+              : category === "crate" ? VISUAL_CONFIG.outskirtsCrateScale
+                : category === "fence" ? VISUAL_CONFIG.outskirtsFenceScale : VISUAL_CONFIG.outskirtsCrateScale;
+          const rotation = category === "fence" ? (variation % 2) * Math.PI / 2
+            : (variation % 12) * Math.PI / 6;
           const root = this.assets.instantiate(key, `cluster-${index}-${part}`, new Vector3(cx + dx, 0, cz + dz),
             rotation,
             scale, false,
-            { maxWidth: VISUAL_CONFIG.outskirtsMaxPropWidth, maxHeight: VISUAL_CONFIG.outskirtsMaxPropHeight, maxDepth: VISUAL_CONFIG.outskirtsMaxPropDepth });
+            { maxWidth: category === "wagon" ? 4 : VISUAL_CONFIG.outskirtsMaxPropWidth,
+              maxHeight: VISUAL_CONFIG.outskirtsMaxPropHeight,
+              maxDepth: category === "wagon" ? 4 : VISUAL_CONFIG.outskirtsMaxPropDepth });
           if (!root) return;
           const bounds = root.getHierarchyBoundingVectors(true);
           // Reject anything reaching the protected center, including wide imported siblings.

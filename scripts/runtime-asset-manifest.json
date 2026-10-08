@@ -36,7 +36,9 @@
       "assets/environment/kenney-castle/rocks-large.glb",
       "assets/environment/kenney-castle/ground-hills.glb",
       "assets/environment/kenney-castle/wall-narrow-wood-fence.glb",
-      "assets/environment/kenney-castle/siege-ballista.glb"
+      "assets/environment/kenney-castle/siege-ballista.glb",
+      "assets/environment/medieval/Prop_Wagon.gltf",
+      "assets/environment/medieval/Prop_Crate.gltf"
     ],
     "ui": [
       "assets/ui/defenders/wizard.png",
