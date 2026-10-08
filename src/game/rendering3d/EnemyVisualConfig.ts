@@ -43,7 +43,7 @@ export const ENEMY_VISUAL_CONFIG: Record<EnemyType, EnemyVisualDefinition> = {
   giantGoblin: {
     assetPath: "/assets/models/enemies/optimized/giant-goblin.glb",
     fallbackAssetPath: "/assets/models/enemies/giant-goblin.glb",
-    scale: 3.15, yOffset: 0, groundOffsetY: -0.02, rotationY: 0, hpBarOffsetY: 6.35, maxDimension: 7,
+    scale: 2.36, yOffset: 0, groundOffsetY: 0, rotationY: 0, hpBarOffsetY: 4.85, maxDimension: 7,
     sourceDimensions: { width: 1.3279, height: 1.8980, depth: 1.0538 },
   },
   ghoul: {

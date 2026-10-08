@@ -86,4 +86,14 @@ export const DEFENDER_VISUAL_CONFIG: Record<DefenderType, DefenderVisualDefiniti
     visualScaleMultiplier: 0.9,
     rotationY: 0,
   },
+  // Ancient Grove currently uses intentionally simple Babylon primitives; these
+  // neutral bounds keep its visual-only scale tuning separate from cell logic.
+  treant: { displayName: "Treant", debugLabel: "TREANT", assetPath: "", modelScale: 1, visualScaleMultiplier: 0.9,
+    sourceBounds: { width: 0.8, height: 1.3, depth: 0.8 }, targetVisualHeight: 1.3, rotationY: 0 },
+  "thorn-owl": { displayName: "Thorn Owl", debugLabel: "OWL", assetPath: "", modelScale: 1, visualScaleMultiplier: 0.9,
+    sourceBounds: { width: 0.9, height: 0.7, depth: 0.7 }, targetVisualHeight: 0.7, rotationY: 0 },
+  druid: { displayName: "Druid", debugLabel: "DRUID", assetPath: "", modelScale: 1, visualScaleMultiplier: 0.9,
+    sourceBounds: { width: 0.7, height: 1.2, depth: 0.7 }, targetVisualHeight: 1.2, rotationY: 0 },
+  seer: { displayName: "Seer", debugLabel: "SEER", assetPath: "", modelScale: 1, visualScaleMultiplier: 0.9,
+    sourceBounds: { width: 0.7, height: 1.1, depth: 0.7 }, targetVisualHeight: 1.1, rotationY: 0 },
 };

@@ -3,7 +3,7 @@ import { WORLD_UNITS_PER_CELL } from "../core/GameConstants";
 import { Enemy, applyArcherMark, createEnemy, getEnemyHpForWave, getEnemyHpMultiplier, getEnemyHpTier, updateEnemySpecialStatuses } from "./enemies/Enemy";
 import { Grid } from "./grid/Grid";
 import { findPath, findPathThrough } from "./pathfinding/Pathfinder";
-import { Tower, TowerAttackMode, canTowerTargetEnemy, createBasicTower, getTowerAttackProfile, getTowerDamageType, getTowerLevelStats, getTowerSellRefund, getTowerSplashRadiusMultiplier, getTowerSplashRadiusTiles, getTowerSplashRatio, isTowerInRange, isTowerAdjacent8, upgradeTower } from "./towers/Tower";
+import { Tower, TowerAttackMode, canTowerTargetEnemy, createBasicTower, getTowerAttackProfile, getTowerDamageType, getTowerLevelStats, getTowerSellRefund, getTowerSplashRadiusMultiplier, getTowerSplashRadiusTiles, getTowerSplashRatio, getTowerSplashRatioForTarget, getTowerSplashTargetLimit, isTowerInRange, isTowerAdjacent8, upgradeTower } from "./towers/Tower";
 import { DEFENDER_CONFIG, DefenderType } from "./config/DefenderConfig";
 import { LEVEL_1 } from "./config/Level1";
 import { BALANCE } from "./config/BalanceConfig";
@@ -18,6 +18,8 @@ import { FORMATION_BY_ID, resolveFormation } from "./config/FormationConfig";
 import { EnemyAffixSystem, applyEnemySlow, getCommanderAuraMultiplier, getEnemyDamageMultiplier, getEnemySpeedMultiplier, updateEnemyAffixes, createRunSeed } from "./enemies/EnemyAffixSystem";
 import type { AffixMilestoneWarning, DamageType } from "./config/EnemyAffixConfig";
 import { FactionBonusSystem } from "./FactionBonusSystem";
+import { AncientGroveStatusSystem, getSunbrandDamage, getSunbrandTargetPriority, getThornRotDamage } from "./AncientGroveStatusSystem";
+import { FACTION_BONUS_CONFIG } from "./config/FactionBonusConfig";
 
 export type PlacementResult = "placed" | "not-enough-gold" | "invalid-cell" | "enemy-occupied" | "blocks-path" | "game-over";
 export type UpgradeResult = "upgraded" | "specialization-required" | "invalid-specialization" | "not-enough-gold" | "max-level" | "game-over" | "tower-not-found";
@@ -87,6 +89,7 @@ export class GameState {
   affixWarning?: AffixMilestoneWarning;
   readonly affixSystem: EnemyAffixSystem;
   readonly factionBonuses: FactionBonusSystem;
+  private readonly ancientGroveStatuses = new AncientGroveStatusSystem();
   gameOver = false;
   private nextTowerId = 1;
   private nextEnemyId = 1;
@@ -379,14 +382,19 @@ export class GameState {
       updateEnemyAffixes(enemy, deltaSeconds);
       updateEnemySpecialStatuses(enemy, deltaSeconds);
       this.factionBonuses.updateLivingMazeExposure(enemy, deltaSeconds);
+      const routeCell = enemy.path[enemy.currentPathIndex];
+      const treantLevel = this.factionBonuses.getTreantLevelAt(routeCell ?? this.enemyCurrentCell(enemy), this.towers);
+      if (this.factionId === FACTION_BONUS_CONFIG.ancientGroveId) this.ancientGroveStatuses.updateEnemy(enemy, deltaSeconds, treantLevel);
       this.moveEnemy(enemy, deltaSeconds, getCommanderAuraMultiplier(enemy, this.enemies)
         * getEnemySpeedMultiplier(enemy) * this.factionBonuses.getLivingMazeSlowMultiplier(enemy));
     }
+    this.applyAncientGroveDamage(deltaSeconds);
     this.updateTowers(deltaSeconds);
     for (const enemy of this.enemies) {
-      if (!enemy.alive) continue;
+      if (!enemy.alive) { this.ancientGroveStatuses.clearEnemy(enemy); continue; }
       if (enemy.hp <= 0) {
         enemy.alive = false;
+        this.ancientGroveStatuses.clearEnemy(enemy);
         continue;
       }
       survivors.push(enemy);
@@ -402,6 +410,7 @@ export class GameState {
       this.autoRun = false;
       this.waveActive = false;
       this.toSpawn = 0;
+      for (const enemy of this.enemies) this.ancientGroveStatuses.clearEnemy(enemy);
       this.enemies = [];
     } else if (this.toSpawn === 0 && this.enemies.length === 0) {
       this.completeWave();
@@ -447,7 +456,7 @@ export class GameState {
       const primaryDamage = profile.damage;
       tower.cooldownRemaining = 1 / profile.fireRate;
       const primaryDamageType = getTowerDamageType(tower, profile.mode);
-      this.applyTowerDamage(tower, target, primaryDamage, profile.mode, false, "primary", primaryDamageType, tower.cell.x, tower.cell.y);
+      this.applyTowerDamage(tower, target, primaryDamage, profile.mode, false, "primary", primaryDamageType, tower.cell.x, tower.cell.y, profile.physicalResistancePenetration ?? 0);
 
       const specialization = tower.specializationId ? TOWER_SPECIALIZATIONS[tower.specializationId] : undefined;
       if (specialization?.slow) applyEnemySlow(target, specialization.slow.multiplier, specialization.slow.durationSeconds);
@@ -487,14 +496,69 @@ export class GameState {
         && (!isCleave || isTowerAdjacent8(tower, enemy)))
         .sort((a, b) => Math.hypot(a.x - target.x, a.y - target.y) - Math.hypot(b.x - target.x, b.y - target.y));
       const selectedSecondaries = isCleave ? secondaryTargets.slice(0, 2) : secondaryTargets;
-      for (const secondary of selectedSecondaries) {
-        this.applyTowerDamage(tower, secondary, splashDamage, profile.mode, true, isCleave ? "cleave" : "splash", primaryDamageType, target.x, target.y);
+      const configuredLimit = getTowerSplashTargetLimit(tower);
+      const targetLimit = configuredLimit ?? selectedSecondaries.length;
+      for (let index = 0; index < Math.min(targetLimit, selectedSecondaries.length); index += 1) {
+        const secondary = selectedSecondaries[index];
+        const ratio = getTowerSplashRatioForTarget(tower, profile.mode, index, target.livingMazeExposureSeconds);
+        const damageForTarget = Math.round(primaryDamage * ratio);
+        if (damageForTarget <= 0) continue;
+        this.applyTowerDamage(tower, secondary, damageForTarget, profile.mode, true, isCleave ? "cleave" : "splash", primaryDamageType, target.x, target.y, profile.physicalResistancePenetration ?? 0);
       }
     }
   }
 
-  private applyTowerDamage(tower: Tower, enemy: Enemy, damage: number, attackMode: TowerAttackMode, isSplash: boolean, effectKind: TowerAttackEvent["effectKind"], damageType: DamageType, sourceX: number, sourceY: number): void {
+  /** Ancient Grove damage-over-time is resolved in simulation, never in the Babylon renderer. */
+  private applyAncientGroveDamage(deltaSeconds: number): void {
+    if (this.factionId !== FACTION_BONUS_CONFIG.ancientGroveId || deltaSeconds <= 0) return;
+    for (const enemy of this.enemies) {
+      if (!enemy.alive || enemy.hp <= 0) continue;
+      const thornDps = getThornRotDamage(enemy, enemy.thornRotSourceLevel);
+      if (thornDps > 0) {
+        const accumulated = enemy.thornRotDamageRemainder + thornDps * deltaSeconds;
+        const damage = Math.floor(accumulated);
+        enemy.thornRotDamageRemainder = accumulated - damage;
+        if (damage > 0) {
+          const source = this.towers.find((tower) => tower.type === "treant" && tower.level === enemy.thornRotSourceLevel);
+          this.applyStatusDamage(enemy, damage, "physical", source);
+        }
+      }
+      if (!enemy.alive || enemy.hp <= 0) continue;
+      const sunDps = getSunbrandDamage(enemy);
+      if (sunDps > 0) {
+        const accumulated = enemy.sunbrandDamageRemainder + sunDps * deltaSeconds;
+        const damage = Math.floor(accumulated);
+        enemy.sunbrandDamageRemainder = accumulated - damage;
+        if (damage > 0) this.applyStatusDamage(enemy, damage, "magic");
+      }
+    }
+  }
+
+  private applyStatusDamage(enemy: Enemy, damage: number, damageType: DamageType, sourceTower?: Tower): void {
     const resistedDamage = Math.max(0, Math.round(damage * getEnemyDamageMultiplier(enemy, damageType)));
+    const shieldDamage = Math.min(enemy.shield, resistedDamage);
+    enemy.shield -= shieldDamage;
+    const hpBefore = enemy.hp;
+    enemy.hp = Math.max(0, hpBefore - (resistedDamage - shieldDamage));
+    const effectiveDamage = shieldDamage + hpBefore - enemy.hp;
+    enemy.regenDelayRemaining = 1;
+    if (sourceTower) sourceTower.combatStats.damageDone += effectiveDamage;
+    if (hpBefore > 0 && enemy.hp <= 0) {
+      enemy.alive = false;
+      this.ancientGroveStatuses.clearEnemy(enemy);
+      if (sourceTower) sourceTower.combatStats.kills += 1;
+      this.gold += getWaveGoldReward(enemy.reward, this.currentWave);
+      this.enemiesKilled += 1;
+    }
+  }
+
+  private applyTowerDamage(tower: Tower, enemy: Enemy, damage: number, attackMode: TowerAttackMode, isSplash: boolean, effectKind: TowerAttackEvent["effectKind"], damageType: DamageType, sourceX: number, sourceY: number, resistancePenetration = 0): void {
+    let totalDamage = damage;
+    if (tower.type === "seer" && tower.specializationId === "sun-seer" && this.factionId === FACTION_BONUS_CONFIG.ancientGroveId) {
+      const detonates = this.ancientGroveStatuses.applySunbrandHit(enemy);
+      if (detonates) totalDamage += FACTION_BONUS_CONFIG.sunbrand.solarDetonationDamage;
+    }
+    const resistedDamage = Math.max(0, Math.round(totalDamage * getEnemyDamageMultiplier(enemy, damageType, resistancePenetration)));
     const shieldDamage = Math.min(enemy.shield, resistedDamage);
     enemy.shield -= shieldDamage;
     const remainingDamage = resistedDamage - shieldDamage;
@@ -512,6 +576,7 @@ export class GameState {
     if (!enemyDied) return;
     tower.combatStats.kills += 1;
     enemy.alive = false;
+    this.ancientGroveStatuses.clearEnemy(enemy);
     this.gold += getWaveGoldReward(enemy.reward, this.currentWave);
     this.enemiesKilled += 1;
   }
@@ -527,6 +592,10 @@ export class GameState {
       // whenever one is available in range.
       if (tower.type === "green-archer" && tower.specializationId !== "ranger" && a.movementType !== b.movementType) {
         return a.movementType === "flying" ? -1 : 1;
+      }
+      if (tower.type === "seer" && tower.specializationId === "sun-seer") {
+        const statusDifference = getSunbrandTargetPriority(a.sunbrandStacks) - getSunbrandTargetPriority(b.sunbrandStacks);
+        if (statusDifference !== 0) return statusDifference;
       }
       const remainingDifference = this.remainingDistanceToExit(a) - this.remainingDistanceToExit(b);
       // Different spawns have different route lengths, so raw path-index is not comparable.

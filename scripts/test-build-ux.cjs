@@ -67,6 +67,36 @@ async function main() {
   const ready = await evaluate("!!window.__towerDefenceUi && document.querySelector('.game-ui')?.dataset.defenderAssetsReady === 'true'");
   if (!ready) throw new Error("Gameplay/defender visuals did not become ready.");
 
+  const minimapBefore = await evaluate(`(() => ({ panel: document.querySelector('#minimap-panel').getBoundingClientRect().toJSON(),
+    tab: document.querySelector('#minimap-toggle').getBoundingClientRect().toJSON(),
+    dockClass: document.querySelector('#minimap-dock').className, inlineLeft: document.querySelector('#minimap-dock').style.left, left: getComputedStyle(document.querySelector('#minimap-dock')).left,
+    transitionDuration: getComputedStyle(document.querySelector('#minimap-dock')).transitionDuration,
+    expanded: document.querySelector('#minimap-toggle').getAttribute('aria-expanded'), arrow: document.querySelector('#minimap-toggle').innerText.trim(),
+    canvas: document.querySelector('#game-minimap').width }))()`);
+  // Headless Chrome may suspend CSS transitions between CDP calls; inspect final layout deterministically.
+  await evaluate("document.querySelector('#minimap-dock').style.transition='none'; document.querySelector('#minimap-panel').style.transition='none'");
+  await evaluate("document.querySelector('#minimap-toggle').click()"); await delay(260);
+  await evaluate("document.querySelector('#minimap-dock').style.removeProperty('transition'); document.querySelector('#minimap-panel').style.removeProperty('transition')");
+  const minimapClosed = await evaluate(`(() => ({ panel: document.querySelector('#minimap-panel').getBoundingClientRect().toJSON(),
+    tab: document.querySelector('#minimap-toggle').getBoundingClientRect().toJSON(),
+    dock: document.querySelector('#minimap-dock').getBoundingClientRect().toJSON(),
+    panelVisibility: getComputedStyle(document.querySelector('#minimap-panel')).visibility,
+    dockOverflow: getComputedStyle(document.querySelector('#minimap-dock')).overflow,
+    dockClass: document.querySelector('#minimap-dock').className, inlineLeft: document.querySelector('#minimap-dock').style.left, left: getComputedStyle(document.querySelector('#minimap-dock')).left,
+    expanded: document.querySelector('#minimap-toggle').getAttribute('aria-expanded'), arrow: document.querySelector('#minimap-toggle').innerText.trim(),
+    canvas: document.querySelector('#game-minimap').width }))()`);
+  await evaluate("document.querySelector('#minimap-toggle').click()"); await delay(260);
+  const minimapReopened = await evaluate(`(() => ({ tab: document.querySelector('#minimap-toggle').getBoundingClientRect().toJSON(), dock: document.querySelector('#minimap-dock').getBoundingClientRect().toJSON(),
+    dockClass: document.querySelector('#minimap-dock').className, inlineLeft: document.querySelector('#minimap-dock').style.left, left: getComputedStyle(document.querySelector('#minimap-dock')).left,
+    expanded: document.querySelector('#minimap-toggle').getAttribute('aria-expanded'), canvas: document.querySelector('#game-minimap').width }))()`);
+  if (minimapBefore.expanded !== 'true' || minimapBefore.arrow !== '‹' || minimapBefore.tab.left < minimapBefore.panel.right - 1
+    || !minimapBefore.transitionDuration.startsWith('0.22s')
+    || minimapClosed.expanded !== 'false' || minimapClosed.arrow !== '›' || minimapClosed.tab.left > 5
+    || minimapClosed.dock.width > minimapClosed.tab.width + 1 || minimapClosed.dockOverflow !== 'hidden' || minimapClosed.panelVisibility !== 'hidden'
+    || minimapReopened.expanded !== 'true' || minimapReopened.dock.width <= minimapReopened.tab.width || minimapReopened.canvas !== minimapBefore.canvas) {
+    throw new Error(`Collapsible minimap state/layout failed: ${JSON.stringify({ minimapBefore, minimapClosed, minimapReopened })}`);
+  }
+
   const carouselLayouts = [];
   for (const [width, height] of [[360, 800], [390, 844], [1280, 900]]) {
     await command("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: width < 600 });
@@ -79,16 +109,22 @@ async function main() {
       const right = document.querySelector('#build-holy-knight-button');
       const rect = (element) => element.getBoundingClientRect();
       const viewport = rect(panel), card = rect(selected);
+      const carousel = rect(document.querySelector('.build-carousel-shell'));
+      const previous = rect(document.querySelector('#carousel-previous'));
+      const next = rect(document.querySelector('#carousel-next'));
+      const arrowsReserved = previous.right <= viewport.left + 1 && next.left >= viewport.right - 1
+        && previous.left >= carousel.left && next.right <= carousel.right;
       const visible = (element) => Math.max(0, Math.min(rect(element).right, viewport.right) - Math.max(rect(element).left, viewport.left));
       return { width: innerWidth, hudHeight: rect(document.querySelector('.bottom-hud-bar')).height,
         scrollLeft: panel.scrollLeft, scrollWidth: panel.scrollWidth, clientWidth: panel.clientWidth,
         selectedOffsetLeft: selected.offsetLeft, firstOffsetLeft: left.offsetLeft,
         viewport: viewport.toJSON(), card: card.toJSON(),
+        previous: previous.toJSON(), next: next.toJSON(), carousel: carousel.toJSON(),
         centerDelta: Math.abs((card.left + card.right - viewport.left - viewport.right) / 2),
         selectedScale: new DOMMatrix(getComputedStyle(selected).transform).a,
         adjacentScale: new DOMMatrix(getComputedStyle(right).transform).a,
         leftPreview: visible(left), rightPreview: visible(right), cardWidth: card.width,
-        selectedId: selected.id, mode: window.__towerDefenceInputDebug().buildMode,
+        selectedId: selected.id, mode: window.__towerDefenceInputDebug().buildMode, arrowsReserved,
         rosterCount: panel.querySelectorAll('.defender-choice').length,
         expectedCount: window.__towerDefenceGameState.faction.units.length + 1,
         safeAreaPadding: parseFloat(getComputedStyle(document.querySelector('.bottom-hud-bar')).paddingBottom),
@@ -98,7 +134,7 @@ async function main() {
     if (layout.centerDelta > 3 || layout.selectedId !== "build-blue-wizard-button" || !layout.mode.includes("blue-wizard")
       || layout.selectedScale < 0.97 || layout.adjacentScale < 0.78 || layout.adjacentScale > 0.91
       || layout.leftPreview < 12 || layout.rightPreview < 12 || layout.rosterCount !== layout.expectedCount
-      || layout.hudHeight > 135 || layout.safeAreaPadding < 7 || layout.pageOverflow) {
+      || !layout.arrowsReserved || layout.hudHeight > 135 || layout.safeAreaPadding < 7 || layout.pageOverflow) {
       throw new Error(`Build carousel layout failed: ${JSON.stringify(layout)}`);
     }
     carouselLayouts.push(layout);
@@ -300,10 +336,13 @@ async function main() {
   await delay(150);
   const inactiveBuffs = await evaluate(`(() => ({ labels: [...document.querySelectorAll('#tower-buff-icons button')]
     .map((button) => button.getAttribute('aria-label')), hudHeight: document.querySelector('.bottom-hud-bar').getBoundingClientRect().height,
+    underPortrait: document.querySelector('.tower-portrait-stack .tower-buff-row')?.previousElementSibling?.classList.contains('tower-portrait'),
+    iconsAccessible: [...document.querySelectorAll('#tower-buff-icons button')].every(button => !!button.getAttribute('aria-label')),
     veteran: document.querySelector('#tower-veteran').textContent,
     iconsOnly: !/[0-9%]/.test(document.querySelector('#tower-buff-icons').textContent) }))()`);
   if (!inactiveBuffs.labels.some((label) => label.includes('Arcane Triad'))
     || inactiveBuffs.labels.some((label) => label.includes('Veteran')) || !inactiveBuffs.iconsOnly
+    || !inactiveBuffs.underPortrait || !inactiveBuffs.iconsAccessible
     || !inactiveBuffs.veteran.includes('40K TO VETERAN I') || inactiveBuffs.hudHeight > 230) {
     throw new Error(`Initial compact tower buffs/progress failed: ${JSON.stringify(inactiveBuffs)}`);
   }
@@ -349,7 +388,7 @@ async function main() {
     || !buffInfo.text.includes('Stormcaller') || !buffInfo.text.includes('Veteran III')) {
     throw new Error(`Buff details were not accessible through Info: ${JSON.stringify(buffInfo)}`);
   }
-  console.log("Build UX browser test passed", JSON.stringify({ infoPanel: infoPanelState, milestoneWarnings, placed: placed.count, remainingGold: placed.gold, triad, selectedRing, unselectedRing, invalidResult, poorResult, switched, escaped, desktop, inactiveBuffs, veteranProgress, specialization, specializedBuffs, buffInfoOpen: buffInfo.open }));
+  console.log("Build UX browser test passed", JSON.stringify({ infoPanel: infoPanelState, minimapBefore, minimapClosed, minimapReopened, milestoneWarnings, placed: placed.count, remainingGold: placed.gold, triad, selectedRing, unselectedRing, invalidResult, poorResult, switched, escaped, desktop, inactiveBuffs, veteranProgress, specialization, specializedBuffs, buffInfoOpen: buffInfo.open }));
 }
 
 main().catch((error) => { console.error(error); process.exitCode = 1; }).finally(async () => {

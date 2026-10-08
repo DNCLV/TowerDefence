@@ -1,7 +1,8 @@
 /** Shared economy and all combat stats for player-built defenders. */
 import { WORLD_UNITS_PER_CELL } from "../../core/GameConstants";
 
-export type DefenderType = "blue-wizard" | "holy-knight" | "green-archer" | "battlemage" | "sovereign" | "holy-emperor";
+export type DefenderType = "blue-wizard" | "holy-knight" | "green-archer" | "battlemage" | "sovereign" | "holy-emperor"
+  | "treant" | "thorn-owl" | "druid" | "seer";
 export type DefenderRangeMode = "circular" | "adjacent8" | "hybrid";
 export type SovereignAttackMode = "antiAir" | "rapid" | "heavy";
 
@@ -133,6 +134,42 @@ export const DEFENDER_CONFIG: Record<DefenderType, DefenderDefinition> = {
       { level: 1, damage: 450, range: 0, fireRate: 0.85, upgradeCost: null },
       { level: 2, damage: 700, range: 0, fireRate: 1.00, upgradeCost: 400 },
       { level: 3, damage: 950, range: 0, fireRate: 1.25, upgradeCost: 500 },
+    ],
+  },
+  "treant": {
+    id: "treant", name: "Treant", rangeMode: "circular", targetTypes: ["ground"], buildCost: 10,
+    roleLabel: "Ground Control / Thorn Rot", specializationLabel: "Thorn Rot · Ground only",
+    levels: [
+      { level: 1, damage: 10, range: 2.5 * WORLD_UNITS_PER_CELL, fireRate: 0.8, upgradeCost: null },
+      { level: 2, damage: 18, range: 2.5 * WORLD_UNITS_PER_CELL, fireRate: 0.9, upgradeCost: 15 },
+      { level: 3, damage: 30, range: 2.5 * WORLD_UNITS_PER_CELL, fireRate: 1, upgradeCost: 25 },
+    ],
+  },
+  "thorn-owl": {
+    id: "thorn-owl", name: "Thorn Owl", rangeMode: "circular", targetTypes: ["air"], buildCost: 15,
+    roleLabel: "Anti-Air Specialist", specializationLabel: "Air only · Needlewing or Elderwing",
+    levels: [
+      { level: 1, damage: 12, range: 5.5 * WORLD_UNITS_PER_CELL, fireRate: 0.95, upgradeCost: null },
+      { level: 2, damage: 22, range: 6 * WORLD_UNITS_PER_CELL, fireRate: 1.1, upgradeCost: 25 },
+      { level: 3, damage: 70, range: 8 * WORLD_UNITS_PER_CELL, fireRate: 1.5, upgradeCost: 125 },
+    ],
+  },
+  "druid": {
+    id: "druid", name: "Druid", rangeMode: "adjacent8", targetTypes: ["ground"], buildCost: 55,
+    roleLabel: "Melee / Grove Hunter", specializationLabel: "Ground only · Dire Wolf or Elder Bear",
+    levels: [
+      { level: 1, damage: 60, range: 1, fireRate: 1.05, upgradeCost: null },
+      { level: 2, damage: 100, range: 1, fireRate: 1.15, upgradeCost: 70 },
+      { level: 3, damage: 310, range: 1, fireRate: 0.8, upgradeCost: 110 },
+    ],
+  },
+  "seer": {
+    id: "seer", name: "Seer", rangeMode: "circular", targetTypes: ["ground", "air"], buildCost: 75,
+    roleLabel: "Arcane / Hybrid", specializationLabel: "Ground + Air · Moon or Sun",
+    levels: [
+      { level: 1, damage: 65, range: 4.8 * WORLD_UNITS_PER_CELL, fireRate: 0.85, upgradeCost: null },
+      { level: 2, damage: 110, range: 5.2 * WORLD_UNITS_PER_CELL, fireRate: 0.95, upgradeCost: 100 },
+      { level: 3, damage: 95, range: 5.5 * WORLD_UNITS_PER_CELL, fireRate: 1.1, upgradeCost: 150 },
     ],
   },
 };

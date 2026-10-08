@@ -10,6 +10,7 @@ import type { FormationId } from "../config/FormationConfig";
 import type { DamageType } from "../config/EnemyAffixConfig";
 import type { FactionId } from "../config/FactionConfig";
 import { getVeteranAttackSpeedMultiplier, getVeteranDamageMultiplier } from "../FactionBonusSystem";
+import { FACTION_BONUS_CONFIG } from "../config/FactionBonusConfig";
 
 export interface Tower {
   id: number;
@@ -25,6 +26,9 @@ export interface Tower {
   specializationId?: TowerSpecializationId;
   /** Counts attacks after specialization for deterministic periodic mechanics such as Storm Regent. */
   specializationAttackCounter: number;
+  /** Moon Seer target-ramp state; changing targets resets the next-hit bonus. */
+  moonTargetId?: number;
+  moonRampIndex: number;
   formationId?: FormationId;
   /** Lifetime combat totals for this tower identity; upgrades do not reset them. */
   combatStats: TowerCombatStats;
@@ -36,7 +40,7 @@ export interface TowerCombatStats {
 }
 
 export type TowerAttackMode = "melee" | "ranged" | "anti-air" | "rapid" | "heavy";
-export interface TowerAttackProfile { mode: TowerAttackMode; damage: number; fireRate: number; }
+export interface TowerAttackProfile { mode: TowerAttackMode; damage: number; fireRate: number; physicalResistancePenetration?: number; }
 
 /** Compatibility names used by the original Wizard-only test scene. */
 export const BASIC_TOWER_COST = DEFENDER_CONFIG["blue-wizard"].buildCost;
@@ -48,7 +52,7 @@ export const getTowerLevelStats = (level: number, type: DefenderType = "blue-wiz
 export function createBasicTower(id: number, cell: Cell, type: DefenderType = "blue-wizard"): Tower {
   return {
     id, type, cell, rangeMode: DEFENDER_CONFIG[type].rangeMode,
-    ...getTowerLevelStats(1, type), cooldownRemaining: 0, specializationAttackCounter: 0,
+    ...getTowerLevelStats(1, type), cooldownRemaining: 0, specializationAttackCounter: 0, moonRampIndex: 0,
     combatStats: { kills: 0, damageDone: 0 },
   };
 }
@@ -114,7 +118,7 @@ export function isTowerAdjacent8(tower: Tower, enemy: Enemy): boolean {
 
 export function getTowerAttackMode(tower: Tower, enemy: Enemy): TowerAttackMode {
   if (tower.type === "sovereign") return getSovereignProfile(tower, enemy).mode;
-  if (tower.type === "holy-knight") return "melee";
+  if (tower.type === "holy-knight" || tower.type === "druid") return "melee";
   return tower.type === "battlemage" && enemy.movementType === "ground" && isTowerAdjacent8(tower, enemy)
     ? "melee"
     : "ranged";
@@ -147,9 +151,25 @@ export function getTowerAttackProfile(tower: Tower, enemy: Enemy, factionId?: Fa
   if (formation?.damageMultiplier) damage *= formation.damageMultiplier;
   if (formation?.rangedDamageMultiplier && mode !== "melee") damage *= formation.rangedDamageMultiplier;
   damage *= factionId ? getVeteranDamageMultiplier(factionId, tower) : 1;
-  const fireRate = tower.fireRate * (formation?.attackSpeedMultiplier ?? 1)
+  let fireRate = tower.fireRate * (formation?.attackSpeedMultiplier ?? 1)
     * (factionId ? getVeteranAttackSpeedMultiplier(factionId, tower) : 1);
-  return { mode, damage: Math.round(damage), fireRate };
+  if (tower.type === "druid" && enemy.movementType === "ground" && enemy.livingMazeExposureSeconds >= 2) {
+    damage *= enemy.livingMazeExposureSeconds >= 4 ? 1.2 : 1.1;
+  }
+  if (tower.specializationId === "moon-seer") {
+    if (tower.moonTargetId !== enemy.id) { tower.moonTargetId = enemy.id; tower.moonRampIndex = 0; }
+    const ramp = [0, 0.1, 0.2, 0.35][Math.min(tower.moonRampIndex, 3)];
+    damage *= 1 + ramp;
+    tower.moonRampIndex = Math.min(3, tower.moonRampIndex + 1);
+  }
+  if (tower.specializationId === "dire-wolf" && enemy.livingMazeExposureSeconds >= 4) fireRate *= 1.15;
+  if (tower.type === "treant" && tower.level === 3
+    && enemy.thornRotStacks >= 6) damage *= 1 + FACTION_BONUS_CONFIG.thornRot.deepRootsBonusAtMax;
+  return {
+    mode, damage: Math.round(damage), fireRate,
+    physicalResistancePenetration: tower.specializationId === "needlewing-owl" ? 0.4
+      : tower.specializationId === "dire-wolf" ? 0.5 : 0,
+  };
 }
 
 /** Returns rounded per-hit damage after defender-specific target/mode modifiers. */
@@ -172,12 +192,23 @@ export function getTowerDamageAgainstEnemy(tower: Tower, enemy: Enemy, mode = ge
 
 export function getTowerSplashRatio(tower: Tower, mode: TowerAttackMode): number {
   const specialization = getSpecialization(tower.specializationId);
+  if (specialization?.splashRatios?.length) return specialization.splashRatios[0] ?? 0;
   if (specialization?.splashRatio !== undefined) {
     if (specialization.splashMode === "melee" && mode !== "melee") return DEFENDER_CONFIG[tower.type].splashDamageRatios?.[tower.level] ?? 0;
     if (specialization.splashMode === "ranged" && mode === "melee") return DEFENDER_CONFIG[tower.type].splashDamageRatios?.[tower.level] ?? 0;
     return specialization.splashRatio;
   }
   return DEFENDER_CONFIG[tower.type].splashDamageRatios?.[tower.level] ?? 0;
+}
+
+export function getTowerSplashTargetLimit(tower: Tower): number | undefined {
+  return getSpecialization(tower.specializationId)?.splashTargetLimit;
+}
+
+export function getTowerSplashRatioForTarget(tower: Tower, mode: TowerAttackMode, targetIndex: number, exposureSeconds: number): number {
+  if (tower.specializationId === "elder-bear") return exposureSeconds >= 4 ? 0.7 : 0.55;
+  const ratios = getSpecialization(tower.specializationId)?.splashRatios;
+  return ratios ? ratios[targetIndex] ?? 0 : getTowerSplashRatio(tower, mode);
 }
 
 export function getTowerSplashRadiusMultiplier(tower: Tower): number {
@@ -191,7 +222,9 @@ export function getTowerSplashRadiusTiles(tower: Tower): number {
 
 export function getTowerDamageType(tower: Tower, mode: TowerAttackMode = "ranged"): DamageType {
   if (tower.type === "blue-wizard") return "magic";
-  if (tower.type === "holy-knight" || tower.type === "green-archer") return "physical";
+  if (tower.type === "holy-knight" || tower.type === "green-archer" || tower.type === "treant"
+    || tower.type === "thorn-owl" || tower.type === "druid") return "physical";
+  if (tower.type === "seer") return "magic";
   if (tower.type === "battlemage") return mode === "melee" ? "physical" : "magic";
   // Sovereign's anti-air bolts are arcane; its rapid/heavy attacks are physical.
   return mode === "anti-air" ? "magic" : "physical";

@@ -70,7 +70,7 @@ for (const [wave, count] of [[42, 2], [49, 3], [63, 4]]) {
   assert.equal(countWaveComposition(getWaveComposition(wave)).skeletalCommander, count);
 }
 assert.equal(getEnemyHpForWave("undeadDragon", 35), 3840);
-assert.equal(getEnemyHpForWave("skeletonKing", 50), 192000);
+assert.equal(getEnemyHpForWave("skeletonKing", 50), 144000);
 assert.deepEqual(
   ["wraith", "goblinRider", "goblin", "ghoul", "undeadDragon", "goblinBrute", "giantGoblin", "skeletalCommander", "skeletonKing"]
     .map((type) => ENEMY_CONFIG[type].speedMultiplier),
@@ -93,7 +93,7 @@ assert.equal(bossState.startWave(), true);
 bossState.update(0);
 assert.deepEqual(bossState.enemies.map(({ type, hp, speed, reward, livesDamage, movementType }) => ({
   type, hp, speed: Number((speed * WORLD_UNITS_PER_CELL / 90).toFixed(2)), reward, livesDamage, movementType,
-})), [{ type: "skeletonKing", hp: 192000, speed: 0.22, reward: 75, livesDamage: 10, movementType: "ground" }]);
+})), [{ type: "skeletonKing", hp: 144000, speed: 0.22, reward: 75, livesDamage: 10, movementType: "ground" }]);
 
 assert.deepEqual(DEFENDER_CONFIG["blue-wizard"].levels.map(({ damage, range, fireRate }) => [damage, range, fireRate]), [
   [25, 110, 1], [65, 120, 1.15], [150, 135, 1.25],

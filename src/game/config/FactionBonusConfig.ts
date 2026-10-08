@@ -30,5 +30,19 @@ export const FACTION_BONUS_CONFIG = {
     maxSlow: 0.20,
     bossResistanceMultiplier: 1,
   },
+  thornRot: {
+    stackIntervalSeconds: 1,
+    outsideGraceSeconds: 4,
+    maxStacks: { 1: 5, 2: 5, 3: 6 },
+    damagePerStackPerSecond: { 1: 5, 2: 7, 3: 10 },
+    deepRootsBonusAtMax: 0.15,
+  },
+  sunbrand: {
+    maxStacks: 4,
+    graceSeconds: 4,
+    decayIntervalSeconds: 1,
+    damagePerStackPerSecond: 18,
+    solarDetonationDamage: 180,
+  },
 } as const;
 

@@ -305,8 +305,9 @@ async function main() {
       throw new Error('Faction card selection did not update the selected details and global action.');
     }
     const groveUnits = document.querySelector('.faction-choice-card.is-selected .faction-unit-list');
-    if (groveUnits.children.length !== 5 || groveUnits.textContent.includes('Holy Emperor')) {
-      throw new Error('Holy Emperor should only be present in the Royal Guard roster.');
+    if (groveUnits.children.length !== 4 || !['Treant', 'Thorn Owl', 'Druid', 'Seer'].every((unit) => groveUnits.textContent.includes(unit))
+      || groveUnits.textContent.includes('Holy Emperor')) {
+      throw new Error('Ancient Grove must offer the four Grove units; Holy Emperor remains exclusive to Royal Guard.');
     }
     grove.focus();
     grove.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
@@ -868,12 +869,6 @@ async function main() {
       await evaluate("document.querySelector('#battlefield-info-close').click()");
     }
     await evaluate("window.__towerDefenceUi.chooseBuildUnit('sovereign')");
-    await evaluate(`(() => {
-      const tray = document.querySelector('.defender-choice-panel');
-      tray.style.scrollBehavior = 'auto';
-      tray.style.scrollSnapType = 'none';
-      tray.scrollLeft = tray.scrollWidth;
-    })()`);
     await delay(350);
     const layout = await evaluate(`(() => {
       const rect = (element) => { const { x, y, width, height, right, bottom } = element.getBoundingClientRect(); return { x, y, width, height, right, bottom }; };
@@ -887,6 +882,12 @@ async function main() {
       }).length;
       const selected = document.querySelector('#build-sovereign-button');
       const selectedRect = selected.getBoundingClientRect();
+      const selectedIndex = cards.indexOf(selected);
+      const previousCard = cards[selectedIndex - 1], nextCard = cards[selectedIndex + 1];
+      const visibleWidth = (card) => Math.max(0, Math.min(card.getBoundingClientRect().right, trayRect.right)
+        - Math.max(card.getBoundingClientRect().left, trayRect.left));
+      const selectedScale = new DOMMatrix(getComputedStyle(selected).transform).a;
+      const adjacentScale = new DOMMatrix(getComputedStyle(previousCard ?? nextCard).transform).a;
       const waveElement = document.querySelector('#start-wave-button');
       const autoElement = document.querySelector('#auto-button');
       const minimapPanel = document.querySelector('#minimap-panel');
@@ -923,6 +924,11 @@ async function main() {
         card: { width: rect(tray.querySelector('.defender-choice:not(.select-tool)')).width, height: rect(tray.querySelector('.defender-choice:not(.select-tool)')).height },
         visibleCards,
         trayScrollable: tray.scrollWidth > tray.clientWidth,
+        selectedScale,
+        adjacentScale,
+        selectedCenterDelta: Math.abs((selectedRect.left + selectedRect.right - trayRect.left - trayRect.right) / 2),
+        leftPreview: visibleWidth(previousCard),
+        rightPreview: visibleWidth(nextCard),
         overflowAffordance: document.querySelector('.build-unit-section').classList.contains('has-overflow'),
         selectedCardVisible: selectedRect.left >= trayRect.left - 1 && selectedRect.right <= trayRect.right + 1,
         horizontalPageOverflow: document.documentElement.scrollWidth > innerWidth,
@@ -945,9 +951,10 @@ async function main() {
         towerLayouts,
       };
     })()`);
-    if (layout.card.width < 70 || layout.card.width > 85 || layout.card.height < 85 || layout.card.height > 105
+    if (layout.card.width < 75 || layout.card.width > 98 || layout.card.height < 56 || layout.card.height > 70
       || (viewport.width < 600 && !layout.trayScrollable) || !layout.selectedCardVisible || layout.horizontalPageOverflow
-      || layout.touchAction !== "pan-x" || !layout.actionsVisible
+      || layout.selectedScale < 0.97 || layout.selectedCenterDelta > 3 || layout.adjacentScale < 0.78 || layout.adjacentScale > 0.91
+      || layout.leftPreview < 12 || layout.rightPreview < 12 || layout.touchAction !== "none" || !layout.actionsVisible
       || layout.minimap.width < (viewport.width < 600 ? 95 : 120)
       || layout.minimap.width > (viewport.width < 600 ? 106 : 140)
       || !layout.minimap.panelBelowTray || !layout.minimap.clearOfActions || layout.minimap.pointerEvents !== "none"
@@ -958,7 +965,7 @@ async function main() {
         || tower.upgrade.right > tower.info.x + 1 || tower.info.right > tower.sell.x + 1
         || tower.actions.right > tower.panel.right + 1
         || (viewport.width <= 520 && (tower.actions.top < tower.stats.bottom - 1 || tower.actions.left < tower.panel.left - 1)))
-      || (viewport.width < 400 && (layout.visibleCards < 3 || layout.visibleCards > 4))) {
+      || layout.hudHeight > 135) {
       throw new Error(`Compact HUD layout failed at ${viewport.width}x${viewport.height}: ${JSON.stringify(layout)}`);
     }
     layouts.push(layout);
@@ -1304,7 +1311,7 @@ async function main() {
     touchAction: getComputedStyle(document.querySelector('.defender-choice-panel')).touchAction,
     cameraTarget: window.__towerDefenceInputDebug().cameraTarget,
   })`);
-  if (traySwipe.scrollLeft <= 0 || traySwipe.touchAction !== "pan-x"
+  if (traySwipe.scrollLeft <= 0 || traySwipe.touchAction !== "none"
     || Math.hypot(traySwipe.cameraTarget.x - cameraBeforeTraySwipe.x, traySwipe.cameraTarget.z - cameraBeforeTraySwipe.z) > 0.01) {
     throw new Error(`Build Units swipe did not stay isolated to the horizontal tray: ${JSON.stringify(traySwipe)}`);
   }

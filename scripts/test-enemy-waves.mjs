@@ -825,7 +825,7 @@ try {
 
   const hpTierSnapshots = [
     [1, 0, 1], [10, 0, 1], [11, 1, 2], [20, 1, 2], [21, 2, 4], [30, 2, 4],
-    [31, 3, 8], [40, 3, 8], [41, 4, 16], [50, 4, 16], [51, 5, 32], [61, 6, 64],
+    [31, 3, 8], [40, 3, 8], [41, 4, 12], [42, 4, 12], [50, 4, 12], [51, 5, 32], [61, 6, 64],
   ];
   for (const [wave, tier, multiplier] of hpTierSnapshots) {
     assert.equal(getEnemyHpTier(wave), tier, `HP tier boundary at wave ${wave}`);
@@ -838,7 +838,7 @@ try {
     [30, { goblin: 600, goblinBrute: 2200, goblinRider: 640, giantGoblin: 12000, ghoul: 1800, wraith: 2800 }],
     [35, { goblin: 1200, goblinBrute: 4400, goblinRider: 1280, giantGoblin: 24000, ghoul: 3600, wraith: 5600 }],
     [40, { goblin: 1200, goblinBrute: 4400, goblinRider: 1280, giantGoblin: 24000, ghoul: 3600, wraith: 5600 }],
-    [42, { goblin: 2400, goblinBrute: 8800, goblinRider: 2560, giantGoblin: 48000, ghoul: 7200, wraith: 11200 }],
+    [42, { goblin: 1800, goblinBrute: 6600, goblinRider: 1920, giantGoblin: 36000, ghoul: 5400, wraith: 8400 }],
     [70, { goblin: 9600, goblinBrute: 35200, goblinRider: 10240, giantGoblin: 192000, ghoul: 28800, wraith: 44800 }],
   ];
   for (const [wave, expectedHp] of specialWaveHpChecks) {
@@ -869,7 +869,7 @@ try {
   assert.deepEqual(keys.map((type) => wave45Counts[type]), [25, 8, 5, 0, 10, 2], "wave 45 includes new enemies in deterministic threat mix");
   assert.equal(wave45Composition.threatBudget, 115);
   assert.equal(Number(wave45Composition.spawnInterval.toFixed(3)), 0.36);
-  assert.equal(wave45TotalHp, 237600);
+  assert.equal(wave45TotalHp, 178200);
   originalInfo("Wave 45 HP regression", {
     counts: wave45Counts,
     threatBudget: wave45Composition.threatBudget,
@@ -882,19 +882,19 @@ try {
     11: [300, 1100, 320, 6000, 900, 1400],
     21: [600, 2200, 640, 12000, 1800, 2800],
     31: [1200, 4400, 1280, 24000, 3600, 5600],
-    41: [2400, 8800, 2560, 48000, 7200, 11200],
+    41: [1800, 6600, 1920, 36000, 5400, 8400],
     51: [4800, 17600, 5120, 96000, 14400, 22400],
   };
   for (const [waveText, expectedHp] of Object.entries(typeHpAtTier)) {
     const wave = Number(waveText);
     assert.deepEqual(keys.map((type) => getEnemyHpForWave(type, wave)), expectedHp, `scaled enemy HP at wave ${wave}`);
   }
-  assert.deepEqual(keys.map((type) => getEnemyHpForWave(type, 48)), [2400, 8800, 2560, 48000, 7200, 11200]);
+  assert.deepEqual(keys.map((type) => getEnemyHpForWave(type, 48)), [1800, 6600, 1920, 36000, 5400, 8400]);
   assert.deepEqual(countWaveComposition(getWaveComposition(48)), { goblin: 27, goblinBrute: 9, goblinRider: 5, giantGoblin: 0, ghoul: 10, wraith: 2, undeadDragon: 0, skeletonKing: 0, skeletalCommander: 0 });
   assert.equal(getWaveComposition(48).totalThreat, 122);
   assert.equal(Number(getWaveComposition(48).spawnInterval.toFixed(3)), 0.352);
 
-  const expectedTierWarnings = [[10, 11, 2], [20, 21, 4], [30, 31, 8], [40, 41, 16], [50, 51, 32], [60, 61, 64]];
+  const expectedTierWarnings = [[10, 11, 2], [20, 21, 4], [30, 31, 8], [40, 41, 12], [50, 51, 32], [60, 61, 64]];
   for (const [wave, nextWave, nextMultiplier] of expectedTierWarnings) {
     const warningState = new GameState();
     warningState.currentWave = wave;
@@ -952,7 +952,7 @@ try {
   assert.ok(getEnemyHpForWave("wraith", 25) < getEnemyHpForWave("giantGoblin", 25));
   assert.deepEqual([getEnemyHpForWave("ghoul", 25), getEnemyHpForWave("wraith", 25)], [1800, 2800]);
   assert.deepEqual([getEnemyHpForWave("ghoul", 35), getEnemyHpForWave("wraith", 35)], [3600, 5600]);
-  assert.deepEqual([getEnemyHpForWave("ghoul", 45), getEnemyHpForWave("wraith", 45)], [7200, 11200]);
+  assert.deepEqual([getEnemyHpForWave("ghoul", 45), getEnemyHpForWave("wraith", 45)], [5400, 8400]);
   assert.deepEqual(
     [rider.maxHp, Number((rider.speed * WORLD_UNITS_PER_CELL / 90).toFixed(2)), rider.reward, rider.livesDamage, rider.movementType],
     [160, 1.2, 2, 1, "flying"],
@@ -964,7 +964,7 @@ try {
     "all archetypes, including Riders, scale HP with deterministic rounding",
   );
   const scaledRider = createEnemy(5, "goblinRider", routes, 42);
-  assert.deepEqual([scaledRider.hp, scaledRider.maxHp, scaledRider.reward, scaledRider.livesDamage, scaledRider.speed, scaledRider.movementType], [2560, 2560, 2, 1, rider.speed, "flying"]);
+  assert.deepEqual([scaledRider.hp, scaledRider.maxHp, scaledRider.reward, scaledRider.livesDamage, scaledRider.speed, scaledRider.movementType], [1920, 1920, 2, 1, rider.speed, "flying"]);
 
   let waveDebug;
   console.info = (label, details) => { if (label === "Wave composition") waveDebug = details; };
@@ -975,7 +975,7 @@ try {
   console.info = () => {};
   assert.equal(scaledGameState.currentWave, 41);
   assert.equal(waveDebug.hpTier, 4);
-  assert.equal(waveDebug.hpMultiplier, 16);
+  assert.equal(waveDebug.hpMultiplier, 12);
   for (const type of keys) {
     assert.equal(waveDebug.enemyHp[type], getEnemyHpForWave(type, 41), `wave debug reports ${type} HP`);
   }

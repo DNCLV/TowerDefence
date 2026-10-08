@@ -65,13 +65,17 @@ export class QuaterniusDefenderFactory {
   }
 
   /** Keeps towers visually quiet while loading; failed assets use a small neutral marker, never a large proxy body. */
-  create(id: number, type: ImportedDefenderType, level: number): QuaterniusDefenderVisual {
-    const definition = DEFENDER_VISUAL_CONFIG[type];
-    const template = this.templates.get(type);
+  create(id: number, type: DefenderType, level: number): QuaterniusDefenderVisual {
+    if (type === "treant" || type === "thorn-owl" || type === "druid" || type === "seer") {
+      return this.createGrovePrimitive(id, type, level);
+    }
+    const importedType = type as ImportedDefenderType;
+    const definition = DEFENDER_VISUAL_CONFIG[importedType];
+    const template = this.templates.get(importedType);
     if (!template) {
       return this.loadingComplete
-        ? this.createNeutralFallback(id, type, level)
-        : this.createPendingVisual(id, type, level);
+        ? this.createNeutralFallback(id, importedType, level)
+        : this.createPendingVisual(id, importedType, level);
     }
 
     const instance = template.instantiateModelsToScene((name) => `defender-${id}-${name}`, false);
@@ -99,10 +103,10 @@ export class QuaterniusDefenderFactory {
     attackOrigin.parent = modelRoot;
     // Keep the firing origin in the model's local frame so model-scale tuning
     // moves it together with the defender without changing tower coordinates.
-    attackOrigin.position.set(0, definition.sourceBounds.height * 0.68, type === "green-archer" ? 0.18 : 0.2);
+    attackOrigin.position.set(0, definition.sourceBounds.height * 0.68, importedType === "green-archer" ? 0.18 : 0.2);
     instance.animationGroups.forEach((animation) => { animation.stop(); animation.dispose(); });
-    this.reportResolution(type, this.loadedPaths.get(type), false);
-    this.recordInstance(id, type, level, this.loadedPaths.get(type), bounds, modelRoot.position.y);
+    this.reportResolution(importedType, this.loadedPaths.get(importedType), false);
+    this.recordInstance(id, importedType, level, this.loadedPaths.get(importedType), bounds, modelRoot.position.y);
     return {
       root, bodyRoot, attackOrigin, level,
       dispose: () => {
@@ -110,6 +114,42 @@ export class QuaterniusDefenderFactory {
         instance.skeletons.forEach((skeleton) => skeleton.dispose());
       },
     };
+  }
+
+  private createGrovePrimitive(id: number, type: "treant" | "thorn-owl" | "druid" | "seer", level: number): QuaterniusDefenderVisual {
+    const root = new TransformNode(`grove-defender-root-${id}`, this.scene);
+    const bodyRoot = new TransformNode(`grove-defender-body-${id}`, this.scene);
+    bodyRoot.parent = root;
+    const palette = type === "treant" ? new Color3(0.42, 0.57, 0.28)
+      : type === "thorn-owl" ? new Color3(0.67, 0.72, 0.44)
+        : type === "druid" ? new Color3(0.36, 0.55, 0.39) : new Color3(0.45, 0.43, 0.72);
+    const material = new StandardMaterial(`grove-${type}-material`, this.scene);
+    material.diffuseColor = palette;
+    material.emissiveColor = palette.scale(0.12);
+    const make = (name: string, shape: "sphere" | "cylinder" | "box", size: number, height = size): AbstractMesh => {
+      const mesh = shape === "sphere" ? MeshBuilder.CreateSphere(name, { diameter: size, segments: 6 }, this.scene)
+        : shape === "cylinder" ? MeshBuilder.CreateCylinder(name, { diameter: size, height, tessellation: 7 }, this.scene)
+          : MeshBuilder.CreateBox(name, { size }, this.scene);
+      mesh.parent = bodyRoot; mesh.material = material; mesh.isPickable = false; this.shadows.addShadowCaster(mesh); return mesh;
+    };
+    if (type === "treant") {
+      make(`grove-trunk-${id}`, "cylinder", 0.42, 0.82).position.y = 0.42;
+      make(`grove-crown-${id}`, "sphere", 0.9).position.y = 1.0;
+    } else if (type === "thorn-owl") {
+      make(`grove-owl-body-${id}`, "sphere", 0.52).position.y = 0.48;
+      const wingL = make(`grove-owl-wing-l-${id}`, "box", 0.48); wingL.scaling.set(1.2, 0.12, 0.25); wingL.position.set(-0.34, 0.47, 0);
+      const wingR = make(`grove-owl-wing-r-${id}`, "box", 0.48); wingR.scaling.set(1.2, 0.12, 0.25); wingR.position.set(0.34, 0.47, 0);
+    } else {
+      make(`grove-${type}-body-${id}`, "cylinder", 0.48, 0.9).position.y = 0.48;
+      make(`grove-${type}-head-${id}`, "sphere", 0.42).position.y = 1.0;
+    }
+    bodyRoot.scaling.setAll(VISUAL_CONFIG.towerLevelScaleMultipliers[level as 1 | 2 | 3] ?? 1);
+    const attackOrigin = new TransformNode(`grove-attack-origin-${id}`, this.scene);
+    attackOrigin.parent = bodyRoot; attackOrigin.position.set(0, type === "thorn-owl" ? 0.65 : 0.82, 0.16);
+    return { root, bodyRoot, attackOrigin, level, dispose: () => {
+      root.getChildMeshes().forEach((mesh) => this.shadows.removeShadowCaster(mesh));
+      material.dispose();
+    } };
   }
 
   private async loadType(type: ImportedDefenderType): Promise<void> {

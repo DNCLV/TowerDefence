@@ -25,7 +25,7 @@ export const FACTIONS: Record<FactionId, FactionDefinition> = {
     name: "Ancient Grove",
     tagline: "Control & Sustained Exposure",
     description: "LIVING MAZE · Long Grove-controlled paths progressively slow ground enemies. The faction relies on control and sustained exposure rather than high raw damage.",
-    units: ["blue-wizard", "holy-knight", "green-archer", "battlemage", "sovereign"],
+    units: ["treant", "thorn-owl", "druid", "seer"],
   },
 };
 

@@ -4,6 +4,7 @@ export class BuildCarousel {
   private targetIndex: number | undefined;
   private targetStartedAt = 0;
   private scrollTimer = 0;
+  private scrollFallbackTimer = 0;
   private settleTimer = 0;
   private dragPointerId: number | undefined;
   private dragStartX = 0;
@@ -155,11 +156,11 @@ export class BuildCarousel {
       this.viewport.scrollTo({ left: start + (left - start) * eased, behavior: "instant" });
       this.updateVisuals();
       if (progress >= 1) {
-        this.cancelScrollAnimation();
-        this.scheduleSettle();
+        this.finishScroll(left);
       }
     };
     this.scrollTimer = window.setInterval(tick, 16);
+    this.scrollFallbackTimer = window.setTimeout(() => this.finishScroll(left), 280);
   }
 
   private onScroll(): void {
@@ -169,7 +170,16 @@ export class BuildCarousel {
 
   private cancelScrollAnimation(): void {
     if (this.scrollTimer) window.clearInterval(this.scrollTimer);
+    if (this.scrollFallbackTimer) window.clearTimeout(this.scrollFallbackTimer);
     this.scrollTimer = 0;
+    this.scrollFallbackTimer = 0;
+  }
+
+  private finishScroll(left: number): void {
+    this.cancelScrollAnimation();
+    this.viewport.scrollTo({ left, behavior: "instant" });
+    this.updateVisuals();
+    this.scheduleSettle();
   }
 
   private scheduleSettle(): void {

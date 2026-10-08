@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { GameState } from "../src/game/GameState.ts";
+import { AncientGroveStatusSystem, getSunbrandDamage, getSunbrandTargetPriority, getThornRotDamage } from "../src/game/AncientGroveStatusSystem.ts";
 import { AFFIXES } from "../src/game/config/EnemyAffixConfig.ts";
 import { resolveFormation } from "../src/game/config/FormationConfig.ts";
 import { TOWER_SPECIALIZATIONS } from "../src/game/config/SpecializationConfig.ts";
@@ -12,7 +13,10 @@ import {
 import {
   canTowerTargetEnemy, createBasicTower, getTowerAttackProfile, getTowerDamageType,
   getTowerSplashRadiusMultiplier, getTowerSplashRatio, upgradeTower,
+  getTowerSplashRatioForTarget, getTowerAttackMode,
 } from "../src/game/towers/Tower.ts";
+import { DEFENDER_CONFIG } from "../src/game/config/DefenderConfig.ts";
+import { FACTIONS } from "../src/game/config/FactionConfig.ts";
 
 const path = Array.from({ length: 12 }, (_, index) => ({ x: 5 + index, y: 5 }));
 const makeEnemy = (id, type = "goblin", x = 6, y = 5, hp = 10000, wave = 1) => {
@@ -43,6 +47,9 @@ assert.deepEqual(Object.fromEntries(Object.entries(TOWER_SPECIALIZATIONS).map(([
   spellblade: [290, 129.6, 1.1], warcaster: [290, 151.2, 1.1],
   "dragon-slayer": [78, 180, 1.55], ranger: [55, 180, 2.25],
   "storm-regent": [360, 162, 1.8], "war-sovereign": [360, 162, 1.8],
+  "needlewing-owl": [90, 270, 2.1], elderwing: [70, 288, 1.5],
+  "dire-wolf": [95, null, 2.5], "elder-bear": [310, null, 0.8],
+  "moon-seer": [260, 198, 1.15], "sun-seer": [95, 198, 1.1],
 });
 
 // L3 choice is required, validated, and charged only after a valid branch is chosen.
@@ -52,6 +59,9 @@ for (const [type, choices] of Object.entries({
   battlemage: ["spellblade", "warcaster"],
   "green-archer": ["dragon-slayer", "ranger"],
   sovereign: ["storm-regent", "war-sovereign"],
+  "thorn-owl": ["needlewing-owl", "elderwing"],
+  druid: ["dire-wolf", "elder-bear"],
+  seer: ["moon-seer", "sun-seer"],
 })) {
   for (const specializationId of choices) {
     const state = new GameState("single-spawn", "arcane-kingdom", 10);
@@ -68,6 +78,135 @@ for (const [type, choices] of Object.entries({
     assert.equal(tower.specializationId, specializationId);
   }
 }
+
+// Ancient Grove's four-unit roster, progression prices and distinct role stats.
+assert.deepEqual(FACTIONS["ancient-grove"].units, ["treant", "thorn-owl", "druid", "seer"]);
+assert.deepEqual(["treant", "thorn-owl", "druid", "seer"].map((id) => DEFENDER_CONFIG[id].buildCost), [10, 15, 55, 75]);
+assert.deepEqual(["treant", "thorn-owl", "druid", "seer"].map((id) => DEFENDER_CONFIG[id].levels.map(({ damage, fireRate, upgradeCost }) => [damage, fireRate, upgradeCost])), [
+  [[10, 0.8, null], [18, 0.9, 15], [30, 1, 25]],
+  [[12, 0.95, null], [22, 1.1, 25], [70, 1.5, 125]],
+  [[60, 1.05, null], [100, 1.15, 70], [310, 0.8, 110]],
+  [[65, 0.85, null], [110, 0.95, 100], [95, 1.1, 150]],
+]);
+assert.deepEqual(["needlewing-owl", "elderwing", "dire-wolf", "elder-bear", "moon-seer", "sun-seer"].map((id) => TOWER_SPECIALIZATIONS[id].level3Stats), [
+  { damage: 90, range: 270, fireRate: 2.1 }, { damage: 70, range: 288, fireRate: 1.5 },
+  { damage: 95, fireRate: 2.5 }, { damage: 310, fireRate: 0.8 },
+  { damage: 260, range: 198, fireRate: 1.15 }, { damage: 95, range: 198, fireRate: 1.1 },
+]);
+
+// Thorn Rot: at most one stack/sec, overlap-independent, full-stack expiry and flying immunity.
+const groveStatuses = new AncientGroveStatusSystem();
+const rotEnemy = makeEnemy(701);
+for (let i = 0; i < 4; i += 1) groveStatuses.updateEnemy(rotEnemy, 0.25, 1);
+assert.equal(rotEnemy.thornRotStacks, 1, "multiple overlapping influence sources still add one stack per second");
+groveStatuses.updateEnemy(rotEnemy, 1, 1);
+assert.equal(rotEnemy.thornRotStacks, 2);
+rotEnemy.thornRotStacks = 5;
+groveStatuses.updateEnemy(rotEnemy, 3, 0);
+assert.equal(rotEnemy.thornRotStacks, 5, "stacks remain unchanged during the four-second outside grace");
+groveStatuses.updateEnemy(rotEnemy, 0.25, 3);
+assert.equal(rotEnemy.thornRotStacks, 5, "re-entry preserves stacks");
+groveStatuses.updateEnemy(rotEnemy, 1, 3);
+assert.equal(rotEnemy.thornRotStacks, 6, "re-entry resumes stack accrual");
+groveStatuses.updateEnemy(rotEnemy, 4, 0);
+assert.equal(rotEnemy.thornRotStacks, 0, "all stacks expire together after four continuous seconds outside");
+const flyingRot = makeEnemy(702, "goblinRider");
+groveStatuses.updateEnemy(flyingRot, 2, 3);
+assert.equal(flyingRot.thornRotStacks, 0, "flying enemies are immune to Thorn Rot");
+assert.equal(getThornRotDamage({ thornRotStacks: 5 }, 1), 25);
+assert.equal(getThornRotDamage({ thornRotStacks: 5 }, 2), 35);
+assert.equal(getThornRotDamage({ thornRotStacks: 6 }, 3), 60);
+
+// Sunbrand: per-hit stacks, four-second grace, one stack/sec decay, refresh and fixed priority.
+const brandEnemy = makeEnemy(703);
+for (let hit = 0; hit < 4; hit += 1) groveStatuses.applySunbrandHit(brandEnemy);
+assert.equal(brandEnemy.sunbrandStacks, 4);
+assert.equal(groveStatuses.applySunbrandHit(brandEnemy), true, "a hit at four stacks triggers Solar Detonation");
+assert.equal(brandEnemy.sunbrandStacks, 4, "detonation does not consume stacks");
+groveStatuses.updateEnemy(brandEnemy, 4, 0);
+assert.equal(brandEnemy.sunbrandStacks, 4, "four-second grace preserves stacks");
+groveStatuses.updateEnemy(brandEnemy, 1, 0);
+assert.equal(brandEnemy.sunbrandStacks, 3);
+groveStatuses.updateEnemy(brandEnemy, 1, 0);
+assert.equal(brandEnemy.sunbrandStacks, 2);
+groveStatuses.updateEnemy(brandEnemy, 1, 0);
+assert.equal(brandEnemy.sunbrandStacks, 1);
+groveStatuses.updateEnemy(brandEnemy, 1, 0);
+assert.equal(brandEnemy.sunbrandStacks, 0);
+brandEnemy.sunbrandStacks = 3;
+groveStatuses.applySunbrandHit(brandEnemy);
+assert.equal(brandEnemy.sunbrandStacks, 4, "reapplication adds one stack and resets decay grace");
+assert.equal(getSunbrandDamage({ sunbrandStacks: 4 }), 72);
+assert.deepEqual([3, 0, 2, 1, 4].sort((a, b) => getSunbrandTargetPriority(a) - getSunbrandTargetPriority(b)), [3, 0, 2, 1, 4]);
+
+// Grove Hunter thresholds and the two mechanically distinct Druid branches.
+const groveDruid = createBasicTower(704, { x: 5, y: 5 }, "druid");
+upgradeTower(groveDruid); upgradeTower(groveDruid, "dire-wolf");
+const exposedTank = makeEnemy(705, "goblinBrute");
+exposedTank.livingMazeExposureSeconds = 4;
+const wolfProfile = getTowerAttackProfile(groveDruid, exposedTank);
+assert.equal(wolfProfile.damage, Math.round(95 * 1.2 * 1.3), "Wolf stacks Grove Hunter and tank bonus");
+assert.equal(wolfProfile.fireRate, 2.5 * 1.15, "Wolf gains attack speed at four seconds of exposure");
+assert.equal(wolfProfile.physicalResistancePenetration, 0.5);
+const elderBear = createBasicTower(706, { x: 5, y: 5 }, "druid");
+upgradeTower(elderBear); upgradeTower(elderBear, "elder-bear");
+assert.equal(getTowerSplashRatioForTarget(elderBear, "melee", 0, 1), 0.55);
+assert.equal(getTowerSplashRatioForTarget(elderBear, "melee", 2, 4), 0.7);
+assert.equal(getTowerAttackMode(elderBear, makeEnemy(707, "goblin", 6, 5)), "melee");
+
+// Real GameState integration: Sun Seer selects 3 -> 0 -> 2 -> 1 -> 4, then brands and detonates.
+const sun = createBasicTower(708, { x: 5, y: 5 }, "seer");
+upgradeTower(sun); upgradeTower(sun, "sun-seer");
+const targets = [4, 1, 3, 0, 2].map((stacks, index) => {
+  const enemy = makeEnemy(710 + index, "goblin", 6, 5);
+  enemy.sunbrandStacks = stacks;
+  enemy.sunbrandGraceSecondsRemaining = 4;
+  return enemy;
+});
+const sunState = new GameState("single-spawn", "ancient-grove", 708);
+sunState.waveActive = true; sunState.toSpawn = 1; sunState.towers = [sun]; sunState.enemies = targets;
+sunState.update(0.001);
+assert.equal(sunState.attackEvents[0]?.targetEnemyId, 712, "Sun Seer first restores the three-stack target");
+assert.equal(sunState.attackEvents[0]?.damageDealt, 95, "a three-stack target is hit before a fully branded target");
+assert.equal(targets[2].sunbrandStacks, 4, "Solar detonation leaves the target at four stacks");
+assert.equal(targets[2].sunbrandGraceSecondsRemaining, 4, "Solar hit refreshes the grace period");
+const fullyBranded = makeEnemy(720, "goblin", 6, 5);
+fullyBranded.sunbrandStacks = 4; fullyBranded.sunbrandGraceSecondsRemaining = 4;
+sun.cooldownRemaining = 0;
+const detonationState = new GameState("single-spawn", "ancient-grove", 709);
+detonationState.waveActive = true; detonationState.toSpawn = 1; detonationState.towers = [sun]; detonationState.enemies = [fullyBranded];
+detonationState.update(0.001);
+assert.equal(detonationState.attackEvents[0]?.damageDealt, 275, "hitting an already fully branded target adds 180 magic damage");
+assert.equal(fullyBranded.sunbrandStacks, 4, "Solar detonation does not consume the four stacks");
+
+// Status damage is applied by GameState and survives without any renderer dependency.
+const rotState = new GameState("single-spawn", "ancient-grove", 721);
+const rotCell = rotState.path[5];
+const rotTarget = createEnemy(721, "goblin", rotState.path, 1);
+Object.assign(rotTarget, { currentPathIndex: 5, x: rotCell.x, y: rotCell.y, hp: 10000, maxHp: 10000, speed: 0 });
+const overlappingTreants = [0, 1, 2, 3].map((offset) => {
+  const treant = createBasicTower(730 + offset, { x: rotCell.x + (offset % 2 ? 1 : -1), y: rotCell.y + (offset < 2 ? 1 : -1) }, "treant");
+  treant.cooldownRemaining = 10;
+  return treant;
+});
+rotState.towers = overlappingTreants;
+rotState.factionBonuses.rebuildLivingMazeInfluence(rotState.towers, [rotState.path]);
+rotState.waveActive = true; rotState.toSpawn = 1; rotState.enemies = [rotTarget];
+rotState.update(1);
+assert.equal(rotTarget.thornRotStacks, 1, "four overlapping Treants still add one Thorn Rot stack/sec");
+assert.equal(rotTarget.hp, 9995, "one L1 Thorn Rot stack deals 5 DPS through GameState");
+
+const sunDotEnemy = makeEnemy(722);
+sunDotEnemy.sunbrandStacks = 4; sunDotEnemy.sunbrandGraceSecondsRemaining = 4; sunDotEnemy.speed = 0;
+sun.cooldownRemaining = 10;
+const sunDotState = new GameState("single-spawn", "ancient-grove", 722);
+sunDotState.waveActive = true; sunDotState.toSpawn = 1; sunDotState.towers = [sun]; sunDotState.enemies = [sunDotEnemy];
+sunDotState.update(4);
+assert.equal(sunDotEnemy.hp, 10000 - 72 * 4, "Sunbrand deals 72 DPS during its four-second grace");
+assert.equal(sunDotEnemy.sunbrandStacks, 4);
+sunDotState.update(1);
+assert.equal(sunDotEnemy.sunbrandStacks, 3);
+assert.equal(sunDotEnemy.hp, 10000 - 72 * 4 - 54, "Sunbrand continues dealing damage while decaying one stack/sec");
 
 // Stormcaller chains twice, in order, without repeating its primary target.
 const storm = level2Tower(2, "blue-wizard");

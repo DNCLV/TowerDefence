@@ -5,6 +5,8 @@ const os = require("node:os");
 const path = require("node:path");
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), "td-enemy-visuals-"));
+const appUrl = process.env.TD_TEST_URL ?? "http://127.0.0.1:5173/";
+const appOrigin = new URL(appUrl).origin;
 const pending = new Map();
 let chrome;
 let socket;
@@ -30,7 +32,7 @@ async function main() {
   const assets = ["goblin", "goblin-brute", "goblin-rider", "giant-goblin", "ghoul", "wraith", "undead-dragon", "skeleton-king"];
   for (const asset of assets) {
     for (const sourcePath of [`optimized/${asset}.glb`, `${asset}.glb`]) {
-      const response = await fetch(`http://127.0.0.1:5173/assets/models/enemies/${sourcePath}`);
+      const response = await fetch(`${appOrigin}/assets/models/enemies/${sourcePath}`);
       if (!response.ok) throw new Error(`Missing runtime asset: ${sourcePath} (${response.status})`);
     }
   }
@@ -47,8 +49,19 @@ async function main() {
     if (message.id && pending.has(message.id)) { pending.get(message.id)(message.result || message.error); pending.delete(message.id); }
   });
   await command("Runtime.enable");
+  await command("Page.enable");
   await command("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
-  await command("Page.navigate", { url: "http://127.0.0.1:5173/?waveDebug=1&perfDebug=1" });
+  await command("Page.navigate", { url: `${appUrl}${appUrl.includes("?") ? "&" : "?"}waveDebug=1&perfDebug=1` });
+  for (let attempt = 0; attempt < 80; attempt += 1) {
+    if (await evaluate("!!document.querySelector('#start-selected-map')")) break;
+    await delay(100);
+  }
+  await evaluate("document.querySelector('#start-selected-map').click()");
+  for (let attempt = 0; attempt < 80; attempt += 1) {
+    if (await evaluate("!!document.querySelector('#start-battlefield')")) break;
+    await delay(100);
+  }
+  await evaluate("document.querySelector('#start-battlefield').click()");
   for (let attempt = 0; attempt < 80; attempt += 1) {
     const loaded = await evaluate("window.__enemyTemplateAudit?.length ?? 0");
     if (loaded === 8) break;
@@ -97,9 +110,35 @@ async function main() {
     sceneStats: window.__enemySceneStats,
     errors: window.__enemyVisualAudit?.filter(entry => entry.status === 'rejected') ?? []
   })`);
+  if (process.env.TD_GIANT_GOBLIN_ONLY === "1") {
+    if (!populated || result.errors.length) throw new Error(`Giant visual sample failed to render: ${JSON.stringify(result.errors)}`);
+    const giant = result.instances.find((item) => item.type === "giantGoblin");
+    const brute = result.instances.find((item) => item.type === "goblinBrute");
+    if (!giant || !brute) throw new Error("Giant Goblin or Goblin Brute did not produce a rendered instance.");
+    const ratio = giant.bounds.height / brute.bounds.height;
+    if (Math.abs(giant.scale - 2.36) > 0.001 || ratio < 1.8 || ratio > 2.2
+      || giant.bounds.height >= giant.maxDimension || Math.abs(giant.bounds.minY) > 0.001
+      || giant.hpBarOffsetY < giant.bounds.height + 0.2 || giant.hpBarOffsetY > giant.bounds.height + 0.5) {
+      throw new Error(`Giant Goblin visual bounds/attachments are out of range: ${JSON.stringify({ giant, brute, ratio })}`);
+    }
+    const gameplayStats = await evaluate(`(async () => { const { ENEMY_CONFIG } = await import('/src/game/config/EnemyConfig.ts');
+      return { giant: ENEMY_CONFIG.giantGoblin, brute: ENEMY_CONFIG.goblinBrute }; })()`);
+    if (gameplayStats.giant.hp !== 3000 || gameplayStats.giant.speedMultiplier !== 0.42
+      || gameplayStats.giant.goldReward !== 10 || gameplayStats.giant.livesDamage !== 3
+      || gameplayStats.giant.threatWeight !== 18 || gameplayStats.brute.hp !== 550) {
+      throw new Error(`Giant/Brute gameplay stats changed: ${JSON.stringify(gameplayStats)}`);
+    }
+    console.log("Giant Goblin visual size check passed", JSON.stringify({
+      giant: { scale: giant.scale, bounds: giant.bounds, hpBarOffsetY: giant.hpBarOffsetY },
+      brute: { scale: brute.scale, bounds: brute.bounds }, ratio, gameplayStats,
+    }));
+    return;
+  }
   if (!populated || result.instances?.length !== 64) throw new Error(`Expected 64 enemy instances; got ${result.instances?.length ?? 0}.`);
   if (result.errors.length) throw new Error(`A model failed bounds validation: ${JSON.stringify(result.errors)}`);
-  if (result.instances.some((item) => item.cachedModelCount !== 8)) throw new Error("Enemy GLB templates were not cached before instantiation.");
+  if (result.instances.some((item) => item.cachedModelCount !== result.templates.length)) {
+    throw new Error(`Enemy GLB templates were not cached before instantiation: ${JSON.stringify({ templates: result.templates.length, counts: [...new Set(result.instances.map((item) => item.cachedModelCount))] })}`);
+  }
   if (result.templates.length !== 8 || result.templates.some((item) => !item.optimized || !item.assetPath.includes("/optimized/"))) {
     throw new Error(`The eight optimized models were not used: ${JSON.stringify(result.templates)}`);
   }
@@ -108,9 +147,12 @@ async function main() {
     return [type, { count: result.instances.filter((entry) => entry.type === type).length, ...item }];
   }));
   const giant = perType.giantGoblin;
-  if (Math.abs(giant.scale - 3.15) > 0.001) throw new Error(`Giant visual scale should be 3.15; got ${giant.scale}.`);
-  if (giant.bounds.height < 5.9 || giant.bounds.height >= giant.maxDimension) {
-    throw new Error(`Giant measured height should be about 5.98 and stay under its 7-unit guard; got ${giant.bounds.height}.`);
+  const brute = perType.goblinBrute;
+  const giantToBruteHeight = giant.bounds.height / brute.bounds.height;
+  if (Math.abs(giant.scale - 2.36) > 0.001) throw new Error(`Giant visual scale should be 2.36; got ${giant.scale}.`);
+  if (giant.bounds.height < 4.4 || giant.bounds.height > 4.6 || giant.bounds.height >= giant.maxDimension
+    || giantToBruteHeight < 1.8 || giantToBruteHeight > 2.2) {
+    throw new Error(`Giant height should be about 2x Goblin Brute while under its 7-unit guard; got height ${giant.bounds.height}, ratio ${giantToBruteHeight}.`);
   }
   if (Math.abs(giant.bounds.minY) > 0.001) throw new Error(`Giant should stay ground-aligned; minY=${giant.bounds.minY}.`);
   if (giant.hpBarOffsetY < giant.bounds.height + 0.2 || giant.hpBarOffsetY > giant.bounds.height + 0.5) {

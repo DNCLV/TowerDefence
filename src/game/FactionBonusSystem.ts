@@ -58,25 +58,39 @@ export function getVeteranAttackSpeedMultiplier(factionId: FactionId, tower: Pic
 /** Owns the event-driven Living Maze influence cache and lightweight enemy exposure state. */
 export class FactionBonusSystem {
   private readonly influencedPathCells = new Set<string>();
+  private readonly treantInfluencedPathCells = new Set<string>();
 
   constructor(readonly factionId: FactionId) {}
 
   rebuildLivingMazeInfluence(towers: readonly Pick<Tower, "cell" | "type">[], paths: readonly Cell[][]): void {
     this.influencedPathCells.clear();
+    this.treantInfluencedPathCells.clear();
     if (this.factionId !== FACTION_BONUS_CONFIG.ancientGroveId) return;
-    const groveTowers = towers.filter((tower) => tower.type !== undefined);
+    const groveTowers = towers;
+    const treants = towers.filter((tower) => tower.type === "treant");
     for (const path of paths) {
       for (const cell of path) {
         if (groveTowers.some((tower) => Math.max(Math.abs(tower.cell.x - cell.x), Math.abs(tower.cell.y - cell.y))
           <= FACTION_BONUS_CONFIG.livingMaze.influenceRangeCells)) {
           this.influencedPathCells.add(cellKey(cell));
         }
+        if (treants.some((tower) => Math.max(Math.abs(tower.cell.x - cell.x), Math.abs(tower.cell.y - cell.y))
+          <= FACTION_BONUS_CONFIG.livingMaze.influenceRangeCells)) this.treantInfluencedPathCells.add(cellKey(cell));
       }
     }
   }
 
   isLivingMazeInfluenced(cell: Cell): boolean {
     return this.influencedPathCells.has(cellKey(cell));
+  }
+
+  isTreantInfluenced(cell: Cell): boolean { return this.treantInfluencedPathCells.has(cellKey(cell)); }
+
+  getTreantLevelAt(cell: Cell, towers: readonly Pick<Tower, "cell" | "type" | "level">[]): number {
+    if (this.factionId !== FACTION_BONUS_CONFIG.ancientGroveId || !this.isTreantInfluenced(cell)) return 0;
+    return towers.reduce((highest, tower) => tower.type === "treant"
+      && Math.max(Math.abs(tower.cell.x - cell.x), Math.abs(tower.cell.y - cell.y)) <= FACTION_BONUS_CONFIG.livingMaze.influenceRangeCells
+      ? Math.max(highest, tower.level) : highest, 0);
   }
 
   getLivingMazeInfluencedCells(): Cell[] {

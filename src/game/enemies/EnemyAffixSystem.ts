@@ -68,10 +68,11 @@ export function applyEnemyAffixes(enemy: Enemy, affixes: EnemyAffix[]): void {
   enemy.shield = enemy.maxShield;
 }
 
-export function getEnemyDamageMultiplier(enemy: Enemy, damageType: DamageType): number {
+export function getEnemyDamageMultiplier(enemy: Enemy, damageType: DamageType, resistancePenetration = 0): number {
   const id = damageType === "physical" ? "armored" : "arcane-ward";
   const affix = enemy.affixes.find((candidate) => candidate.id === id);
-  return affix ? 1 - AFFIXES[id].values[affix.tier] : 1;
+  const resistance = affix ? AFFIXES[id].values[affix.tier] : 0;
+  return 1 - resistance * (1 - Math.max(0, Math.min(1, resistancePenetration)));
 }
 
 export function applyEnemySlow(enemy: Enemy, multiplier: number, durationSeconds: number): void {

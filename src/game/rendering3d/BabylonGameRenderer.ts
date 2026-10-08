@@ -2127,6 +2127,12 @@ export class BabylonGameRenderer {
         // Each imported defender uses its own GLB and safe neutral fallback; never a different unit's model.
         visual = this.quaterniusDefenderFactory.create(tower.id, tower.type, tower.level);
         break;
+      case "treant":
+      case "thorn-owl":
+      case "druid":
+      case "seer":
+        visual = this.quaterniusDefenderFactory.create(tower.id, tower.type, tower.level);
+        break;
       default: {
         const unreachableType: never = tower.type;
         throw new Error(`No defender visual mapping for ${unreachableType}`);

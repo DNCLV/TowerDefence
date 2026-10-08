@@ -2,7 +2,8 @@ import type { DefenderType } from "./DefenderConfig";
 import { WORLD_UNITS_PER_CELL } from "../../core/GameConstants";
 
 export type TowerSpecializationId = "stormcaller" | "frostweaver" | "royal-champion" | "dawn-paladin" | "spellblade" | "warcaster"
-  | "dragon-slayer" | "ranger" | "storm-regent" | "war-sovereign";
+  | "dragon-slayer" | "ranger" | "storm-regent" | "war-sovereign"
+  | "needlewing-owl" | "elderwing" | "dire-wolf" | "elder-bear" | "moon-seer" | "sun-seer";
 export interface TowerSpecializationConfig {
   id: TowerSpecializationId;
   defenderType: DefenderType;
@@ -20,6 +21,9 @@ export interface TowerSpecializationConfig {
   bonusDamageMultiplier?: number;
   meleeDamageMultiplier?: number;
   splashRatio?: number;
+  /** Per-secondary ratios for limited multi-target attacks. */
+  splashRatios?: readonly number[];
+  splashTargetLimit?: number;
   splashMode?: "melee" | "ranged" | "any";
   visualKey: string;
   visualColor: string;
@@ -86,6 +90,42 @@ export const TOWER_SPECIALIZATIONS: Record<TowerSpecializationId, TowerSpecializ
     bonusDamageClasses: ["tank", "boss"], bonusDamageMultiplier: 1.3,
     visualKey: "war-sovereign", visualColor: "#e8b358",
   },
+  "needlewing-owl": {
+    id: "needlewing-owl", defenderType: "thorn-owl", name: "Needlewing Owl", role: "Flying tank / boss killer",
+    description: "90 damage at 2.10 attacks/sec, 7.5 tiles. Ignores 40% of physical resistance and deals 25% extra damage to flying tanks and bosses.",
+    level3Stats: { damage: 90, range: 7.5 * WORLD_UNITS_PER_CELL, fireRate: 2.1 },
+    bonusDamageClasses: ["tank", "boss"], bonusDamageMultiplier: 1.25, visualKey: "needlewing-owl", visualColor: "#a9d875",
+  },
+  elderwing: {
+    id: "elderwing", defenderType: "thorn-owl", name: "Elderwing", role: "Flying swarm",
+    description: "70 damage at 1.50 attacks/sec, 8 tiles. Thorn Volley hits up to two additional flying enemies for 70% and 45% damage.",
+    level3Stats: { damage: 70, range: 8 * WORLD_UNITS_PER_CELL, fireRate: 1.5 },
+    splashRatios: [0.7, 0.45], splashTargetLimit: 2, visualKey: "elderwing", visualColor: "#7fc99c",
+  },
+  "dire-wolf": {
+    id: "dire-wolf", defenderType: "druid", name: "Dire Wolf", role: "Single-target tank / boss killer",
+    description: "95 damage at 2.50 attacks/sec. Ignores 50% of physical resistance, deals 30% extra damage to tanks and bosses, and gains 15% attack speed at 4+ seconds of Living Maze exposure.",
+    level3Stats: { damage: 95, fireRate: 2.5 },
+    bonusDamageClasses: ["tank", "boss"], bonusDamageMultiplier: 1.3, visualKey: "dire-wolf", visualColor: "#8ba75d",
+  },
+  "elder-bear": {
+    id: "elder-bear", defenderType: "druid", name: "Elder Bear", role: "Slow cleave / pack thinner",
+    description: "310 damage at 0.80 attacks/sec. Great Swipe hits up to three additional nearby ground enemies for 55% damage, increasing to 70% at 4+ seconds of exposure.",
+    level3Stats: { damage: 310, fireRate: 0.8 },
+    splashRatio: 0.55, splashMode: "melee", splashTargetLimit: 3, visualKey: "elder-bear", visualColor: "#b48955",
+  },
+  "moon-seer": {
+    id: "moon-seer", defenderType: "seer", name: "Moon Seer", role: "Ramping single target",
+    description: "260 magic damage at 1.15 attacks/sec, 5.5 tiles. Repeated hits on the same target ramp damage by 0%, 10%, 20%, then 35%; changing target resets the ramp.",
+    level3Stats: { damage: 260, range: 5.5 * WORLD_UNITS_PER_CELL, fireRate: 1.15 },
+    visualKey: "moon-seer", visualColor: "#9c98e8",
+  },
+  "sun-seer": {
+    id: "sun-seer", defenderType: "seer", name: "Sun Seer", role: "Hybrid / Sunbrand DoT",
+    description: "95 magic damage at 1.10 attacks/sec, 5.5 tiles. Hits one nearby secondary for 60%; hits apply Sunbrand, and a hit on a 4-stack target detonates for 180 magic damage.",
+    level3Stats: { damage: 95, range: 5.5 * WORLD_UNITS_PER_CELL, fireRate: 1.1 },
+    splashRatio: 0.6, splashTargetLimit: 1, visualKey: "sun-seer", visualColor: "#f1c867",
+  },
 };
 
 export const SPECIALIZATIONS_BY_DEFENDER: Partial<Record<DefenderType, readonly TowerSpecializationId[]>> = {
@@ -94,6 +134,9 @@ export const SPECIALIZATIONS_BY_DEFENDER: Partial<Record<DefenderType, readonly 
   battlemage: ["spellblade", "warcaster"],
   "green-archer": ["dragon-slayer", "ranger"],
   sovereign: ["storm-regent", "war-sovereign"],
+  "thorn-owl": ["needlewing-owl", "elderwing"],
+  druid: ["dire-wolf", "elder-bear"],
+  seer: ["moon-seer", "sun-seer"],
 };
 
 export function getSpecialization(id: TowerSpecializationId | undefined): TowerSpecializationConfig | undefined {

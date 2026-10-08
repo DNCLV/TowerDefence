@@ -35,8 +35,15 @@ function defenderPortrait(type: DefenderType): string | undefined {
   }
 }
 
+function defenderGlyph(type: DefenderType): string {
+  return type === "treant" ? "♣" : type === "thorn-owl" ? "✦" : type === "druid" ? "❧" : type === "seer" ? "☾" : "✦";
+}
+
 function defenderPortraitMarkup(type: DefenderType, fallbackClassName: string): string {
   const portrait = defenderPortrait(type);
+  if (!portrait && (type === "treant" || type === "thorn-owl" || type === "druid" || type === "seer")) {
+    return `<span class="${fallbackClassName} grove-unit-glyph" aria-label="${DEFENDER_CONFIG[type].name} icon">${defenderGlyph(type)}</span>`;
+  }
   return portrait
     ? `<img src="${portrait}" alt="" draggable="false">`
     : `<span class="${fallbackClassName}" aria-label="Portrait unavailable">✦</span>`;
@@ -290,10 +297,10 @@ ui.innerHTML = `
     </div>
   </aside>
 
-  <section id="minimap-panel" class="minimap-panel" aria-label="Tactical map overview">
+  <div id="minimap-dock" class="minimap-dock"><section id="minimap-panel" class="minimap-panel" aria-label="Tactical map overview">
     <div class="minimap-heading"><span>FIELD MAP</span><span aria-hidden="true">N ↑</span></div>
     <canvas id="game-minimap" class="game-minimap" role="img" aria-label="Map overview"></canvas>
-  </section>
+  </section><button id="minimap-toggle" class="minimap-toggle" type="button" aria-label="Collapse minimap" aria-expanded="true" title="Collapse minimap"><span aria-hidden="true">‹</span></button></div>
 
   <footer class="bottom-hud-bar">
     <section class="build-unit-section" aria-label="Build units">
@@ -445,8 +452,34 @@ const query = <T extends HTMLElement>(selector: string): T => {
   return element;
 };
 const minimapPanel = query<HTMLElement>("#minimap-panel");
+const minimapDock = query<HTMLElement>("#minimap-dock");
+const minimapToggle = query<HTMLButtonElement>("#minimap-toggle");
 const minimapCanvas = query<HTMLCanvasElement>("#game-minimap");
 const minimap = new MinimapRenderer(minimapPanel, minimapCanvas, map);
+let minimapCloseTimer: number | undefined;
+const setMinimapOpen = (open: boolean): void => {
+  // Read size only on explicit user toggles; the minimap renderer/data stays mounted.
+  const panelHeight = minimapPanel.getBoundingClientRect().height;
+  const tabWidth = minimapToggle.getBoundingClientRect().width;
+  minimapDock.style.width = open ? "" : `${tabWidth}px`;
+  minimapDock.style.height = open ? "" : `${panelHeight}px`;
+  minimapDock.classList.toggle("is-collapsed", !open);
+  if (minimapCloseTimer !== undefined) window.clearTimeout(minimapCloseTimer);
+  minimapCloseTimer = undefined;
+  if (open) minimapPanel.style.visibility = "";
+  else {
+    minimapPanel.style.visibility = "";
+    minimapCloseTimer = window.setTimeout(() => {
+      if (minimapDock.classList.contains("is-collapsed")) minimapPanel.style.visibility = "hidden";
+      minimapCloseTimer = undefined;
+    }, 220);
+  }
+  minimapToggle.setAttribute("aria-expanded", String(open));
+  minimapToggle.setAttribute("aria-label", open ? "Collapse minimap" : "Expand minimap");
+  minimapToggle.title = open ? "Collapse minimap" : "Expand minimap";
+  minimapToggle.firstElementChild!.textContent = open ? "‹" : "›";
+};
+minimapToggle.addEventListener("click", () => setMinimapOpen(minimapDock.classList.contains("is-collapsed")));
 const bottomHudBar = query<HTMLElement>(".bottom-hud-bar");
 const syncMinimapDock = (): void => {
   ui.style.setProperty("--game-bottom-hud-height", `${bottomHudBar.getBoundingClientRect().height}px`);
@@ -520,6 +553,11 @@ const buildUnitInfoCost = query<HTMLElement>("#build-unit-info-cost");
 const buildUnitInfoHint = query<HTMLElement>(".build-unit-info-hint");
 const buildSovereignProfiles = query<HTMLElement>("#build-sovereign-profiles");
 const towerPortrait = query<HTMLElement>(".tower-portrait");
+const towerBuffRow = query<HTMLElement>(".tower-buff-row");
+const towerPortraitStack = document.createElement("div");
+towerPortraitStack.className = "tower-portrait-stack";
+towerPortrait.before(towerPortraitStack);
+towerPortraitStack.append(towerPortrait, towerBuffRow);
 const towerLevel = query<HTMLElement>("#tower-level");
 const towerDamage = query<HTMLElement>("#tower-damage");
 const towerRange = query<HTMLElement>("#tower-range");
@@ -940,6 +978,7 @@ function renderSelectedTower(state: GameState): void {
   query<HTMLElement>(".tower-name").textContent = DEFENDER_CONFIG[tower.type].name;
   const portrait = defenderPortrait(tower.type);
   towerPortrait.textContent = portrait ? "" : "✦";
+  towerPortrait.textContent = portrait ? "" : defenderGlyph(tower.type);
   towerPortrait.classList.toggle("has-placeholder", !portrait);
   towerPortrait.style.backgroundImage = portrait ? `url("${portrait}")` : "none";
   towerLevel.textContent = `Level ${tower.level}`;
@@ -1112,7 +1151,7 @@ function renderBuildUnitInfo(): void {
   buildUnitInfoImage.hidden = !portrait;
   buildUnitInfoFallback.hidden = Boolean(portrait);
   if (portrait) buildUnitInfoImage.src = portrait;
-  else buildUnitInfoImage.removeAttribute("src");
+  else { buildUnitInfoImage.removeAttribute("src"); buildUnitInfoFallback.textContent = defenderGlyph(selectedBuildType); }
   buildUnitInfoCapabilities.hidden = !isMapWide;
   buildUnitInfoCapabilities.textContent = isMapWide ? getDefenderCapabilitySummary(selectedBuildType, 1) : "";
   buildUnitInfoName.textContent = defender.name;
@@ -1219,7 +1258,7 @@ function returnToMapSelect(): void {
   setSelection();
   disposeBuildTrayObservers();
   minimap.dispose();
-  minimapPanel.remove();
+  minimapDock.remove();
   pendingRendererDisposal = renderer.dispose();
   ui.remove();
   canvas.remove();
@@ -1333,7 +1372,7 @@ function renderBattlefieldInfo(state: GameState): void {
   const progression = state.affixSystem.getProgression();
   const parts: string[] = [
     `<section class="battlefield-info-block"><h3>CURRENT WAVE</h3><p>Wave ${wave}</p></section>`,
-    `<section class="battlefield-info-block"><h3>ENEMY HP SCALING</h3><p>Current multiplier <strong>×${hpMultiplier}</strong></p><small>Enemy HP doubles every 10 waves. Next increase: Wave ${nextHpWave} → ×${getEnemyHpMultiplier(nextHpWave)}.</small></section>`,
+    `<section class="battlefield-info-block"><h3>ENEMY HP SCALING</h3><p>Current multiplier <strong>×${hpMultiplier}</strong></p><small>HP multiplier changes at each 10-wave tier. Next change: Wave ${nextHpWave} → ×${getEnemyHpMultiplier(nextHpWave)}.</small></section>`,
   ];
   const activeAffixStatus = activeTier
     ? `<strong>Tier ${romanTier[activeTier]} — active from Wave ${activeTier * 15} onward.</strong>`

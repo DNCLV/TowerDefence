@@ -36,7 +36,7 @@ npm run dev
 - Towers prioriterer den enemy, der er længst fremme på wave-ruten. Dræbte enemies giver 1 gold, og Phaser viser en kort hit-linje.
 - Basic Towers har tre levels. Vælg et tower i build phase for at se stats/range og opgradere det med gold.
 - Tower progression giver nu tydelige spikes: L1 25 damage/1.0 fire rate, L2 55/1.15 og L3 100/1.35. L1/L2/L3 er henholdsvis lilla, blå og guld på mappet.
-- Enemy HP, speed multipliers, rewards, and leak damage are defined per archetype in `src/game/config/EnemyConfig.ts`; HP never scales by wave.
+- Enemy base HP, speed, rewards, and leak damage are defined in `src/game/config/EnemyConfig.ts`. Wave HP multipliers live in `src/game/config/EnemyHpScalingConfig.ts`: 1× / 2× / 4× / 8× / 12× through wave 50, then the prior doubling curve resumes at 32× for waves 51–60.
 - `src/game/config/WaveConfig.ts` controls composition and gradually tightens spawn tempo. Wave composition and completion telemetry are logged once per wave.
 - `AUTO: ON` starter næste wave straks efter completion og kan slås fra når som helst. Ved 0 lives stoppes combat og Auto Run.
 - Game Over viser `TRY AGAIN`, som starter et helt nyt in-memory run uden browser-reload.
@@ -81,6 +81,13 @@ The current implementation supersedes the earlier single-enemy/scaling notes abo
 
 - New enemies: Undead Dragon is a heavy flying target (first appears in the mixed Wave 32; flying Waves 35+ mix Riders and Dragons). Wave 50 is reserved for one Skeleton King boss.
 - New defenders are configured in `src/game/config/DefenderConfig.ts`: Green Archer specializes in flying targets; Battlemage switches melee/ranged automatically and deals adjacent-target splash.
+
+## Ancient Grove gameplay foundation
+
+- Ancient Grove now has its own Treant (10g), Thorn Owl (15g), Druid (55g), and Seer (75g) roster with configured level costs/stats and two L3 branches each.
+- Treant influence builds ground-only Thorn Rot at one stack per second; Sun Seer applies a separate four-second-grace/one-stack-per-second-decay Sunbrand. Both statuses and damage are resolved in the framework-independent game core.
+- The faction's original Living Maze slow remains unchanged. Ancient Grove's temporary visuals are intentionally simple Babylon primitives until dedicated art is added.
+- Focused simulation coverage is included in `npm run test:gameplay-depth`.
 - Enemy HP bars are one dark-backed red health bar per enemy. Combat and damage/kill telemetry stay in framework-independent `GameState`/tower code.
 - The four source GLBs are `3D/Undead Dragon.glb`, `3D/Skeleton King.glb`, `3D/Green Archer.glb`, and `3D/Battlemage.glb`. Optimized-first runtime models and unchanged source fallbacks are under `public/assets/models/{enemies,defenders}/`.
 - Regenerate only these assets with `powershell -ExecutionPolicy Bypass -File scripts/optimize-content-models.ps1`. `npm run test:enemy-waves` covers core wave/combat behavior; `npm run test:content-assets` checks the browser asset/UI integration (requires the Vite dev server).
