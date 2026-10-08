@@ -22,7 +22,7 @@ export interface EnvironmentTheme {
 export const ENVIRONMENT_THEMES: readonly EnvironmentTheme[] = [
   {
     id: "royal-guard-stronghold", label: "Royal Guard Stronghold",
-    playableGround: new Color3(0.69, 0.65, 0.55), outskirtsGround: new Color3(0.38, 0.42, 0.32),
+    playableGround: new Color3(0.69, 0.65, 0.55), outskirtsGround: new Color3(0.46, 0.59, 0.35),
     fogColor: new Color3(0.72, 0.76, 0.75), ambientTint: new Color3(0.91, 0.87, 0.77),
     spawnAccent: new Color3(0.72, 0.17, 0.12), exitAccent: new Color3(0.76, 0.65, 0.30),
     treeAssets: ["castle-tree", "castle-tree-large"],

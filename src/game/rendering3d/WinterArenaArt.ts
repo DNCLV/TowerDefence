@@ -164,10 +164,10 @@ export class WinterArenaArt {
     const context = texture.getContext();
     context.clearRect(0, 0, 128, 128);
     const gradient = context.createRadialGradient(64, 64, 8, 64, 64, 63);
-    gradient.addColorStop(0, "rgba(91,67,45,0.23)");
-    gradient.addColorStop(0.42, "rgba(104,79,50,0.17)");
-    gradient.addColorStop(0.78, "rgba(110,89,59,0.065)");
-    gradient.addColorStop(1, "rgba(110,89,59,0)");
+    gradient.addColorStop(0, "rgba(128,116,74,0.15)");
+    gradient.addColorStop(0.42, "rgba(137,127,82,0.11)");
+    gradient.addColorStop(0.78, "rgba(145,138,91,0.045)");
+    gradient.addColorStop(1, "rgba(145,138,91,0)");
     context.fillStyle = gradient;
     context.fillRect(0, 0, 128, 128);
     texture.hasAlpha = true;
@@ -193,13 +193,14 @@ export class WinterArenaArt {
       state = (state * 1664525 + 1013904223) >>> 0;
       return state / 0x100000000;
     };
-    const palette = name.startsWith("outskirts")
-      ? ["rgba(139,145,91,0.13)", "rgba(35,49,29,0.16)", "rgba(126,105,70,0.11)"]
+    const isOutskirts = name.startsWith("outskirts");
+    const palette = isOutskirts
+      ? ["rgba(190,204,123,0.14)", "rgba(77,119,57,0.085)", "rgba(163,145,91,0.065)"]
       : ["rgba(146,150,105,0.12)", "rgba(48,60,39,0.13)", "rgba(137,116,80,0.09)"];
-    for (let i = 0; i < 46; i += 1) {
+    for (let i = 0; i < (isOutskirts ? 58 : 46); i += 1) {
       const x = random() * size;
       const y = random() * size;
-      const radius = 32 + random() * 64;
+      const radius = isOutskirts ? 26 + random() * 54 : 32 + random() * 64;
       const color = palette[i % palette.length];
       for (const ox of [-size, 0, size]) for (const oy of [-size, 0, size]) {
         const gx = x + ox, gy = y + oy;
@@ -213,12 +214,16 @@ export class WinterArenaArt {
     }
     for (let i = 0; i < 1800; i += 1) {
       const x = Math.floor(random() * size), y = Math.floor(random() * size);
-      ctx.fillStyle = i % 3 === 0 ? "rgba(220,218,174,0.055)" : "rgba(27,40,24,0.065)";
+      ctx.fillStyle = isOutskirts
+        ? i % 3 === 0 ? "rgba(235,235,179,0.065)" : "rgba(46,76,39,0.032)"
+        : i % 3 === 0 ? "rgba(220,218,174,0.055)" : "rgba(27,40,24,0.065)";
       ctx.fillRect(x, y, 1 + (i % 3), 1);
     }
     for (let i = 0; i < 230; i += 1) {
       const x = random() * size, y = random() * size;
-      ctx.strokeStyle = i % 2 === 0 ? "rgba(202,198,145,0.08)" : "rgba(35,51,30,0.09)";
+      ctx.strokeStyle = isOutskirts
+        ? i % 2 === 0 ? "rgba(205,199,137,0.075)" : "rgba(55,86,42,0.045)"
+        : i % 2 === 0 ? "rgba(202,198,145,0.08)" : "rgba(35,51,30,0.09)";
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(x, y);
@@ -382,8 +387,16 @@ export class WinterArenaArt {
   private createGateApproach(index: number, side: "north" | "south" | "east" | "west", gateX: number, gateZ: number): void {
     const horizontal = side === "north" || side === "south";
     const distance = 1.85;
+    const outward = side === "north" || side === "west" ? -1 : 1;
     const x = horizontal ? gateX : side === "west" ? -distance : this.width + distance;
     const z = horizontal ? side === "north" ? -distance : this.depth + distance : gateZ;
+    const apron = MeshBuilder.CreateDisc(`royal-gate-earth-apron-${index}`, { radius: 2.45, tessellation: 24 }, this.scene);
+    apron.rotation.x = Math.PI / 2;
+    apron.position.set(horizontal ? x : x + outward * 3.35, -0.022, horizontal ? z + outward * 3.35 : z);
+    apron.material = this.contactSoilMaterial;
+    apron.isPickable = false;
+    apron.receiveShadows = false;
+    apron.freezeWorldMatrix();
     const path = MeshBuilder.CreateGround(`royal-cobblestone-approach-${index}`, {
       width: horizontal ? 2.15 : 3.2,
       height: horizontal ? 3.2 : 2.15,
@@ -459,12 +472,12 @@ export class WinterArenaArt {
     });
     // Low Kenney hill meshes break up the flat outer plane while staying clear of the map.
     const hillAnchors: Array<[number, number, number]> = [
-      [-5.4, -5.4, 0], [this.width + 5.4, -5.4, Math.PI / 2],
-      [-5.4, this.depth + 5.4, -Math.PI / 2], [this.width + 5.4, this.depth + 5.4, Math.PI],
+      [-4.7, -4.7, Math.PI / 4], [this.width + 4.7, -4.7, 3 * Math.PI / 4],
+      [-4.7, this.depth + 4.7, -Math.PI / 4], [this.width + 4.7, this.depth + 4.7, -3 * Math.PI / 4],
     ];
     hillAnchors.forEach(([x, z, rotation], index) => {
       const hill = this.assets.instantiate("castle-ground-hills", `royal-outskirts-hill-${index}`,
-        new Vector3(x, -0.06, z), rotation, 8.2, false,
+        new Vector3(x, -0.06, z), rotation, 2.8, false,
         { maxWidth: 8.6, maxHeight: 2.6, maxDepth: 8.6 });
       if (!hill) return;
       const bounds = hill.getHierarchyBoundingVectors(true);
