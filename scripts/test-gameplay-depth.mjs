@@ -85,11 +85,15 @@ assert.deepEqual(FACTIONS["ancient-grove"].units, ["treant", "thorn-owl", "druid
 assert.deepEqual(["treant", "thorn-owl", "druid", "seer"].map((id) => DEFENDER_CONFIG[id].buildCost), [7, 15, 55, 75]);
 assert.deepEqual(["treant", "thorn-owl", "druid", "seer"].map((id) => DEFENDER_CONFIG[id].levels.map(({ damage, fireRate, upgradeCost }) => [damage, fireRate, upgradeCost])), [
   [[18, 1, null], [32, 1.05, 15], [52, 1.15, 25]],
-  [[22, 1.25, null], [38, 1.4, 25], [82, 1.7, 125]],
+  [[24, 1.3, null], [38, 1.4, 25], [82, 1.7, 125]],
   [[60, 1.05, null], [100, 1.15, 70], [310, 0.8, 110]],
   [[65, 0.85, null], [110, 0.95, 100], [95, 1.1, 150]],
 ]);
 assert.deepEqual(DEFENDER_CONFIG.treant.targetTypes, ["ground"], "Treants remain ground-only");
+assert.deepEqual(DEFENDER_CONFIG["thorn-owl"].targetTypes, ["air"], "Thorn Owl remains air-only");
+assert.deepEqual(DEFENDER_CONFIG["thorn-owl"].levels.map(({ damage, range, fireRate, upgradeCost }) => [
+  damage, Number((range / WORLD_UNITS_PER_CELL).toFixed(1)), fireRate, upgradeCost,
+]), [[24, 5.5, 1.3, null], [38, 6, 1.4, 25], [82, 8, 1.7, 125]], "Owl costs/ranges and L2/L3 stay unchanged");
 assert.deepEqual(DEFENDER_CONFIG.treant.levels.map(({ damage, fireRate }) => Number((damage * fireRate).toFixed(1))), [18, 33.6, 59.8]);
 const treantEconomy = new GameState("single-spawn", "ancient-grove", 100);
 const treantBuildCell = Array.from({ length: treantEconomy.map.width * treantEconomy.map.height }, (_, index) => ({
@@ -385,6 +389,13 @@ const commander2 = makeEnemy(78, "skeletalCommander", 8, 5); commander2.affixes 
 assert.equal(getCommanderAuraMultiplier(auraTarget, [auraTarget, commander1, commander2]), 1.18, "Commander aura uses highest nearby bonus without stacking");
 assert.equal(getCommanderAuraMultiplier(commander2, [commander2]), 1);
 assert.equal(canTowerTargetEnemy(createBasicTower(79, { x: 5, y: 5 }, "blue-wizard"), makeEnemy(80, "goblinRider")), true, "flying target eligibility is unchanged");
+const thornOwl = createBasicTower(801, { x: 5, y: 5 }, "thorn-owl");
+assert.equal(canTowerTargetEnemy(thornOwl, makeEnemy(802, "goblinRider")), true, "Thorn Owl targets flying enemies");
+assert.equal(canTowerTargetEnemy(thornOwl, makeEnemy(803, "goblin")), false, "Thorn Owl cannot target ground enemies");
+const owlTarget = makeEnemy(804, "goblinRider");
+attackWith(thornOwl, [owlTarget]);
+assert.equal(owlTarget.slowMultiplier, 1, "Thorn Owl attacks do not apply flying slow");
+assert.equal(owlTarget.livingMazeExposureSeconds, 0, "Thorn Owl has no Living Maze interaction");
 
 // Milestone warning prevents immediate spawn and clears after the warning window.
 const warningState = new GameState("single-spawn", "arcane-kingdom", 30);
