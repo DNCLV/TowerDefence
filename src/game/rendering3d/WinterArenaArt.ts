@@ -218,6 +218,19 @@ export class WinterArenaArt {
       context.fillStyle = gradient;
       context.fillRect(x - radius, y - radius, radius * 2, radius * 2);
     }
+    // A few broad, softly broken earth lanes keep the clearing readable without
+    // turning it into paving. Their seeded placement is presentation-only.
+    for (let index = 0; index < 6; index += 1) {
+      const startX = random() * width;
+      const startY = index % 2 === 0 ? -height * 0.08 : random() * height;
+      const endX = index % 2 === 0 ? startX + (random() - 0.5) * width * 0.24 : width * 1.08;
+      const endY = index % 2 === 0 ? height * 1.08 : startY + (random() - 0.5) * height * 0.18;
+      context.strokeStyle = index % 2 === 0 ? "rgba(111,77,42,0.30)" : "rgba(145,101,56,0.24)";
+      context.lineWidth = Math.max(18, Math.min(width, height) * (0.035 + random() * 0.025));
+      context.beginPath(); context.moveTo(startX, startY);
+      context.quadraticCurveTo((startX + endX) / 2 + (random() - 0.5) * width * 0.12, (startY + endY) / 2, endX, endY);
+      context.stroke();
+    }
     for (let index = 0; index < Math.floor(width * height / 38); index += 1) {
       const x = random() * width, y = random() * height;
       context.strokeStyle = index % 4 === 0 ? "rgba(207,223,133,0.15)" : "rgba(43,91,37,0.10)";

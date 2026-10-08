@@ -62,7 +62,11 @@
       "assets/ui/defenders/green-archer.png",
       "assets/ui/defenders/battlemage.png",
       "assets/ui/defenders/sovereign.png",
-      "assets/ui/defenders/holy-emperor.jpg"
+      "assets/ui/defenders/holy-emperor.jpg",
+      "assets/ui/defenders/treant.png",
+      "assets/ui/defenders/thorn-owl.png",
+      "assets/ui/defenders/druid.png",
+      "assets/ui/defenders/seer.png"
     ]
   },
   "developmentOnly": [

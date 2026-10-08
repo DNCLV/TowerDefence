@@ -1401,6 +1401,7 @@ export class BabylonGameRenderer {
   }
 
   private createGroundAndGrid(): void {
+    this.gridOpacity = this.currentTheme.style === "forest" ? 0.19 : VISUAL_CONFIG.gridAlpha;
     const width = this.map.width * TILE_SIZE_3D; const depth = this.map.height * TILE_SIZE_3D;
     const outskirts = MeshBuilder.CreateGround("outskirts-ground", { width: width + 72, height: depth + 72, subdivisions: 1 }, this.scene);
     outskirts.position = new Vector3(width / 2, -0.035, depth / 2);
@@ -1473,7 +1474,7 @@ export class BabylonGameRenderer {
         plateauHeight: terrainStats.plateauHeight,
         gridLineCount: lines.length,
         terrainGridLineCount: raisedGridLines.length,
-        gridOpacity: VISUAL_CONFIG.gridAlpha,
+        gridOpacity: this.gridOpacity,
         buildGridOpacity: VISUAL_CONFIG.buildGridAlpha,
         texturesReady: grassAlbedo.isReady(),
         environmentReady: false,
@@ -1935,7 +1936,8 @@ export class BabylonGameRenderer {
   private updateBuildVisual(now: number, deltaSeconds: number): void {
     this.isBuildModeVisual = now < this.buildVisualUntil && !this.gesture?.dragging && !this.gameState?.gameOver;
     if (this.gridLayers.length > 0) {
-      const target = this.isBuildModeVisual ? VISUAL_CONFIG.buildGridAlpha : VISUAL_CONFIG.gridAlpha;
+      const idleGridAlpha = this.currentTheme.style === "forest" ? 0.19 : VISUAL_CONFIG.gridAlpha;
+      const target = this.isBuildModeVisual ? VISUAL_CONFIG.buildGridAlpha : idleGridAlpha;
       const nextOpacity = this.gridOpacity + (target - this.gridOpacity) * Math.min(1, deltaSeconds * 9);
       if (Math.abs(nextOpacity - this.gridOpacity) > 0.0005) {
         this.gridOpacity = nextOpacity;

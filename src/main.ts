@@ -32,6 +32,10 @@ function defenderPortrait(type: DefenderType): string | undefined {
     case "battlemage": return resolveAssetUrl("assets/ui/defenders/battlemage.png");
     case "sovereign": return resolveAssetUrl("assets/ui/defenders/sovereign.png");
     case "holy-emperor": return resolveAssetUrl("assets/ui/defenders/holy-emperor.jpg");
+    case "treant": return resolveAssetUrl("assets/ui/defenders/treant.png");
+    case "thorn-owl": return resolveAssetUrl("assets/ui/defenders/thorn-owl.png");
+    case "druid": return resolveAssetUrl("assets/ui/defenders/druid.png");
+    case "seer": return resolveAssetUrl("assets/ui/defenders/seer.png");
   }
 }
 
@@ -41,9 +45,6 @@ function defenderGlyph(type: DefenderType): string {
 
 function defenderPortraitMarkup(type: DefenderType, fallbackClassName: string): string {
   const portrait = defenderPortrait(type);
-  if (!portrait && (type === "treant" || type === "thorn-owl" || type === "druid" || type === "seer")) {
-    return `<span class="${fallbackClassName} grove-unit-glyph" aria-label="${DEFENDER_CONFIG[type].name} icon">${defenderGlyph(type)}</span>`;
-  }
   return portrait
     ? `<img src="${portrait}" alt="" draggable="false">`
     : `<span class="${fallbackClassName}" aria-label="Portrait unavailable">✦</span>`;

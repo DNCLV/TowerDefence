@@ -92,25 +92,25 @@ export const DEFENDER_VISUAL_CONFIG: Record<DefenderType, DefenderVisualDefiniti
   treant: {
     displayName: "Treant", debugLabel: "TREANT",
     assetPath: "/assets/models/defenders/optimized/treant.glb",
-    ...normalizedVisual({ width: 1.5544, height: 1.8933, depth: 0.7753 }, 1.15, { width: 0.7, depth: 0.72 }),
+    ...normalizedVisual({ width: 1.5544, height: 1.8933, depth: 0.7753 }, 1.61, { width: 0.7, depth: 0.72 }),
     visualScaleMultiplier: 0.9, rotationY: 0,
   },
   "thorn-owl": {
     displayName: "Thorn Owl", debugLabel: "OWL",
     assetPath: "/assets/models/defenders/optimized/thorn-owl.glb",
-    ...normalizedVisual({ width: 1.8970, height: 0.8131, depth: 0.7977 }, 0.36),
+    ...normalizedVisual({ width: 1.8970, height: 0.8131, depth: 0.7977 }, 0.54),
     visualScaleMultiplier: 0.9, rotationY: 0, hoverHeight: 0.33,
   },
   druid: {
     displayName: "Druid", debugLabel: "DRUID",
     assetPath: "/assets/models/defenders/optimized/druid.glb",
-    ...normalizedVisual({ width: 1.4543, height: 1.8930, depth: 1.0878 }, 1.2, { width: 0.7, depth: 0.7 }),
+    ...normalizedVisual({ width: 1.4543, height: 1.8930, depth: 1.0878 }, 1.78, { width: 0.7, depth: 0.7 }),
     visualScaleMultiplier: 0.9, rotationY: 0,
   },
   seer: {
     displayName: "Seer", debugLabel: "SEER",
     assetPath: "/assets/models/defenders/optimized/seer.glb",
-    ...normalizedVisual({ width: 1.3139, height: 1.8974, depth: 1.2935 }, 1.2, { width: 0.68, depth: 0.7 }),
+    ...normalizedVisual({ width: 1.3139, height: 1.8974, depth: 1.2935 }, 1.61, { width: 0.68, depth: 0.7 }),
     visualScaleMultiplier: 0.9, rotationY: 0,
   },
 };
