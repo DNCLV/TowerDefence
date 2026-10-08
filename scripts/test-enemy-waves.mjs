@@ -825,7 +825,7 @@ try {
 
   const hpTierSnapshots = [
     [1, 0, 1], [10, 0, 1], [11, 1, 2], [20, 1, 2], [21, 2, 4], [30, 2, 4],
-    [31, 3, 8], [40, 3, 8], [41, 4, 12], [42, 4, 12], [50, 4, 12], [51, 5, 32], [61, 6, 64],
+    [31, 3, 8], [40, 3, 8], [41, 4, 12], [50, 4, 12], [51, 5, 16], [60, 5, 16], [61, 6, 20], [100, 9, 32], [101, 10, 36],
   ];
   for (const [wave, tier, multiplier] of hpTierSnapshots) {
     assert.equal(getEnemyHpTier(wave), tier, `HP tier boundary at wave ${wave}`);
@@ -839,7 +839,7 @@ try {
     [35, { goblin: 1200, goblinBrute: 4400, goblinRider: 1280, giantGoblin: 24000, ghoul: 3600, wraith: 5600 }],
     [40, { goblin: 1200, goblinBrute: 4400, goblinRider: 1280, giantGoblin: 24000, ghoul: 3600, wraith: 5600 }],
     [42, { goblin: 1800, goblinBrute: 6600, goblinRider: 1920, giantGoblin: 36000, ghoul: 5400, wraith: 8400 }],
-    [70, { goblin: 9600, goblinBrute: 35200, goblinRider: 10240, giantGoblin: 192000, ghoul: 28800, wraith: 44800 }],
+    [70, { goblin: 3000, goblinBrute: 11000, goblinRider: 3200, giantGoblin: 60000, ghoul: 9000, wraith: 14000 }],
   ];
   for (const [wave, expectedHp] of specialWaveHpChecks) {
     assert.deepEqual(Object.fromEntries(keys.map((type) => [type, getEnemyHpForWave(type, wave)])), expectedHp, `special-wave HP scaling at ${wave}`);
@@ -883,7 +883,7 @@ try {
     21: [600, 2200, 640, 12000, 1800, 2800],
     31: [1200, 4400, 1280, 24000, 3600, 5600],
     41: [1800, 6600, 1920, 36000, 5400, 8400],
-    51: [4800, 17600, 5120, 96000, 14400, 22400],
+    51: [2400, 8800, 2560, 48000, 7200, 11200],
   };
   for (const [waveText, expectedHp] of Object.entries(typeHpAtTier)) {
     const wave = Number(waveText);
@@ -894,7 +894,7 @@ try {
   assert.equal(getWaveComposition(48).totalThreat, 122);
   assert.equal(Number(getWaveComposition(48).spawnInterval.toFixed(3)), 0.352);
 
-  const expectedTierWarnings = [[10, 11, 2], [20, 21, 4], [30, 31, 8], [40, 41, 12], [50, 51, 32], [60, 61, 64]];
+  const expectedTierWarnings = [[10, 11, 2], [20, 21, 4], [30, 31, 8], [40, 41, 12], [60, 61, 20]];
   for (const [wave, nextWave, nextMultiplier] of expectedTierWarnings) {
     const warningState = new GameState();
     warningState.currentWave = wave;
@@ -928,6 +928,15 @@ try {
   assert.equal(manualWarningState.waveActive, false, "manual mode does not auto-start after warning");
   assert.equal(manualWarningState.startWave(), true, "manual start is available after the warning");
 
+  const victoryState = new GameState();
+  victoryState.currentWave = 50; victoryState.wavesStarted = 50; victoryState.waveActive = true; victoryState.autoRun = true; victoryState.toSpawn = 0;
+  victoryState.update(0.01, 0.01);
+  assert.equal(victoryState.campaignVictoryPending, true, "Wave 50 pauses at the campaign victory decision");
+  assert.equal(victoryState.autoRun, false, "Auto Run pauses for the victory decision");
+  assert.equal(victoryState.startWave(), false, "Wave 51 cannot bypass the victory decision");
+  assert.equal(victoryState.continueFreePlay(), true);
+  assert.equal(victoryState.startWave(), true, "Free Play starts Wave 51 without resetting the run");
+
   const routes = [{ x: 0, y: 0 }, { x: 2, y: 0 }];
   const goblin = createEnemy(1, "goblin", routes);
   const brute = createEnemy(2, "goblinBrute", routes);
@@ -960,7 +969,7 @@ try {
   );
   assert.deepEqual(
     keys.map((type) => getEnemyHpForWave(type, 101)),
-    [153600, 563200, 163840, 3072000, 460800, 716800],
+    [5400, 19800, 5760, 108000, 16200, 25200],
     "all archetypes, including Riders, scale HP with deterministic rounding",
   );
   const scaledRider = createEnemy(5, "goblinRider", routes, 42);

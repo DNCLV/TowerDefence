@@ -1,9 +1,10 @@
-/** Ten-wave HP multipliers through wave 50; later tiers retain exponential doubling. */
+/** Ten-wave campaign HP multipliers through the current finale. */
 export const ENEMY_HP_TIER_MULTIPLIERS = [1, 2, 4, 8, 12] as const;
 
 export const ENEMY_HP_TIER_WAVE_COUNT = 10;
 
-/** Preserve the former 2^tier progression from wave 51 onward (32x, 64x, ...). */
+/** Free Play grows linearly by four points per ten-wave tier. */
 export function getConfiguredEnemyHpMultiplier(tier: number): number {
-  return ENEMY_HP_TIER_MULTIPLIERS[tier] ?? Math.pow(2, tier);
+  if (tier < ENEMY_HP_TIER_MULTIPLIERS.length) return ENEMY_HP_TIER_MULTIPLIERS[tier];
+  return ENEMY_HP_TIER_MULTIPLIERS[ENEMY_HP_TIER_MULTIPLIERS.length - 1] + (tier - ENEMY_HP_TIER_MULTIPLIERS.length + 1) * 4;
 }

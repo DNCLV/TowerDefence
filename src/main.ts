@@ -287,6 +287,17 @@ ui.innerHTML = `
     </section>
   </div>
 
+  <div id="campaign-victory" class="reset-confirmation" role="dialog" aria-modal="true" aria-labelledby="campaign-victory-title" hidden>
+    <section class="reset-confirmation-card campaign-victory-card">
+      <h2 id="campaign-victory-title">VICTORY</h2>
+      <p>You have completed the current campaign! Continue into Free Play and see how long your defenses can survive.</p>
+      <div class="reset-confirmation-actions">
+        <button id="continue-free-play-button" class="action-button confirm-reset-button" type="button">CONTINUE TO FREE PLAY</button>
+        <button id="end-campaign-button" class="action-button return-map-select-button" type="button">END / RETURN</button>
+      </div>
+    </section>
+  </div>
+
   <aside id="hp-scaling-warning" class="hp-scaling-warning" role="status" aria-live="polite" hidden>
     <span class="hp-warning-sigil" aria-hidden="true">⚔</span>
     <div class="hp-warning-copy">
@@ -533,6 +544,9 @@ const cancelResetButton = query<HTMLButtonElement>("#cancel-reset-button");
 const confirmResetButton = query<HTMLButtonElement>("#confirm-reset-button");
 const returnMapSelectButton = query<HTMLButtonElement>("#return-map-select-button");
 const tryAgainButton = query<HTMLButtonElement>("#try-again-button");
+const campaignVictory = query<HTMLElement>("#campaign-victory");
+const continueFreePlayButton = query<HTMLButtonElement>("#continue-free-play-button");
+const endCampaignButton = query<HTMLButtonElement>("#end-campaign-button");
 const hpScalingWarning = query<HTMLElement>("#hp-scaling-warning");
 const waveWarningTitle = query<HTMLElement>("#wave-warning-title");
 const waveWarningBody = query<HTMLElement>("#wave-warning-body");
@@ -793,6 +807,13 @@ startButton.addEventListener("click", () => {
   }
 });
 autoButton.addEventListener("click", () => gameState.toggleAutoRun());
+continueFreePlayButton.addEventListener("click", () => {
+  if (gameState.continueFreePlay()) campaignVictory.hidden = true;
+});
+endCampaignButton.addEventListener("click", () => {
+  campaignVictory.hidden = true;
+  returnToMapSelect();
+});
 tryAgainButton.addEventListener("click", () => {
   resetRun();
 });
@@ -819,6 +840,10 @@ renderer.start(gameState, (state) => {
   startButton.hidden = state.gameOver;
   autoButton.hidden = state.gameOver;
   tryAgainButton.hidden = !state.gameOver;
+  if (state.campaignVictoryPending && campaignVictory.hidden) {
+    campaignVictory.hidden = false;
+    continueFreePlayButton.focus({ preventScroll: true });
+  }
   renderWaveWarning(state);
   if (!infoPanel.hidden) renderBattlefieldInfo(state);
   renderSelectedTower(state);
@@ -1228,6 +1253,7 @@ function cancelResetMenu(): void {
 }
 
 function clearRunFeedback(): void {
+  campaignVictory.hidden = true;
   cancelSellConfirmation();
   activeWarningKey = undefined;
   if (warningHideTimer !== undefined) window.clearTimeout(warningHideTimer);

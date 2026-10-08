@@ -37,23 +37,4 @@ export const ENEMY_ANIMATION_CONFIG: Partial<Record<EnemyType, EnemyAnimationDef
     minPlaybackSpeed: 0.6,
     maxPlaybackSpeed: 1.6,
   },
-  // Quaternius has no Goblin model in this pack. Skeleton King is a direct visual
-  // replacement (not a retarget) with verified Idle/Running/Death clips.
-  skeletonKing: {
-    assetPath: "/assets/models/animated-monsters/Skeleton.fbx",
-    clips: {
-      idle: "SkeletonArmature|Skeleton_Idle",
-      moving: "SkeletonArmature|Skeleton_Running",
-      attacking: "SkeletonArmature|Skeleton_Attack",
-      dying: "SkeletonArmature|Skeleton_Death",
-    },
-    modelScale: 0.01,
-    rotationY: 0,
-    groundOffsetY: 0,
-    hpBarOffsetY: 5.35,
-    maxDimension: 5.2,
-    ignoreRootMotionTargets: ["Root", "BodyRoot"],
-    minPlaybackSpeed: 0.55,
-    maxPlaybackSpeed: 1.5,
-  },
 };

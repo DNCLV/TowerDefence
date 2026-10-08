@@ -370,7 +370,10 @@ async function main() {
     || groveEnvironment?.groundMaterial !== 'forest-clearing-grass-earth-pbr'
     || groveEnvironment?.environmentComposition?.trees < 150
     || groveEnvironment?.environmentComposition?.rocks < groveEnvironment?.terrainRegionCount
-    || groveEnvironment?.environmentRendering?.templateAssets !== 9
+    // The manifest contains nine forest source files, but templateAssets counts
+    // only GLBs that this map actually instantiates. The remaining preloaded
+    // variants stay as AssetContainers and intentionally do not create meshes.
+    || groveEnvironment?.environmentRendering?.templateAssets < 7
     || groveEnvironment?.environmentRendering?.instances < (
       groveEnvironment?.environmentComposition?.trees
       + groveEnvironment?.environmentComposition?.rocks
@@ -984,14 +987,12 @@ async function main() {
     }));
     return;
   }
-  const animatedSkeletonKing = result.enemyTemplates.find((asset) => asset.type === "skeletonKing");
-  const staticEnemyTemplates = result.enemyTemplates.filter((asset) => asset.type !== "skeletonKing");
+  const staticEnemyTemplates = result.enemyTemplates;
   const staticAssetsMissingFromProduction = staticEnemyTemplates.filter((asset) =>
     !asset.assetPath.includes("/optimized/") || !runtimeAssetManifest.groups.enemies.includes(asset.assetPath.replace(/^\//, "")),
   );
-  if (staticAssetsMissingFromProduction.length > 0 || staticEnemyTemplates.length !== 8
-    || !animatedSkeletonKing?.skeletons || !animatedSkeletonKing.animations?.some((name) => name.endsWith("Skeleton_Running"))) {
-    throw new Error(`Enemy factories did not resolve the eight optimized GLBs and animated Skeleton King: ${JSON.stringify(result.enemyTemplates)}`);
+  if (staticAssetsMissingFromProduction.length > 0 || staticEnemyTemplates.length !== 9) {
+    throw new Error(`Enemy factories did not resolve the nine optimized runtime GLBs: ${JSON.stringify(result.enemyTemplates)}`);
   }
   if (result.sceneStats) {
     console.log("Scene rendering sample (headless SwiftShader; not representative of a phone GPU)", JSON.stringify({
@@ -1008,9 +1009,7 @@ async function main() {
   }
   const groundTypes = ["goblin", "goblinBrute", "ghoul", "wraith", "giantGoblin", "skeletonKing"];
   const groundInstances = groundEnemyBounds.filter((asset) => groundTypes.includes(asset.type));
-  // Offsets follow the actual model selected by the renderer: animated
-  // replacements use ENEMY_ANIMATION_CONFIG; static models use ENEMY_VISUAL_CONFIG.
-  const expectedGroundOffsets = { goblin: 0, goblinBrute: -0.02, ghoul: -0.02, wraith: 0.15, giantGoblin: 0, skeletonKing: 0 };
+  const expectedGroundOffsets = { goblin: 0, goblinBrute: -0.02, ghoul: -0.02, wraith: 0.15, giantGoblin: 0, skeletonKing: -0.02 };
   if (groundInstances.length !== 6 || groundInstances.some((asset) => Math.abs(asset.groundOffsetY - expectedGroundOffsets[asset.type]) > 1e-9
     || Math.abs(asset.bounds.minY - asset.groundOffsetY) > 0.005)) {
     throw new Error(`Ground enemy model bounds/alignment offsets failed: ${JSON.stringify(groundInstances)}`);

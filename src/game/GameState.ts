@@ -20,6 +20,7 @@ import type { AffixMilestoneWarning, DamageType } from "./config/EnemyAffixConfi
 import { FactionBonusSystem } from "./FactionBonusSystem";
 import { AncientGroveStatusSystem, getSunbrandDamage, getSunbrandTargetPriority, getThornRotDamage } from "./AncientGroveStatusSystem";
 import { FACTION_BONUS_CONFIG } from "./config/FactionBonusConfig";
+import { CURRENT_CAMPAIGN_FINAL_WAVE } from "./config/CampaignProgressionConfig";
 
 export type PlacementResult = "placed" | "not-enough-gold" | "invalid-cell" | "enemy-occupied" | "blocks-path" | "game-over";
 export type UpgradeResult = "upgraded" | "specialization-required" | "invalid-specialization" | "not-enough-gold" | "max-level" | "game-over" | "tower-not-found";
@@ -87,6 +88,9 @@ export class GameState {
   autoRun = false;
   hpTierWarning?: HPTierWarning;
   affixWarning?: AffixMilestoneWarning;
+  /** Set after the authored finale until the player explicitly enters Free Play. */
+  campaignVictoryPending = false;
+  freePlay = false;
   readonly affixSystem: EnemyAffixSystem;
   readonly factionBonuses: FactionBonusSystem;
   private readonly ancientGroveStatuses = new AncientGroveStatusSystem();
@@ -206,7 +210,7 @@ export class GameState {
   }
 
   startWave(): boolean {
-    if (this.waveActive || this.lives <= 0 || this.gameOver || this.path.length === 0 || this.hpTierWarning || this.affixWarning) return false;
+    if (this.waveActive || this.lives <= 0 || this.gameOver || this.path.length === 0 || this.hpTierWarning || this.affixWarning || this.campaignVictoryPending) return false;
     this.currentWave = this.wavesStarted + 1;
     this.wavesStarted += 1;
     this.waveActive = true;
@@ -272,6 +276,13 @@ export class GameState {
     this.autoRun = !this.autoRun;
   }
 
+  continueFreePlay(): boolean {
+    if (!this.campaignVictoryPending) return false;
+    this.campaignVictoryPending = false;
+    this.freePlay = true;
+    return true;
+  }
+
   /** Resets only portable gameplay state; Phaser visuals are reset by the scene. */
   resetGame(reason: ResetReason): void {
     console.info("RESET GAME", {
@@ -297,6 +308,8 @@ export class GameState {
     this.waveActive = false;
     this.currentWave = 1;
     this.autoRun = false;
+    this.campaignVictoryPending = false;
+    this.freePlay = false;
     this.hpTierWarning = undefined;
     this.hpTierWarningSecondsRemaining = 0;
     this.affixWarning = undefined;
@@ -767,6 +780,11 @@ export class GameState {
       }, { l1: 0, l2: 0, l3: 0 }),
     };
     console.log("Wave complete", telemetry);
+    if (this.currentWave === CURRENT_CAMPAIGN_FINAL_WAVE && !this.freePlay) {
+      this.autoRun = false;
+      this.campaignVictoryPending = true;
+      return;
+    }
     if (this.currentWave % 10 === 0) {
       this.hpTierWarning = {
         completedWave: this.currentWave,

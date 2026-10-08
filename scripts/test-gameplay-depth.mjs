@@ -48,7 +48,7 @@ assert.deepEqual(Object.fromEntries(Object.entries(TOWER_SPECIALIZATIONS).map(([
   spellblade: [290, 129.6, 1.1], warcaster: [290, 151.2, 1.1],
   "dragon-slayer": [78, 180, 1.55], ranger: [55, 180, 2.25],
   "storm-regent": [360, 162, 1.8], "war-sovereign": [360, 162, 1.8],
-  "needlewing-owl": [90, 270, 2.1], elderwing: [70, 288, 1.5],
+  "needlewing-owl": [105, 270, 2.25], elderwing: [82, 288, 1.7],
   "dire-wolf": [95, null, 2.5], "elder-bear": [310, null, 0.8],
   "moon-seer": [260, 198, 1.15], "sun-seer": [95, 198, 1.1],
 });
@@ -85,7 +85,7 @@ assert.deepEqual(FACTIONS["ancient-grove"].units, ["treant", "thorn-owl", "druid
 assert.deepEqual(["treant", "thorn-owl", "druid", "seer"].map((id) => DEFENDER_CONFIG[id].buildCost), [7, 15, 55, 75]);
 assert.deepEqual(["treant", "thorn-owl", "druid", "seer"].map((id) => DEFENDER_CONFIG[id].levels.map(({ damage, fireRate, upgradeCost }) => [damage, fireRate, upgradeCost])), [
   [[18, 1, null], [32, 1.05, 15], [52, 1.15, 25]],
-  [[12, 0.95, null], [22, 1.1, 25], [70, 1.5, 125]],
+  [[18, 1.1, null], [34, 1.3, 25], [82, 1.7, 125]],
   [[60, 1.05, null], [100, 1.15, 70], [310, 0.8, 110]],
   [[65, 0.85, null], [110, 0.95, 100], [95, 1.1, 150]],
 ]);
@@ -113,7 +113,7 @@ treantEconomy.gold = 25;
 assert.equal(treantEconomy.upgradeBasicTower(purchasedTreant.id), "upgraded");
 assert.equal(getTowerSellRefund(purchasedTreant), 32, "L3 Treant uses the normal 70% refund on 47 invested gold");
 assert.deepEqual(["needlewing-owl", "elderwing", "dire-wolf", "elder-bear", "moon-seer", "sun-seer"].map((id) => TOWER_SPECIALIZATIONS[id].level3Stats), [
-  { damage: 90, range: 270, fireRate: 2.1 }, { damage: 70, range: 288, fireRate: 1.5 },
+  { damage: 105, range: 270, fireRate: 2.25 }, { damage: 82, range: 288, fireRate: 1.7 },
   { damage: 95, fireRate: 2.5 }, { damage: 310, fireRate: 0.8 },
   { damage: 260, range: 198, fireRate: 1.15 }, { damage: 95, range: 198, fireRate: 1.1 },
 ]);
@@ -343,13 +343,11 @@ assert.equal(tier2.tier, 2); assert.equal(tier3.tier, 3);
 for (const affix of [...tier1A.affixes, ...tier2.affixes, ...tier3.affixes]) {
   assert.ok(runA.getProgression()[1]?.includes(affix) || runA.getProgression()[2]?.includes(affix) || runA.getProgression()[3]?.includes(affix));
 }
-const ineligibleBoss = makeEnemy(70, "skeletonKing", 6, 5, 100, 45);
-for (let seed = 0; seed < 20; seed += 1) {
-  const system = new EnemyAffixSystem(seed + 10);
-  system.rollMilestone(15); system.rollMilestone(30); system.rollMilestone(45);
-  system.assign(ineligibleBoss, 45);
-}
-assert.deepEqual(ineligibleBoss.affixes, [], "Skeleton King is excluded from random affixes");
+const empoweredBoss = makeEnemy(70, "skeletonKing", 6, 5, 100, 45);
+const bossSystem = new EnemyAffixSystem(10);
+const bossAffixes = [bossSystem.rollMilestone(15), bossSystem.rollMilestone(30), bossSystem.rollMilestone(45)].flatMap((roll) => roll.affixes);
+bossSystem.assign(empoweredBoss, 50);
+assert.equal(empoweredBoss.affixes.length, bossAffixes.length, "Skeleton King carries each current milestone affix exactly once");
 
 // Exact resistance, fortified-after-wave-scaling, shields, regen, speed and nonstacking Commander aura.
 const armored = makeEnemy(71);

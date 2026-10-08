@@ -149,9 +149,9 @@ export const DEFENDER_CONFIG: Record<DefenderType, DefenderDefinition> = {
     id: "thorn-owl", name: "Thorn Owl", rangeMode: "circular", targetTypes: ["air"], buildCost: 15,
     roleLabel: "Anti-Air Specialist", specializationLabel: "Air only · Needlewing or Elderwing",
     levels: [
-      { level: 1, damage: 12, range: 5.5 * WORLD_UNITS_PER_CELL, fireRate: 0.95, upgradeCost: null },
-      { level: 2, damage: 22, range: 6 * WORLD_UNITS_PER_CELL, fireRate: 1.1, upgradeCost: 25 },
-      { level: 3, damage: 70, range: 8 * WORLD_UNITS_PER_CELL, fireRate: 1.5, upgradeCost: 125 },
+      { level: 1, damage: 18, range: 5.5 * WORLD_UNITS_PER_CELL, fireRate: 1.1, upgradeCost: null },
+      { level: 2, damage: 34, range: 6 * WORLD_UNITS_PER_CELL, fireRate: 1.3, upgradeCost: 25 },
+      { level: 3, damage: 82, range: 8 * WORLD_UNITS_PER_CELL, fireRate: 1.7, upgradeCost: 125 },
     ],
   },
   "druid": {

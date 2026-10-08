@@ -25,7 +25,7 @@ export const AFFIXES: Record<EnemyAffixId, EnemyAffixConfig> = {
 export const AFFIX_IDS = Object.keys(AFFIXES) as EnemyAffixId[];
 export const AFFIX_MILESTONES = { 15: 1, 30: 2, 45: 3 } as const;
 export const AFFIX_ELIGIBILITY = {
-  excludedTypes: ["skeletonKing"] as readonly EnemyType[],
+  excludedTypes: [] as readonly EnemyType[],
   eligibleCombatClasses: ["fodder", "tank", "boss"] as readonly EnemyCombatClass[],
   commanderAuraRadiusCells: 4,
   tier1Chance: 0.225,

@@ -26,8 +26,7 @@
       "assets/models/enemies/optimized/wraith.glb",
       "assets/models/enemies/optimized/undead-dragon.glb",
       "assets/models/enemies/optimized/skeleton-king.glb",
-      "assets/models/enemies/optimized/skeletal-commander.glb",
-      "assets/models/animated-monsters/Skeleton.fbx"
+      "assets/models/enemies/optimized/skeletal-commander.glb"
     ],
     "castleEnvironment": [
       "assets/environment/kenney-castle/wall.glb",

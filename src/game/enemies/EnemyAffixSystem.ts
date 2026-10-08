@@ -32,6 +32,14 @@ export class EnemyAffixSystem {
     const tier = tierForWave(wave);
     if (!tier || !AFFIX_ELIGIBILITY.eligibleCombatClasses.includes(enemy.combatClass)
       || AFFIX_ELIGIBILITY.excludedTypes.includes(enemy.type)) return;
+    // The campaign boss carries the run's actual milestone history once each;
+    // it does not receive random or duplicate affixes.
+    if (enemy.type === "skeletonKing") {
+      const affixes = ([1, 2, 3] as const).flatMap((affixTier) =>
+        (this.rolledByTier[affixTier] ?? []).map((id) => ({ id, tier: affixTier })));
+      applyEnemyAffixes(enemy, affixes);
+      return;
+    }
     const chance = tier === 1 ? AFFIX_ELIGIBILITY.tier1Chance : tier === 2 ? AFFIX_ELIGIBILITY.tier2Chance : AFFIX_ELIGIBILITY.tier3Chance;
     if (this.next() >= chance) return;
     const available = Object.values(this.rolledByTier).flatMap((values) => values ?? []);
@@ -55,23 +63,28 @@ export class EnemyAffixSystem {
   }
 }
 
+/** Skeleton King is empowered through the same run-scoped affix values, not base HP. */
+function affixValue(enemy: Enemy, id: EnemyAffixId, tier: AffixTier): number {
+  return AFFIXES[id].values[tier] * (enemy.type === "skeletonKing" ? 1.5 : 1);
+}
+
 export function applyEnemyAffixes(enemy: Enemy, affixes: EnemyAffix[]): void {
   enemy.affixes = affixes;
   const fortified = affixes.find(({ id }) => id === "fortified");
   if (fortified) {
-    const hpMultiplier = 1 + AFFIXES.fortified.values[fortified.tier];
+    const hpMultiplier = 1 + affixValue(enemy, "fortified", fortified.tier);
     enemy.maxHp = Math.round(enemy.maxHp * hpMultiplier);
     enemy.hp = enemy.maxHp;
   }
   const shielded = affixes.find(({ id }) => id === "shielded");
-  enemy.maxShield = shielded ? Math.round(enemy.maxHp * AFFIXES.shielded.values[shielded.tier]) : 0;
+  enemy.maxShield = shielded ? Math.round(enemy.maxHp * affixValue(enemy, "shielded", shielded.tier)) : 0;
   enemy.shield = enemy.maxShield;
 }
 
 export function getEnemyDamageMultiplier(enemy: Enemy, damageType: DamageType, resistancePenetration = 0): number {
   const id = damageType === "physical" ? "armored" : "arcane-ward";
   const affix = enemy.affixes.find((candidate) => candidate.id === id);
-  const resistance = affix ? AFFIXES[id].values[affix.tier] : 0;
+  const resistance = affix ? affixValue(enemy, id, affix.tier) : 0;
   return 1 - resistance * (1 - Math.max(0, Math.min(1, resistancePenetration)));
 }
 
@@ -88,7 +101,7 @@ export function updateEnemyAffixes(enemy: Enemy, deltaSeconds: number): void {
   const regenerator = enemy.affixes.find(({ id }) => id === "regenerator");
   const regenSeconds = Math.max(0, deltaSeconds - regenDelayAtStart);
   if (regenerator && regenSeconds > 0 && enemy.hp > 0) {
-    enemy.hp = Math.min(enemy.maxHp, enemy.hp + enemy.maxHp * AFFIXES.regenerator.values[regenerator.tier] * regenSeconds);
+    enemy.hp = Math.min(enemy.maxHp, enemy.hp + enemy.maxHp * affixValue(enemy, "regenerator", regenerator.tier) * regenSeconds);
   }
 }
 
@@ -99,7 +112,7 @@ export function getCommanderAuraMultiplier(enemy: Enemy, nearbyEnemies: readonly
     const affix = commander.affixes.find(({ id }) => id === "commander");
     if (!affix) continue;
     if (Math.hypot(commander.x - enemy.x, commander.y - enemy.y) <= AFFIX_ELIGIBILITY.commanderAuraRadiusCells) {
-      bonus = Math.max(bonus, AFFIXES.commander.values[affix.tier]);
+      bonus = Math.max(bonus, affixValue(commander, "commander", affix.tier));
     }
   }
   return 1 + bonus;
@@ -108,9 +121,9 @@ export function getCommanderAuraMultiplier(enemy: Enemy, nearbyEnemies: readonly
 export function getEnemySpeedMultiplier(enemy: Enemy): number {
   let multiplier = enemy.slowMultiplier;
   const swift = enemy.affixes.find(({ id }) => id === "swift");
-  if (swift) multiplier *= 1 + AFFIXES.swift.values[swift.tier];
+  if (swift) multiplier *= 1 + affixValue(enemy, "swift", swift.tier);
   const frenzied = enemy.affixes.find(({ id }) => id === "frenzied");
-  if (frenzied && enemy.hp / enemy.maxHp < 0.35) multiplier *= 1 + AFFIXES.frenzied.values[frenzied.tier];
+  if (frenzied && enemy.hp / enemy.maxHp < 0.35) multiplier *= 1 + affixValue(enemy, "frenzied", frenzied.tier);
   return multiplier;
 }
 
