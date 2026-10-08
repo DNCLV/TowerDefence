@@ -120,7 +120,7 @@ export class WinterArenaArt {
   private createPavingTexture(name: string, width: number, height: number, columns: number, rows: number, seed: number): DynamicTexture {
     const texture = new DynamicTexture(name, { width, height }, this.scene, true);
     const context = texture.getContext();
-    context.fillStyle = "#8e806e";
+    context.fillStyle = "#9b907d";
     context.fillRect(0, 0, width, height);
     let state = seed >>> 0;
     const random = () => {
@@ -128,7 +128,7 @@ export class WinterArenaArt {
       return state / 0x100000000;
     };
     const stepX = width / columns, stepY = height / rows;
-    const palette = ["#b8ab91", "#afa187", "#c0b297", "#a99c85", "#b4a78e"];
+    const palette = ["#c4b89f", "#bdb196", "#cbbfa3", "#b8ad94", "#c2b69b"];
     // Large, low-opacity color washes break up the repeated paving without looking like
     // a second grid or introducing a painted-on noise pattern.
     for (let i = 0; i < 22; i += 1) {

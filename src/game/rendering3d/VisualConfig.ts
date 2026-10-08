@@ -45,9 +45,9 @@ export const VISUAL_CONFIG = {
   touchDragThreshold: 12,
   cameraPanMargin: 0.75,
   /** Thin vertex-colour overlay; alpha is applied per grid vertex for reliable mobile blending. */
-  gridColor: new Color3(0.26, 0.22, 0.19),
-  gridAlpha: 0.13,
-  buildGridAlpha: 0.28,
+  gridColor: new Color3(0.55, 0.50, 0.43),
+  gridAlpha: 0.11,
+  buildGridAlpha: 0.24,
   buildVisualHoldMs: 1100,
   snowBaseColor: new Color3(0.88, 0.95, 1),
   royalGroundBaseColor: new Color3(0.98, 0.95, 0.87),

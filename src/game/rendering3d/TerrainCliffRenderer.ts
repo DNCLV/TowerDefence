@@ -196,11 +196,11 @@ export class TerrainCliffRenderer {
       const key = `${cell.x},${cell.y}`;
       const boundary = [[cell.x - 1, cell.y], [cell.x + 1, cell.y], [cell.x, cell.y - 1], [cell.x, cell.y + 1]]
         .some(([x, y]) => !occupied.has(`${x},${y}`));
-      if (!boundary || Math.abs((cell.x * 47 + cell.y * 83 + 29) % 100) > 38) continue;
+      if (!boundary || Math.abs((cell.x * 47 + cell.y * 83 + 29) % 100) > 49) continue;
       const hash = Math.abs(cell.x * 7919 + cell.y * 1049 + 101);
       const x = cell.x + 0.5 + ((hash % 13) / 100 - 0.06);
       const z = cell.y + 0.5 + (((hash >> 3) % 13) / 100 - 0.06);
-      const scale = new Vector3(0.075 + (hash % 7) * 0.008, 0.035 + (hash % 5) * 0.006, 0.075 + (hash % 11) * 0.008);
+      const scale = new Vector3(0.095 + (hash % 7) * 0.009, 0.04 + (hash % 5) * 0.006, 0.09 + (hash % 11) * 0.009);
       const position = new Vector3(x, TERRAIN_TOP + 0.035 + 100, z);
       Matrix.Compose(scale, Quaternion.RotationYawPitchRoll(hash % 6, 0, 0), position).copyToArray(matrices, matrices.length);
     }
@@ -300,13 +300,13 @@ export class TerrainCliffRenderer {
     const ctx = texture.getContext();
     // The base tone establishes green as the dominant top-surface color;
     // restrained earth and exposed-stone patches provide the remaining variation.
-    ctx.fillStyle = "#829363";
+    ctx.fillStyle = "#899b6d";
     ctx.fillRect(0, 0, 512, 512);
     const patches = [
-      "rgba(78,111,57,0.18)",
-      "rgba(157,126,88,0.20)",
-      "rgba(58,82,47,0.12)",
-      "rgba(190,175,139,0.14)",
+      "rgba(87,119,64,0.14)",
+      "rgba(166,140,100,0.14)",
+      "rgba(66,94,52,0.085)",
+      "rgba(198,184,146,0.12)",
     ];
     for (let i = 0; i < 30; i += 1) {
       const x = (i * 173 + 41) % 512, y = (i * 257 + 89) % 512;
@@ -326,10 +326,10 @@ export class TerrainCliffRenderer {
       return seed / 0x100000000;
     };
     const mossPalette = [
-      "rgba(93,119,69,0.26)",
-      "rgba(112,130,77,0.24)",
-      "rgba(128,137,85,0.20)",
-      "rgba(76,101,62,0.19)",
+      "rgba(108,135,80,0.19)",
+      "rgba(126,145,87,0.18)",
+      "rgba(143,153,97,0.16)",
+      "rgba(91,119,70,0.15)",
     ];
     for (let i = 0; i < 42; i += 1) {
       const x = random() * 512;
