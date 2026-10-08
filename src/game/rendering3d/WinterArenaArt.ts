@@ -120,7 +120,7 @@ export class WinterArenaArt {
   private createPavingTexture(name: string, width: number, height: number, columns: number, rows: number, seed: number): DynamicTexture {
     const texture = new DynamicTexture(name, { width, height }, this.scene, true);
     const context = texture.getContext();
-    context.fillStyle = "#9b907d";
+    context.fillStyle = "#a69b87";
     context.fillRect(0, 0, width, height);
     let state = seed >>> 0;
     const random = () => {
@@ -128,7 +128,7 @@ export class WinterArenaArt {
       return state / 0x100000000;
     };
     const stepX = width / columns, stepY = height / rows;
-    const palette = ["#c4b89f", "#bdb196", "#cbbfa3", "#b8ad94", "#c2b69b"];
+    const palette = ["#d0c5ad", "#c9bea5", "#d7cbb4", "#c5baa2", "#d0c4aa"];
     // Large, low-opacity color washes break up the repeated paving without looking like
     // a second grid or introducing a painted-on noise pattern.
     for (let i = 0; i < 22; i += 1) {
@@ -388,6 +388,10 @@ export class WinterArenaArt {
     const horizontal = side === "north" || side === "south";
     const distance = 1.85;
     const outward = side === "north" || side === "west" ? -1 : 1;
+    const outwardX = horizontal ? 0 : outward;
+    const outwardZ = horizontal ? outward : 0;
+    const tangentX = horizontal ? 1 : 0;
+    const tangentZ = horizontal ? 0 : 1;
     const x = horizontal ? gateX : side === "west" ? -distance : this.width + distance;
     const z = horizontal ? side === "north" ? -distance : this.depth + distance : gateZ;
     const apron = MeshBuilder.CreateDisc(`royal-gate-earth-apron-${index}`, { radius: 2.45, tessellation: 24 }, this.scene);
@@ -407,6 +411,33 @@ export class WinterArenaArt {
     path.isPickable = false;
     path.receiveShadows = false;
     path.freezeWorldMatrix();
+
+    // A shared-material stone road continues from the gate and forks gently into
+    // the decorative outer grounds. All segments stay beyond the playable bounds.
+    const roadPoint = (outwardDistance: number, lateralDistance: number): [number, number] => [
+      gateX + outwardX * outwardDistance + tangentX * lateralDistance,
+      gateZ + outwardZ * outwardDistance + tangentZ * lateralDistance,
+    ];
+    const mainStart = roadPoint(3.0, 0);
+    const mainEnd = roadPoint(8.4, 0);
+    this.createRoadSegment(`royal-gate-road-${index}`, mainStart, mainEnd, 2.1);
+    for (const direction of [-1, 1]) {
+      const branchStart = roadPoint(5.3, direction * 0.35);
+      const branchEnd = roadPoint(8.2, direction * 3.1);
+      this.createRoadSegment(`royal-gate-road-fork-${index}-${direction}`, branchStart, branchEnd, 1.25);
+    }
+  }
+
+  private createRoadSegment(name: string, start: [number, number], end: [number, number], width: number): void {
+    const dx = end[0] - start[0], dz = end[1] - start[1];
+    const length = Math.hypot(dx, dz);
+    const road = MeshBuilder.CreateGround(name, { width, height: length, subdivisions: 1 }, this.scene);
+    road.position.set((start[0] + end[0]) / 2, -0.008, (start[1] + end[1]) / 2);
+    road.rotation.y = Math.atan2(dx, dz);
+    road.material = this.roadMaterial;
+    road.isPickable = false;
+    road.receiveShadows = false;
+    road.freezeWorldMatrix();
   }
 
   landmark(kind: "spawn" | "exit", x: number, z: number, accent: StandardMaterial): void {
@@ -489,12 +520,15 @@ export class WinterArenaArt {
       hill.freezeWorldMatrix();
       roots.push(hill);
     });
-    // Twelve bounded edge pockets enrich the outer ring while leaving the central maze clear.
-    const quarter = this.width / 4;
-    const anchors = [
-      [quarter, -4.2], [quarter * 2, -4.2], [quarter * 3, -4.2], [this.width - quarter, -4.2],
-      [-4.2, this.depth * 0.25], [-4.2, this.depth * 0.75], [this.width + 4.2, this.depth * 0.25], [this.width + 4.2, this.depth * 0.75],
-      [quarter, this.depth + 4.2], [quarter * 2, this.depth + 4.2], [quarter * 3, this.depth + 4.2], [this.width - quarter, this.depth + 4.2],
+    // Bounded edge pockets enrich the outer ring while leaving the central maze clear.
+    const edgeFractions = this.width > 30
+      ? [1 / 7, 2 / 7, 3 / 7, 4 / 7, 5 / 7, 6 / 7]
+      : [0.2, 0.4, 0.6, 0.8];
+    const anchors: Array<[number, number]> = [
+      ...edgeFractions.map((fraction) => [this.width * fraction, -4.2] as [number, number]),
+      [-4.2, this.depth / 3], [-4.2, this.depth * 2 / 3],
+      [this.width + 4.2, this.depth / 3], [this.width + 4.2, this.depth * 2 / 3],
+      ...edgeFractions.map((fraction) => [this.width * fraction, this.depth + 4.2] as [number, number]),
     ];
     // Irregular, layered compositions keep the outskirts lively without forming a
     // second maze. Each pocket is still bounded by the existing playable-area test.
@@ -506,8 +540,9 @@ export class WinterArenaArt {
       ["tree", -1.35, -1.2], ["rock", 1.7, 1.2], ["rock", -1.8, 0.9]] as const;
     const storage = [["wagon", 0.1, 0], ["crate", -1.4, 0.45], ["crate", 1.25, 0.9],
       ["fence", -0.25, 1.6], ["rock", 1.65, -1.25], ["tree", -1.65, -1.4]] as const;
-    theme.clusters.forEach((kind, index) => {
-      const [cx, cz] = anchors[index % anchors.length];
+    const sceneKinds = this.width > 30 ? theme.clusters : theme.clusters.slice(0, anchors.length);
+    sceneKinds.forEach((kind, index) => {
+      const [cx, cz] = anchors[index];
       // Keep the visual corridor behind each spawn and the shared castle gate clear.
       if (this.protectedGateZones.some((gate) => Math.hypot(cx - gate.x, cz - gate.z) < 3.8)) return;
       if (kind === "village") {

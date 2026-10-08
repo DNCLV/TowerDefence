@@ -58,8 +58,8 @@ export class TerrainCliffRenderer {
     this.topMaterial.emissiveColor = new Color3(0.035, 0.055, 0.025);
     this.topMaterial.roughness = 0.97;
     this.lipMaterial = new PBRMaterial("royal-cliff-earth-edge", scene);
-    // A subdued moss-earth bevel joins the grassy top and neutral stone face.
-    this.lipMaterial.albedoColor = new Color3(0.50, 0.52, 0.38);
+    // A pale cut-stone coping makes the raised lawn read as a landscaped rampart.
+    this.lipMaterial.albedoColor = new Color3(0.76, 0.70, 0.58);
     this.lipMaterial.roughness = 0.97;
     this.lipMaterial.metallic = 0;
     this.faceMaterial = new PBRMaterial("royal-cliff-natural-rock-face", scene);
@@ -261,35 +261,34 @@ export class TerrainCliffRenderer {
     mesh.freezeWorldMatrix();
   }
 
-  /** Irregular low-contrast rock facets, shared by every mapped cliff formation. */
+  /** Repeating ashlar blocks turn the exact blocked-cell outline into a retaining wall. */
   private createCastleStoneTexture(): DynamicTexture {
     const texture = new DynamicTexture("kenney-castle-cliff-stone", { width: 256, height: 256 }, this.scene, true);
     const ctx = texture.getContext();
-    ctx.fillStyle = "#766b5f";
+    ctx.fillStyle = "#716b61";
     ctx.fillRect(0, 0, 256, 256);
-    const palette = ["#918d82", "#9a9588", "#817d74", "#a39d90", "#88847b", "#969184"];
-    for (let i = 0; i < 42; i += 1) {
-      const cx = (i * 83 + 29) % 256, cy = (i * 137 + 17) % 256;
-      const rx = 12 + (i * 17) % 22, ry = 9 + (i * 11) % 19;
-      ctx.beginPath();
-      for (let vertex = 0; vertex < 7; vertex += 1) {
-        const angle = vertex * Math.PI * 2 / 7;
-        const variation = 0.76 + ((i * 13 + vertex * 7) % 25) / 100;
-        const x = cx + Math.cos(angle) * rx * variation;
-        const y = cy + Math.sin(angle) * ry * variation;
-        if (vertex === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    const palette = ["#a8a393", "#b1ac9b", "#9c988a", "#b8b19f", "#a29e90", "#ada999"];
+    const blockWidth = 64, courseHeight = 64;
+    for (let course = 0; course < 4; course += 1) {
+      const offset = course % 2 === 0 ? 0 : -blockWidth / 2;
+      for (let column = -1; column < 5; column += 1) {
+        const x = offset + column * blockWidth + 2;
+        const y = course * courseHeight + 2;
+        const width = blockWidth - 4;
+        const height = courseHeight - 4;
+        const colorIndex = (course * 3 + column * 5 + 24) % palette.length;
+        ctx.fillStyle = palette[colorIndex];
+        ctx.fillRect(x, y, width, height);
+        ctx.strokeStyle = "rgba(61,59,54,0.36)";
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(x + 0.75, y + 0.75, width - 1.5, height - 1.5);
+        ctx.strokeStyle = "rgba(244,237,217,0.16)";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x + 4, y + 3);
+        ctx.lineTo(x + width - 4, y + 3);
+        ctx.stroke();
       }
-      ctx.closePath();
-      ctx.fillStyle = palette[i % palette.length];
-      ctx.fill();
-      ctx.strokeStyle = "rgba(58,51,44,0.22)";
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-      ctx.strokeStyle = "rgba(241,230,209,0.12)";
-      ctx.beginPath();
-      ctx.moveTo(cx - rx * 0.48, cy - ry * 0.35);
-      ctx.lineTo(cx + rx * 0.45, cy - ry * 0.28);
-      ctx.stroke();
     }
     texture.update(false);
     return texture;
@@ -300,7 +299,7 @@ export class TerrainCliffRenderer {
     const ctx = texture.getContext();
     // The base tone establishes green as the dominant top-surface color;
     // restrained earth and exposed-stone patches provide the remaining variation.
-    ctx.fillStyle = "#899b6d";
+    ctx.fillStyle = "#96a978";
     ctx.fillRect(0, 0, 512, 512);
     const patches = [
       "rgba(87,119,64,0.14)",
