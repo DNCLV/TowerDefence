@@ -51,11 +51,11 @@ export class TerrainCliffRenderer {
     plateauStone.wrapU = plateauStone.wrapV = Texture.WRAP_ADDRESSMODE;
     this.topMaterial = new PBRMaterial("royal-cliff-stone-top", scene);
     // Bias reflected light slightly toward the muted highland greens below.
-    this.topMaterial.albedoColor = new Color3(1.06, 1.10, 0.98);
+    this.topMaterial.albedoColor = new Color3(1.08, 1.12, 1.02);
     this.topMaterial.albedoTexture = plateauStone;
     this.topMaterial.bumpTexture = this.groundNormal;
     this.topMaterial.bumpTexture.level = 0.06;
-    this.topMaterial.emissiveColor = new Color3(0.035, 0.055, 0.025);
+    this.topMaterial.emissiveColor = new Color3(0.045, 0.065, 0.025);
     this.topMaterial.roughness = 0.97;
     this.lipMaterial = new PBRMaterial("royal-cliff-earth-edge", scene);
     // A pale cut-stone coping makes the raised lawn read as a landscaped rampart.
@@ -299,13 +299,13 @@ export class TerrainCliffRenderer {
     const ctx = texture.getContext();
     // The base tone establishes green as the dominant top-surface color;
     // restrained earth and exposed-stone patches provide the remaining variation.
-    ctx.fillStyle = "#96a978";
+    ctx.fillStyle = "#a8cc78";
     ctx.fillRect(0, 0, 512, 512);
     const patches = [
-      "rgba(87,119,64,0.14)",
-      "rgba(166,140,100,0.14)",
-      "rgba(66,94,52,0.085)",
-      "rgba(198,184,146,0.12)",
+      "rgba(82,145,58,0.11)",
+      "rgba(188,213,132,0.15)",
+      "rgba(72,125,48,0.06)",
+      "rgba(221,224,166,0.10)",
     ];
     for (let i = 0; i < 30; i += 1) {
       const x = (i * 173 + 41) % 512, y = (i * 257 + 89) % 512;
@@ -325,10 +325,10 @@ export class TerrainCliffRenderer {
       return seed / 0x100000000;
     };
     const mossPalette = [
-      "rgba(108,135,80,0.19)",
-      "rgba(126,145,87,0.18)",
-      "rgba(143,153,97,0.16)",
-      "rgba(91,119,70,0.15)",
+      "rgba(119,166,74,0.16)",
+      "rgba(151,190,91,0.16)",
+      "rgba(181,204,112,0.14)",
+      "rgba(93,147,57,0.14)",
     ];
     for (let i = 0; i < 42; i += 1) {
       const x = random() * 512;
@@ -341,7 +341,7 @@ export class TerrainCliffRenderer {
         const gradient = ctx.createRadialGradient(px, py, radius * 0.06, px, py, radius);
         gradient.addColorStop(0, color);
         gradient.addColorStop(0.62, color.replace(/0\.\d+\)/, "0.10)"));
-        gradient.addColorStop(1, "rgba(69,88,53,0)");
+        gradient.addColorStop(1, "rgba(82,123,49,0)");
         ctx.fillStyle = gradient;
         ctx.fillRect(px - radius, py - radius, radius * 2, radius * 2);
       }
@@ -352,7 +352,7 @@ export class TerrainCliffRenderer {
       const x = random() * 512;
       const y = random() * 512;
       const length = 2 + random() * 4;
-      ctx.strokeStyle = i % 4 === 0 ? "rgba(70,96,53,0.16)" : "rgba(143,151,98,0.15)";
+      ctx.strokeStyle = i % 4 === 0 ? "rgba(72,125,43,0.13)" : "rgba(184,207,119,0.18)";
       ctx.lineWidth = 0.7 + random() * 0.5;
       ctx.beginPath();
       ctx.moveTo(x, y);
@@ -362,7 +362,7 @@ export class TerrainCliffRenderer {
 
     for (let i = 0; i < 1050; i += 1) {
       const x = (i * 73 + 17) % 512, y = (i * 151 + 43) % 512;
-      ctx.fillStyle = i % 3 === 0 ? "rgba(238,224,195,0.10)" : "rgba(65,59,49,0.025)";
+      ctx.fillStyle = i % 3 === 0 ? "rgba(239,239,196,0.11)" : "rgba(55,91,42,0.018)";
       ctx.fillRect(x, y, 1 + i % 2, 1);
     }
     texture.update(false);

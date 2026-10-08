@@ -120,7 +120,7 @@ export class WinterArenaArt {
   private createPavingTexture(name: string, width: number, height: number, columns: number, rows: number, seed: number): DynamicTexture {
     const texture = new DynamicTexture(name, { width, height }, this.scene, true);
     const context = texture.getContext();
-    context.fillStyle = "#a69b87";
+    context.fillStyle = "#d7d0c1";
     context.fillRect(0, 0, width, height);
     let state = seed >>> 0;
     const random = () => {
@@ -128,13 +128,13 @@ export class WinterArenaArt {
       return state / 0x100000000;
     };
     const stepX = width / columns, stepY = height / rows;
-    const palette = ["#d0c5ad", "#c9bea5", "#d7cbb4", "#c5baa2", "#d0c4aa"];
+    const palette = ["#e5dfd1", "#ded8ca", "#ebe5d8", "#d9d3c5", "#e4dece"];
     // Large, low-opacity color washes break up the repeated paving without looking like
     // a second grid or introducing a painted-on noise pattern.
     for (let i = 0; i < 22; i += 1) {
       const x = (i * 173 + 37) % width, y = (i * 257 + 71) % height;
       const radius = Math.max(stepX, stepY) * (1.4 + (i % 4) * 0.42);
-      const tone = i % 3 === 0 ? "rgba(91,111,77,0.065)" : i % 3 === 1 ? "rgba(236,219,184,0.12)" : "rgba(85,70,53,0.045)";
+      const tone = i % 3 === 0 ? "rgba(133,151,108,0.035)" : i % 3 === 1 ? "rgba(250,241,219,0.10)" : "rgba(85,70,53,0.022)";
       const wash = context.createRadialGradient(x, y, radius * 0.04, x, y, radius);
       wash.addColorStop(0, tone);
       wash.addColorStop(1, "rgba(0,0,0,0)");
@@ -146,13 +146,13 @@ export class WinterArenaArt {
       const inset = Math.max(0.7, Math.min(stepX, stepY) * 0.065);
       context.fillStyle = palette[Math.floor(random() * palette.length)];
       context.fillRect(x + inset, y + inset, stepX - inset * 2, stepY - inset * 2);
-      context.fillStyle = "rgba(244,226,186,0.09)";
+      context.fillStyle = "rgba(255,248,225,0.13)";
       context.fillRect(x + inset, y + inset, stepX - inset * 2, Math.max(1, stepY * 0.1));
-      context.fillStyle = "rgba(55,45,34,0.08)";
+      context.fillStyle = "rgba(73,64,53,0.045)";
       context.fillRect(x + inset, y + stepY * 0.76, stepX - inset * 2, stepY * 0.16);
     }
     for (let i = 0; i < width * height / 28; i += 1) {
-      context.fillStyle = random() < 0.5 ? "rgba(52,45,39,0.08)" : "rgba(241,225,192,0.10)";
+      context.fillStyle = random() < 0.5 ? "rgba(52,45,39,0.045)" : "rgba(255,248,225,0.10)";
       context.fillRect(random() * width, random() * height, 1.2, 1.2);
     }
     texture.update(false);
@@ -390,8 +390,6 @@ export class WinterArenaArt {
     const outward = side === "north" || side === "west" ? -1 : 1;
     const outwardX = horizontal ? 0 : outward;
     const outwardZ = horizontal ? outward : 0;
-    const tangentX = horizontal ? 1 : 0;
-    const tangentZ = horizontal ? 0 : 1;
     const x = horizontal ? gateX : side === "west" ? -distance : this.width + distance;
     const z = horizontal ? side === "north" ? -distance : this.depth + distance : gateZ;
     const apron = MeshBuilder.CreateDisc(`royal-gate-earth-apron-${index}`, { radius: 2.45, tessellation: 24 }, this.scene);
@@ -401,39 +399,20 @@ export class WinterArenaArt {
     apron.isPickable = false;
     apron.receiveShadows = false;
     apron.freezeWorldMatrix();
-    const path = MeshBuilder.CreateGround(`royal-cobblestone-approach-${index}`, {
-      width: horizontal ? 2.15 : 3.2,
-      height: horizontal ? 3.2 : 2.15,
+    // One continuous, straight shared-material surface runs from the threshold
+    // through the gate and out into the scenery. A single mesh prevents seams.
+    const roadLength = 8.4;
+    const road = MeshBuilder.CreateGround(`royal-gate-road-${index}`, {
+      width: 2.5,
+      height: roadLength,
       subdivisions: 1,
     }, this.scene);
-    path.position.set(x, -0.008, z);
-    path.material = this.roadMaterial;
-    path.isPickable = false;
-    path.receiveShadows = false;
-    path.freezeWorldMatrix();
-
-    // A shared-material stone road continues from the gate and forks gently into
-    // the decorative outer grounds. All segments stay beyond the playable bounds.
-    const roadPoint = (outwardDistance: number, lateralDistance: number): [number, number] => [
-      gateX + outwardX * outwardDistance + tangentX * lateralDistance,
-      gateZ + outwardZ * outwardDistance + tangentZ * lateralDistance,
-    ];
-    const mainStart = roadPoint(3.0, 0);
-    const mainEnd = roadPoint(8.4, 0);
-    this.createRoadSegment(`royal-gate-road-${index}`, mainStart, mainEnd, 2.1);
-    for (const direction of [-1, 1]) {
-      const branchStart = roadPoint(5.3, direction * 0.35);
-      const branchEnd = roadPoint(8.2, direction * 3.1);
-      this.createRoadSegment(`royal-gate-road-fork-${index}-${direction}`, branchStart, branchEnd, 1.25);
-    }
-  }
-
-  private createRoadSegment(name: string, start: [number, number], end: [number, number], width: number): void {
-    const dx = end[0] - start[0], dz = end[1] - start[1];
-    const length = Math.hypot(dx, dz);
-    const road = MeshBuilder.CreateGround(name, { width, height: length, subdivisions: 1 }, this.scene);
-    road.position.set((start[0] + end[0]) / 2, -0.008, (start[1] + end[1]) / 2);
-    road.rotation.y = Math.atan2(dx, dz);
+    road.position.set(
+      gateX + outwardX * roadLength / 2,
+      -0.008,
+      gateZ + outwardZ * roadLength / 2,
+    );
+    road.rotation.y = horizontal ? 0 : Math.PI / 2;
     road.material = this.roadMaterial;
     road.isPickable = false;
     road.receiveShadows = false;
