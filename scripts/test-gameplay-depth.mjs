@@ -4,6 +4,7 @@ import { AncientGroveStatusSystem, getSunbrandDamage, getSunbrandTargetPriority,
 import { AFFIXES } from "../src/game/config/EnemyAffixConfig.ts";
 import { resolveFormation } from "../src/game/config/FormationConfig.ts";
 import { TOWER_SPECIALIZATIONS } from "../src/game/config/SpecializationConfig.ts";
+import { FACTION_BONUS_CONFIG } from "../src/game/config/FactionBonusConfig.ts";
 import { WORLD_UNITS_PER_CELL } from "../src/core/GameConstants.ts";
 import { createEnemy, getEnemyHpForWave } from "../src/game/enemies/Enemy.ts";
 import {
@@ -12,7 +13,7 @@ import {
 } from "../src/game/enemies/EnemyAffixSystem.ts";
 import {
   canTowerTargetEnemy, createBasicTower, getTowerAttackProfile, getTowerDamageType,
-  getTowerSplashRadiusMultiplier, getTowerSplashRatio, upgradeTower,
+  getTowerSplashRadiusMultiplier, getTowerSplashRatio, getTotalTowerInvestment, getTowerSellRefund, upgradeTower,
   getTowerSplashRatioForTarget, getTowerAttackMode,
 } from "../src/game/towers/Tower.ts";
 import { DEFENDER_CONFIG } from "../src/game/config/DefenderConfig.ts";
@@ -81,13 +82,36 @@ for (const [type, choices] of Object.entries({
 
 // Ancient Grove's four-unit roster, progression prices and distinct role stats.
 assert.deepEqual(FACTIONS["ancient-grove"].units, ["treant", "thorn-owl", "druid", "seer"]);
-assert.deepEqual(["treant", "thorn-owl", "druid", "seer"].map((id) => DEFENDER_CONFIG[id].buildCost), [10, 15, 55, 75]);
+assert.deepEqual(["treant", "thorn-owl", "druid", "seer"].map((id) => DEFENDER_CONFIG[id].buildCost), [7, 15, 55, 75]);
 assert.deepEqual(["treant", "thorn-owl", "druid", "seer"].map((id) => DEFENDER_CONFIG[id].levels.map(({ damage, fireRate, upgradeCost }) => [damage, fireRate, upgradeCost])), [
-  [[10, 0.8, null], [18, 0.9, 15], [30, 1, 25]],
+  [[22, 1, null], [38, 1.05, 15], [60, 1.15, 25]],
   [[12, 0.95, null], [22, 1.1, 25], [70, 1.5, 125]],
   [[60, 1.05, null], [100, 1.15, 70], [310, 0.8, 110]],
   [[65, 0.85, null], [110, 0.95, 100], [95, 1.1, 150]],
 ]);
+assert.deepEqual(DEFENDER_CONFIG.treant.targetTypes, ["ground"], "Treants remain ground-only");
+assert.deepEqual(DEFENDER_CONFIG.treant.levels.map(({ damage, fireRate }) => Number((damage * fireRate).toFixed(1))), [22, 39.9, 69]);
+const treantEconomy = new GameState("single-spawn", "ancient-grove", 100);
+const treantBuildCell = Array.from({ length: treantEconomy.map.width * treantEconomy.map.height }, (_, index) => ({
+  x: index % treantEconomy.map.width, y: Math.floor(index / treantEconomy.map.width),
+})).find((cell) => treantEconomy.canPlaceBasicTower(cell, "treant") === "placed");
+assert.ok(treantBuildCell, "Wave 1 map has a valid Treant build cell");
+treantEconomy.gold = 6;
+assert.equal(treantEconomy.placeBasicTower(treantBuildCell, "treant"), "not-enough-gold");
+treantEconomy.gold = 7;
+assert.equal(treantEconomy.placeBasicTower(treantBuildCell, "treant"), "placed");
+const purchasedTreant = treantEconomy.towers[0];
+assert.equal(treantEconomy.gold, 0);
+assert.deepEqual([1, 2, 3].map((level) => getTotalTowerInvestment(level, "treant")), [7, 22, 47]);
+treantEconomy.gold = 14;
+assert.equal(treantEconomy.upgradeBasicTower(purchasedTreant.id), "not-enough-gold");
+treantEconomy.gold = 15;
+assert.equal(treantEconomy.upgradeBasicTower(purchasedTreant.id), "upgraded");
+treantEconomy.gold = 24;
+assert.equal(treantEconomy.upgradeBasicTower(purchasedTreant.id), "not-enough-gold");
+treantEconomy.gold = 25;
+assert.equal(treantEconomy.upgradeBasicTower(purchasedTreant.id), "upgraded");
+assert.equal(getTowerSellRefund(purchasedTreant), 32, "L3 Treant uses the normal 70% refund on 47 invested gold");
 assert.deepEqual(["needlewing-owl", "elderwing", "dire-wolf", "elder-bear", "moon-seer", "sun-seer"].map((id) => TOWER_SPECIALIZATIONS[id].level3Stats), [
   { damage: 90, range: 270, fireRate: 2.1 }, { damage: 70, range: 288, fireRate: 1.5 },
   { damage: 95, fireRate: 2.5 }, { damage: 310, fireRate: 0.8 },
@@ -102,20 +126,24 @@ assert.equal(rotEnemy.thornRotStacks, 1, "multiple overlapping influence sources
 groveStatuses.updateEnemy(rotEnemy, 1, 1);
 assert.equal(rotEnemy.thornRotStacks, 2);
 rotEnemy.thornRotStacks = 5;
-groveStatuses.updateEnemy(rotEnemy, 3, 0);
-assert.equal(rotEnemy.thornRotStacks, 5, "stacks remain unchanged during the four-second outside grace");
+for (const outsideSecond of [1, 2, 3]) {
+  groveStatuses.updateEnemy(rotEnemy, 1, 0);
+  assert.equal(rotEnemy.thornRotStacks, 5, `stacks remain unchanged at ${outsideSecond}s outside`);
+}
 groveStatuses.updateEnemy(rotEnemy, 0.25, 3);
 assert.equal(rotEnemy.thornRotStacks, 5, "re-entry preserves stacks");
 groveStatuses.updateEnemy(rotEnemy, 1, 3);
 assert.equal(rotEnemy.thornRotStacks, 6, "re-entry resumes stack accrual");
-groveStatuses.updateEnemy(rotEnemy, 4, 0);
+groveStatuses.updateEnemy(rotEnemy, 3.99, 0);
+assert.equal(rotEnemy.thornRotStacks, 6, "stacks remain through 3.99s outside after re-entry");
+groveStatuses.updateEnemy(rotEnemy, 0.01, 0);
 assert.equal(rotEnemy.thornRotStacks, 0, "all stacks expire together after four continuous seconds outside");
 const flyingRot = makeEnemy(702, "goblinRider");
 groveStatuses.updateEnemy(flyingRot, 2, 3);
 assert.equal(flyingRot.thornRotStacks, 0, "flying enemies are immune to Thorn Rot");
-assert.equal(getThornRotDamage({ thornRotStacks: 5 }, 1), 25);
-assert.equal(getThornRotDamage({ thornRotStacks: 5 }, 2), 35);
-assert.equal(getThornRotDamage({ thornRotStacks: 6 }, 3), 60);
+assert.deepEqual([1, 2, 3].map((level) => FACTION_BONUS_CONFIG.thornRot.damagePerStackPerSecond[level]), [8, 12, 16]);
+assert.deepEqual([1, 2, 3].map((level) => FACTION_BONUS_CONFIG.thornRot.maxStacks[level]), [5, 5, 6]);
+assert.deepEqual([1, 2, 3].map((level) => getThornRotDamage({ thornRotStacks: FACTION_BONUS_CONFIG.thornRot.maxStacks[level] }, level)), [40, 60, 96]);
 
 // Sunbrand: per-hit stacks, four-second grace, one stack/sec decay, refresh and fixed priority.
 const brandEnemy = makeEnemy(703);
@@ -194,7 +222,7 @@ rotState.factionBonuses.rebuildLivingMazeInfluence(rotState.towers, [rotState.pa
 rotState.waveActive = true; rotState.toSpawn = 1; rotState.enemies = [rotTarget];
 rotState.update(1);
 assert.equal(rotTarget.thornRotStacks, 1, "four overlapping Treants still add one Thorn Rot stack/sec");
-assert.equal(rotTarget.hp, 9995, "one L1 Thorn Rot stack deals 5 DPS through GameState");
+assert.equal(rotTarget.hp, 9992, "one L1 Thorn Rot stack deals 8 DPS through GameState");
 
 const sunDotEnemy = makeEnemy(722);
 sunDotEnemy.sunbrandStacks = 4; sunDotEnemy.sunbrandGraceSecondsRemaining = 4; sunDotEnemy.speed = 0;
@@ -390,5 +418,36 @@ updateEnemyAffixes(regenDelay, 0.5);
 assert.equal(regenDelay.hp, 50, "regen pauses during the full hit delay");
 updateEnemyAffixes(regenDelay, 1);
 assert.equal(regenDelay.hp, 50.75, "a delta crossing the delay heals only for time after the pause");
+
+// Deterministic Wave 1 sanity: spend 70 of the normal 100 starting gold on
+// ten valid, route-covering Treants, then let the platform-neutral game model run.
+const groveWave1 = new GameState("single-spawn", "ancient-grove", 100);
+const treantRangeTiles = DEFENDER_CONFIG.treant.levels[0].range / WORLD_UNITS_PER_CELL;
+for (let count = 0; count < 10; count += 1) {
+  const covered = new Set(groveWave1.path.flatMap((pathCell, pathIndex) => (
+    groveWave1.towers.some((tower) => Math.hypot(tower.cell.x - pathCell.x, tower.cell.y - pathCell.y) <= treantRangeTiles)
+      ? [pathIndex] : []
+  )));
+  let selectedCell;
+  let selectedCoverage = -1;
+  for (let y = 0; y < groveWave1.map.height; y += 1) for (let x = 0; x < groveWave1.map.width; x += 1) {
+    const cell = { x, y };
+    if (!groveWave1.grid.isBuildable(cell)) continue;
+    const coverage = groveWave1.path.reduce((total, pathCell, pathIndex) => total
+      + (!covered.has(pathIndex) && Math.hypot(x - pathCell.x, y - pathCell.y) <= treantRangeTiles ? 1 : 0), 0);
+    if ((selectedCell && coverage <= selectedCoverage) || groveWave1.canPlaceBasicTower(cell, "treant") !== "placed") continue;
+    selectedCell = cell;
+    selectedCoverage = coverage;
+  }
+  assert.ok(selectedCell, `Treant ${count + 1} has a valid non-blocking build cell`);
+  assert.equal(groveWave1.placeBasicTower(selectedCell, "treant"), "placed");
+}
+assert.equal(groveWave1.gold, 30, "ten L1 Treants cost 70 gold, leaving 30 from normal starting gold");
+assert.equal(groveWave1.startWave(), true);
+for (let frame = 0; frame < 2000 && groveWave1.waveActive; frame += 1) groveWave1.update(0.1);
+assert.equal(groveWave1.waveActive, false, "the real Wave 1 simulation completes");
+assert.ok(groveWave1.lives > 0, "Ancient Grove survives the first wave with ten L1 Treants");
+assert.ok(groveWave1.towers.reduce((total, tower) => total + tower.combatStats.kills, 0) > 0,
+  "Treants deal enough real combat damage to kill Wave 1 enemies");
 
 console.log("Gameplay depth tests passed: specializations, formations, affixes, damage, warning timing.");

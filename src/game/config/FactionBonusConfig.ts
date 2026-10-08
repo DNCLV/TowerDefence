@@ -34,7 +34,7 @@ export const FACTION_BONUS_CONFIG = {
     stackIntervalSeconds: 1,
     outsideGraceSeconds: 4,
     maxStacks: { 1: 5, 2: 5, 3: 6 },
-    damagePerStackPerSecond: { 1: 5, 2: 7, 3: 10 },
+    damagePerStackPerSecond: { 1: 8, 2: 12, 3: 16 },
     deepRootsBonusAtMax: 0.15,
   },
   sunbrand: {

@@ -502,15 +502,15 @@ export class WinterArenaArt {
     // Bounded edge pockets enrich the outer ring while leaving the central maze clear.
     const edgeFractions = this.width > 30
       ? [1 / 7, 2 / 7, 3 / 7, 4 / 7, 5 / 7, 6 / 7]
-      : [0.2, 0.4, 0.6, 0.8];
+      : [1 / 6, 2 / 6, 3 / 6, 4 / 6, 5 / 6];
+    const sideFractions = this.width > 30 ? [0.15, 0.38, 0.62, 0.85] : [0.2, 0.5, 0.8];
     const anchors: Array<[number, number]> = [
       ...edgeFractions.map((fraction) => [this.width * fraction, -4.2] as [number, number]),
-      [-4.2, this.depth / 3], [-4.2, this.depth * 2 / 3],
-      [this.width + 4.2, this.depth / 3], [this.width + 4.2, this.depth * 2 / 3],
+      ...sideFractions.map((fraction) => [-4.2, this.depth * fraction] as [number, number]),
+      ...sideFractions.map((fraction) => [this.width + 4.2, this.depth * fraction] as [number, number]),
       ...edgeFractions.map((fraction) => [this.width * fraction, this.depth + 4.2] as [number, number]),
     ];
-    // Irregular, layered compositions keep the outskirts lively without forming a
-    // second maze. Each pocket is still bounded by the existing playable-area test.
+    // Structured scene pockets add settlement detail outside the battlefield only.
     const forest = [["tree", -0.82, -0.2], ["tree", 0.95, 0.55], ["rockLarge", 1.25, -1.05],
       ["rock", -0.1, 1.28], ["rock", 1.75, 1.05], ["rock", -1.55, -1.2]] as const;
     const rocks = [["rockLarge", -0.1, 0], ["rock", -1.15, 0.58], ["rock", 1.1, 0.7],
@@ -519,15 +519,41 @@ export class WinterArenaArt {
       ["tree", -1.35, -1.2], ["rock", 1.7, 1.2], ["rock", -1.8, 0.9]] as const;
     const storage = [["wagon", 0.1, 0], ["crate", -1.4, 0.45], ["crate", 1.25, 0.9],
       ["fence", -0.25, 1.6], ["rock", 1.65, -1.25], ["tree", -1.65, -1.4]] as const;
-    const sceneKinds = this.width > 30 ? theme.clusters : theme.clusters.slice(0, anchors.length);
+    const sceneKinds = theme.clusters.slice(0, anchors.length);
     sceneKinds.forEach((kind, index) => {
       const [cx, cz] = anchors[index];
       // Keep the visual corridor behind each spawn and the shared castle gate clear.
       if (this.protectedGateZones.some((gate) => Math.hypot(cx - gate.x, cz - gate.z) < 3.8)) return;
-      if (kind === "village") {
+      if (kind === "village" || kind === "outpost") {
         if (this.protectedGateZones.some((gate) => Math.hypot(cx - gate.x, cz - gate.z) < 5.6)) return;
-        const cottage = this.createVillageCottage(index, cx, cz, index % 2 === 0 ? 0 : Math.PI);
+        const rotation = (index % 4) * Math.PI / 2;
+        const cottage = this.createVillageCottage(index, cx, cz, rotation);
         roots.push(cottage);
+        const place = (key: EnvironmentAssetKey, label: string, offsetX: number, offsetZ: number,
+          itemRotation: number, scale: number): void => {
+          const cos = Math.cos(rotation), sin = Math.sin(rotation);
+          addOutskirtsAsset(key, `settlement-${index}-${label}`,
+            cx + offsetX * cos - offsetZ * sin, cz + offsetX * sin + offsetZ * cos,
+            itemRotation + rotation, scale);
+        };
+        if (kind === "village") {
+          // A lived-in support building gets a small supply yard and greenery.
+          place("medieval-wagon", "supply-wagon", 2.05, 0.35, Math.PI / 2, 0.52);
+          place("medieval-crate", "crate-a", 1.45, 1.55, 0.2, 0.55);
+          place("medieval-crate", "crate-b", 2.15, 1.45, -0.25, 0.48);
+          place("castle-fence", "yard-fence-a", -1.9, 1.6, 0, 0.58);
+          place("castle-fence", "yard-fence-b", 0.1, 2.15, Math.PI / 2, 0.58);
+          place("castle-tree", "yard-tree", -2.25, -1.55, 0.3, 0.78);
+          place("castle-rock", "yard-stones", 1.9, -1.55, -0.2, 0.72);
+        } else {
+          // A compact watch post pairs a ballista with heraldry and a fenced apron.
+          place("castle-ballista", "guard-ballista", 2.0, 0.25, -Math.PI / 2, 0.54);
+          place("castle-flag", "guard-banner", -1.65, -1.7, 0, 0.72);
+          place("castle-fence", "guard-fence-a", -1.85, 1.55, 0, 0.6);
+          place("castle-fence", "guard-fence-b", 0.05, 2.1, Math.PI / 2, 0.6);
+          place("medieval-crate", "guard-supplies", 2.0, 1.45, 0.35, 0.5);
+          place("castle-rock-large", "guard-stones", -2.2, -1.55, 0.4, 0.7);
+        }
       } else {
         const composition = kind === "forest" ? forest : kind === "rocks" ? rocks : kind === "storage" ? storage : camp;
         composition.forEach(([category, dx, dz], part) => {

@@ -137,12 +137,12 @@ export const DEFENDER_CONFIG: Record<DefenderType, DefenderDefinition> = {
     ],
   },
   "treant": {
-    id: "treant", name: "Treant", rangeMode: "circular", targetTypes: ["ground"], buildCost: 10,
+    id: "treant", name: "Treant", rangeMode: "circular", targetTypes: ["ground"], buildCost: 7,
     roleLabel: "Ground Control / Thorn Rot", specializationLabel: "Thorn Rot · Ground only",
     levels: [
-      { level: 1, damage: 10, range: 2.5 * WORLD_UNITS_PER_CELL, fireRate: 0.8, upgradeCost: null },
-      { level: 2, damage: 18, range: 2.5 * WORLD_UNITS_PER_CELL, fireRate: 0.9, upgradeCost: 15 },
-      { level: 3, damage: 30, range: 2.5 * WORLD_UNITS_PER_CELL, fireRate: 1, upgradeCost: 25 },
+      { level: 1, damage: 22, range: 2.5 * WORLD_UNITS_PER_CELL, fireRate: 1, upgradeCost: null },
+      { level: 2, damage: 38, range: 2.5 * WORLD_UNITS_PER_CELL, fireRate: 1.05, upgradeCost: 15 },
+      { level: 3, damage: 60, range: 2.5 * WORLD_UNITS_PER_CELL, fireRate: 1.15, upgradeCost: 25 },
     ],
   },
   "thorn-owl": {

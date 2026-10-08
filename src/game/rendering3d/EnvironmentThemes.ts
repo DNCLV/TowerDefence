@@ -16,7 +16,7 @@ export interface EnvironmentTheme {
   treeCount: number;
   rockCount: number;
   propCount: number;
-  clusters: readonly ("forest" | "rocks" | "camp" | "village" | "storage")[];
+  clusters: readonly ("forest" | "rocks" | "camp" | "village" | "outpost" | "storage")[];
 }
 
 export const ENVIRONMENT_THEMES: readonly EnvironmentTheme[] = [
@@ -28,8 +28,10 @@ export const ENVIRONMENT_THEMES: readonly EnvironmentTheme[] = [
     treeAssets: ["castle-tree", "castle-tree-large"],
     rockAssets: ["castle-rock", "castle-rock-large"], propAssets: ["castle-flag"],
     treeCount: 12, rockCount: 30, propCount: 18,
-    clusters: ["rocks", "forest", "camp", "rocks", "storage", "forest", "village", "rocks",
-      "rocks", "forest", "storage", "village", "rocks", "forest", "camp", "storage"],
+    // Deliberately spread buildings and support scenes around every side of the arena.
+    clusters: ["village", "forest", "camp", "storage", "outpost", "storage",
+      "outpost", "forest", "storage", "camp", "outpost", "village", "storage", "camp",
+      "storage", "forest", "outpost", "village", "camp", "village"],
   },
 ];
 
