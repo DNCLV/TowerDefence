@@ -1,6 +1,7 @@
 import "@babylonjs/loaders/glTF";
 import { AbstractMesh, AssetContainer, Color3, MeshBuilder, Scene, SceneLoader, ShadowGenerator, StandardMaterial, TransformNode, Vector3 } from "@babylonjs/core";
 import type { DefenderType } from "../config/DefenderConfig";
+import type { FactionId } from "../config/FactionConfig";
 import { DEFENDER_VISUAL_CONFIG } from "./DefenderVisualConfig";
 import { VISUAL_CONFIG } from "./VisualConfig";
 import { resolveAssetUrl } from "../../core/AssetUrl";
@@ -13,7 +14,8 @@ export interface QuaterniusDefenderVisual {
   dispose(): void;
 }
 
-type ImportedDefenderType = "green-archer" | "battlemage" | "sovereign" | "holy-emperor";
+type ImportedDefenderType = "green-archer" | "battlemage" | "sovereign" | "holy-emperor"
+  | "treant" | "thorn-owl" | "druid" | "seer";
 type DefenderTemplateAudit = { type: ImportedDefenderType; assetPath?: string; optimized: boolean; triangleCount: number; textures: number; materials: number };
 
 /** Loads each imported defender once. Pending loads stay visually quiet; only a small neutral marker is used on failure. */
@@ -25,12 +27,15 @@ export class QuaterniusDefenderFactory {
   private loadingComplete = false;
   private readonly neutralFallbackMaterial: StandardMaterial;
   private readonly unavailableReported = new Set<DefenderType>();
+  private readonly importedTypes: ImportedDefenderType[];
 
-  constructor(private readonly scene: Scene, private readonly shadows: ShadowGenerator) {
+  constructor(private readonly scene: Scene, private readonly shadows: ShadowGenerator, factionId: FactionId) {
     this.neutralFallbackMaterial = this.material("defender-neutral-fallback", new Color3(0.38, 0.5, 0.53), new Color3(0.06, 0.09, 0.1));
+    this.importedTypes = factionId === "ancient-grove"
+      ? ["treant", "thorn-owl", "druid", "seer"]
+      : ["green-archer", "battlemage", "sovereign", "holy-emperor"];
   }
 
-  private readonly importedTypes: ImportedDefenderType[] = ["green-archer", "battlemage", "sovereign", "holy-emperor"];
   get ready(): boolean { return this.templates.size === this.importedTypes.length; }
   get cachedModelCount(): number { return this.templates.size; }
   hasTemplate(type: DefenderType): boolean { return this.templates.has(type as ImportedDefenderType); }
@@ -66,9 +71,6 @@ export class QuaterniusDefenderFactory {
 
   /** Keeps towers visually quiet while loading; failed assets use a small neutral marker, never a large proxy body. */
   create(id: number, type: DefenderType, level: number): QuaterniusDefenderVisual {
-    if (type === "treant" || type === "thorn-owl" || type === "druid" || type === "seer") {
-      return this.createGrovePrimitive(id, type, level);
-    }
     const importedType = type as ImportedDefenderType;
     const definition = DEFENDER_VISUAL_CONFIG[importedType];
     const template = this.templates.get(importedType);
@@ -96,14 +98,21 @@ export class QuaterniusDefenderFactory {
     const meshes = root.getChildMeshes();
     const rawBounds = this.measureWorldBounds(meshes);
     if (rawBounds) modelRoot.position.y -= rawBounds.min.y;
+    modelRoot.position.y += definition.hoverHeight ?? 0;
     bodyRoot.computeWorldMatrix(true);
     this.addShadowCasters(meshes);
     const bounds = this.measureWorldBounds(meshes);
     const attackOrigin = new TransformNode(`defender-attack-origin-${id}`, this.scene);
-    attackOrigin.parent = modelRoot;
-    // Keep the firing origin in the model's local frame so model-scale tuning
-    // moves it together with the defender without changing tower coordinates.
-    attackOrigin.position.set(0, definition.sourceBounds.height * 0.68, importedType === "green-archer" ? 0.18 : 0.2);
+    if (definition.hoverHeight !== undefined || importedType === "treant" || importedType === "druid" || importedType === "seer") {
+      // Grove GLBs are centered around their source origin. Use grounded model
+      // bounds for the attack point, leaving gameplay coordinates untouched.
+      attackOrigin.parent = bodyRoot;
+      attackOrigin.position.set(0, (bounds?.min.y ?? 0) + (bounds?.height ?? definition.targetVisualHeight) * 0.68, 0.16);
+    } else {
+      attackOrigin.parent = modelRoot;
+      // Existing Royal Guard attack origins stay in their original local frame.
+      attackOrigin.position.set(0, definition.sourceBounds.height * 0.68, importedType === "green-archer" ? 0.18 : 0.2);
+    }
     instance.animationGroups.forEach((animation) => { animation.stop(); animation.dispose(); });
     this.reportResolution(importedType, this.loadedPaths.get(importedType), false);
     this.recordInstance(id, importedType, level, this.loadedPaths.get(importedType), bounds, modelRoot.position.y);
@@ -116,42 +125,6 @@ export class QuaterniusDefenderFactory {
     };
   }
 
-  private createGrovePrimitive(id: number, type: "treant" | "thorn-owl" | "druid" | "seer", level: number): QuaterniusDefenderVisual {
-    const root = new TransformNode(`grove-defender-root-${id}`, this.scene);
-    const bodyRoot = new TransformNode(`grove-defender-body-${id}`, this.scene);
-    bodyRoot.parent = root;
-    const palette = type === "treant" ? new Color3(0.42, 0.57, 0.28)
-      : type === "thorn-owl" ? new Color3(0.67, 0.72, 0.44)
-        : type === "druid" ? new Color3(0.36, 0.55, 0.39) : new Color3(0.45, 0.43, 0.72);
-    const material = new StandardMaterial(`grove-${type}-material`, this.scene);
-    material.diffuseColor = palette;
-    material.emissiveColor = palette.scale(0.12);
-    const make = (name: string, shape: "sphere" | "cylinder" | "box", size: number, height = size): AbstractMesh => {
-      const mesh = shape === "sphere" ? MeshBuilder.CreateSphere(name, { diameter: size, segments: 6 }, this.scene)
-        : shape === "cylinder" ? MeshBuilder.CreateCylinder(name, { diameter: size, height, tessellation: 7 }, this.scene)
-          : MeshBuilder.CreateBox(name, { size }, this.scene);
-      mesh.parent = bodyRoot; mesh.material = material; mesh.isPickable = false; this.shadows.addShadowCaster(mesh); return mesh;
-    };
-    if (type === "treant") {
-      make(`grove-trunk-${id}`, "cylinder", 0.42, 0.82).position.y = 0.42;
-      make(`grove-crown-${id}`, "sphere", 0.9).position.y = 1.0;
-    } else if (type === "thorn-owl") {
-      make(`grove-owl-body-${id}`, "sphere", 0.52).position.y = 0.48;
-      const wingL = make(`grove-owl-wing-l-${id}`, "box", 0.48); wingL.scaling.set(1.2, 0.12, 0.25); wingL.position.set(-0.34, 0.47, 0);
-      const wingR = make(`grove-owl-wing-r-${id}`, "box", 0.48); wingR.scaling.set(1.2, 0.12, 0.25); wingR.position.set(0.34, 0.47, 0);
-    } else {
-      make(`grove-${type}-body-${id}`, "cylinder", 0.48, 0.9).position.y = 0.48;
-      make(`grove-${type}-head-${id}`, "sphere", 0.42).position.y = 1.0;
-    }
-    bodyRoot.scaling.setAll(VISUAL_CONFIG.towerLevelScaleMultipliers[level as 1 | 2 | 3] ?? 1);
-    const attackOrigin = new TransformNode(`grove-attack-origin-${id}`, this.scene);
-    attackOrigin.parent = bodyRoot; attackOrigin.position.set(0, type === "thorn-owl" ? 0.65 : 0.82, 0.16);
-    return { root, bodyRoot, attackOrigin, level, dispose: () => {
-      root.getChildMeshes().forEach((mesh) => this.shadows.removeShadowCaster(mesh));
-      material.dispose();
-    } };
-  }
-
   private async loadType(type: ImportedDefenderType): Promise<void> {
     const definition = DEFENDER_VISUAL_CONFIG[type];
     try {
@@ -159,13 +132,13 @@ export class QuaterniusDefenderFactory {
       this.loadedPaths.set(type, definition.assetPath!);
       return;
     } catch (optimizedError) {
-      if (!import.meta.env.DEV || !definition.fallbackAssetPath) throw optimizedError;
-      console.warn("Optimized defender visual failed; trying its own source GLB:", {
-        type, optimizedPath: definition.assetPath, fallbackPath: definition.fallbackAssetPath,
+      console.warn("Defender runtime GLB failed to load:", {
+        unitId: type, runtimePath: definition.assetPath,
         reason: optimizedError instanceof Error ? optimizedError.message : String(optimizedError),
       });
     }
 
+    if (!import.meta.env.DEV || !definition.fallbackAssetPath) return;
     try {
       this.templates.set(type, await this.loadContainer(definition.fallbackAssetPath!));
       this.loadedPaths.set(type, definition.fallbackAssetPath!);

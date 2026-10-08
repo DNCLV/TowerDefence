@@ -1,14 +1,20 @@
 {
   "version": 1,
-  "description": "Production-only assets for the current Royal Guard faction and map environment. GLTF sidecar dependencies are included automatically.",
+  "description": "Production assets for the Royal Guard and Ancient Grove factions and map environment. GLTF sidecar dependencies are included automatically.",
   "groups": {
-    "defenders": [
+    "royalGuardDefenders": [
       "assets/models/defenders/optimized/blue-wizard.glb",
       "assets/models/defenders/optimized/holy-knight.glb",
       "assets/models/defenders/optimized/green-archer.glb",
       "assets/models/defenders/optimized/battlemage.glb",
       "assets/models/defenders/optimized/sovereign.glb",
       "assets/models/defenders/optimized/holy-emperor.glb"
+    ],
+    "ancientGroveDefenders": [
+      "assets/models/defenders/optimized/treant.glb",
+      "assets/models/defenders/optimized/thorn-owl.glb",
+      "assets/models/defenders/optimized/druid.glb",
+      "assets/models/defenders/optimized/seer.glb"
     ],
     "enemies": [
       "assets/models/enemies/optimized/goblin.glb",
@@ -23,7 +29,7 @@
       "assets/models/enemies/optimized/skeletal-commander.glb",
       "assets/models/animated-monsters/Skeleton.fbx"
     ],
-    "environment": [
+    "castleEnvironment": [
       "assets/environment/kenney-castle/wall.glb",
       "assets/environment/kenney-castle/wall-corner-half-tower.glb",
       "assets/environment/kenney-castle/wall-doorway.glb",
@@ -40,6 +46,17 @@
       "assets/environment/medieval/Prop_Wagon.gltf",
       "assets/environment/medieval/Prop_Crate.gltf"
     ],
+    "forestEnvironment": [
+      "assets/environment/forest/tree.glb",
+      "assets/environment/forest/tree-high.glb",
+      "assets/environment/forest/rocks-low.glb",
+      "assets/environment/forest/rocks-high.glb",
+      "assets/environment/forest/rocks-ramp.glb",
+      "assets/environment/forest/stones.glb",
+      "assets/environment/forest/plant.glb",
+      "assets/environment/forest/patch-grass.glb",
+      "assets/environment/forest/patch-dirt.glb"
+    ],
     "ui": [
       "assets/ui/defenders/wizard.png",
       "assets/ui/defenders/knight.png",
@@ -47,10 +64,6 @@
       "assets/ui/defenders/battlemage.png",
       "assets/ui/defenders/sovereign.png",
       "assets/ui/defenders/holy-emperor.jpg"
-    ],
-    "fallbackAndAnimation": [
-      "assets/models/quaternius/runtime/Female_Ranger.gltf",
-      "assets/animations/quaternius/UAL1_Standard.glb"
     ]
   },
   "developmentOnly": [

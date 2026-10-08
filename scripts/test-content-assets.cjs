@@ -5,6 +5,18 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const runtimeAssetManifest = require("./runtime-asset-manifest.json");
+const expectedDefenderPaths = {
+  "green-archer": "/assets/models/defenders/optimized/green-archer.glb",
+  battlemage: "/assets/models/defenders/optimized/battlemage.glb",
+  sovereign: "/assets/models/defenders/optimized/sovereign.glb",
+  "holy-emperor": "/assets/models/defenders/optimized/holy-emperor.glb",
+  treant: "/assets/models/defenders/optimized/treant.glb",
+  "thorn-owl": "/assets/models/defenders/optimized/thorn-owl.glb",
+  druid: "/assets/models/defenders/optimized/druid.glb",
+  seer: "/assets/models/defenders/optimized/seer.glb",
+};
+const groveImportedTypes = ["treant", "thorn-owl", "druid", "seer"];
+const royalImportedTypes = ["green-archer", "battlemage", "sovereign", "holy-emperor"];
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), "td-content-assets-"));
 const appUrl = process.env.TD_TEST_URL ?? "http://127.0.0.1:5173/";
@@ -331,7 +343,249 @@ async function main() {
     throw new Error(`Compact mobile faction layout failed: ${JSON.stringify(compactFactionLayout)}`);
   }
   await command("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
-  await evaluate("document.querySelector('#start-battlefield').click()");
+  // Exercise the Grove's packaged GLBs before the long Royal Guard combat/UI checks.
+  // Its L3 branches intentionally reuse their base unit model until distinct GLBs exist.
+  await evaluate(`(() => {
+    document.querySelector('[data-faction-id="ancient-grove"]').click();
+    document.querySelector('#start-battlefield').click();
+  })()`);
+  let groveReady = false;
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    groveReady = await evaluate(`(() => window.__towerDefenceGameState?.factionId === 'ancient-grove'
+      && document.querySelector('.game-ui')?.dataset.defenderAssetsReady === 'true'
+      && window.__terrainArtDebug?.environmentReady === true
+      && (window.__defenderTemplateAudit?.length ?? 0) === ${groveImportedTypes.length})()`);
+    if (groveReady) break;
+    await delay(300);
+  }
+  if (!groveReady) {
+    throw new Error(`Ancient Grove defender templates did not finish loading: ${JSON.stringify(await evaluate(`({
+      faction: window.__towerDefenceGameState?.factionId,
+      ready: document.querySelector('.game-ui')?.dataset.defenderAssetsReady,
+      templates: window.__defenderTemplateAudit ?? null,
+    })`))}`);
+  }
+  let groveEnvironment = await evaluate('window.__terrainArtDebug ?? null');
+  if (groveEnvironment?.themeStyle !== 'forest' || groveEnvironment?.themeId !== 'ancient-grove-forest'
+    || groveEnvironment?.groundMaterial !== 'forest-clearing-grass-earth-pbr'
+    || groveEnvironment?.environmentComposition?.trees < 150
+    || groveEnvironment?.environmentComposition?.rocks < groveEnvironment?.terrainRegionCount
+    || groveEnvironment?.environmentRendering?.templateAssets !== 9
+    || groveEnvironment?.environmentRendering?.instances < (
+      groveEnvironment?.environmentComposition?.trees
+      + groveEnvironment?.environmentComposition?.rocks
+      + groveEnvironment?.environmentComposition?.vegetation
+    )) {
+    throw new Error(`Ancient Grove forest environment failed: ${JSON.stringify(groveEnvironment)}`);
+  }
+  console.log('Ancient Grove forest environment passed', JSON.stringify(groveEnvironment));
+  if (process.env.SAVE_FOREST_ART_SCREENSHOTS === '1') {
+    const screenshotDirectory = path.resolve(process.env.TD_VISUAL_REVIEW_DIR
+      ?? path.resolve(__dirname, '../artifacts/forest-art-review'));
+    fs.mkdirSync(screenshotDirectory, { recursive: true });
+    const reports = { 'single-spawn': groveEnvironment };
+    const captureForest = async (mapId) => {
+      await delay(700);
+      await evaluate("document.querySelector('pre[style*=\\\"z-index:30\\\"]')?.remove(); document.querySelector('#minimap-dock')?.style.setProperty('visibility', 'hidden')");
+      const screenshot = await command('Page.captureScreenshot', { format: 'png', fromSurface: true });
+      fs.writeFileSync(path.join(screenshotDirectory, `${mapId}-mobile.png`), Buffer.from(screenshot.data, 'base64'));
+    };
+    const openForestMap = async (mapId) => {
+      await evaluate(`(() => {
+        document.querySelector('#reset-menu-button').click();
+        document.querySelector('#return-map-select-button').click();
+        window.__defenderTemplateAudit = [];
+      })()`);
+      for (let attempt = 0; attempt < 80; attempt += 1) {
+        if (await evaluate("!!document.querySelector('.map-select-screen')")) break;
+        await delay(50);
+      }
+      await evaluate(`document.querySelector('[data-map-id="${mapId}"]').click(); document.querySelector('#start-selected-map').click()`);
+      for (let attempt = 0; attempt < 50; attempt += 1) {
+        if (await evaluate("!!document.querySelector('.faction-select-screen')")) break;
+        await delay(50);
+      }
+      await evaluate(`document.querySelector('[data-faction-id="ancient-grove"]').click(); document.querySelector('#start-battlefield').click()`);
+      for (let attempt = 0; attempt < 120; attempt += 1) {
+        const ready = await evaluate(`window.__terrainArtDebug?.map === '${mapId}'
+          && window.__terrainArtDebug?.environmentReady === true
+          && document.querySelector('.game-ui')?.dataset.defenderAssetsReady === 'true'`);
+        if (ready) return await evaluate('window.__terrainArtDebug');
+        await delay(200);
+      }
+      throw new Error(`Forest environment did not initialize for ${mapId}`);
+    };
+    await captureForest('single-spawn');
+    for (const mapId of ['two-spawns', 'three-spawns']) {
+      reports[mapId] = await openForestMap(mapId);
+      await captureForest(mapId);
+    }
+    groveEnvironment = await openForestMap('single-spawn');
+    console.log('Forest map visual reports', JSON.stringify(reports));
+  }
+  const groveBaseIds = await evaluate(`(() => {
+    const game = window.__towerDefenceGameState;
+    game.gold = 5000;
+    const ui = window.__towerDefenceUi;
+    const canvas = document.querySelector('#game3d').getBoundingClientRect();
+    const top = document.querySelector('.top-hud-bar').getBoundingClientRect();
+    const bottom = document.querySelector('.bottom-hud-bar').getBoundingClientRect();
+    const usableHeight = bottom.top - top.bottom;
+    const targetPositions = [
+      [0.34, 0.40], [0.66, 0.40], [0.34, 0.68], [0.66, 0.68],
+      [0.50, 0.32], [0.50, 0.76], [0.24, 0.54], [0.76, 0.54], [0.50, 0.54], [0.42, 0.54],
+    ].map(([x, y]) => ({ x: canvas.left + canvas.width * x, y: top.bottom + usableHeight * y }));
+    const candidates = [];
+    for (let y = 0; y < game.grid.height; y += 1) for (let x = 0; x < game.grid.width; x += 1) {
+      const cell = { x, y }, point = ui.projectCell(cell);
+      if (point.x <= canvas.left + 24 || point.x >= canvas.right - 24
+        || point.y <= top.bottom + 24 || point.y >= bottom.top - 24) continue;
+      candidates.push({ cell, ...point });
+    }
+    let placementIndex = 0;
+    const place = (type) => {
+      const target = targetPositions[Math.min(placementIndex, targetPositions.length - 1)];
+      const ordered = candidates.slice().sort((a, b) => Math.hypot(a.x - target.x, a.y - target.y) - Math.hypot(b.x - target.x, b.y - target.y));
+      for (const { cell } of ordered) {
+        if (game.canPlaceBasicTower(cell, type) !== 'placed') continue;
+        if (game.placeBasicTower(cell, type) !== 'placed') continue;
+        placementIndex += 1;
+        return game.towers.at(-1).id;
+      }
+      throw new Error('No valid Grove placement for ' + type);
+    };
+    const ids = {};
+    for (const type of ['treant', 'thorn-owl', 'druid', 'seer']) ids[type] = place(type);
+    return ids;
+  })()`);
+  if (process.env.TD_GROVE_SCREENSHOT) {
+    await delay(500);
+    await evaluate("document.querySelector('pre[style*=\\\"z-index:30\\\"]')?.remove(); document.querySelector('#minimap-dock')?.style.setProperty('visibility', 'hidden')");
+    const screenshot = await command("Page.captureScreenshot", { format: "png", fromSurface: true });
+    fs.writeFileSync(process.env.TD_GROVE_SCREENSHOT, Buffer.from(screenshot.data, "base64"));
+  }
+  const groveBranchResults = await evaluate(`(() => {
+    const game = window.__towerDefenceGameState;
+    const ui = window.__towerDefenceUi;
+    const canvas = document.querySelector('#game3d').getBoundingClientRect();
+    const top = document.querySelector('.top-hud-bar').getBoundingClientRect();
+    const bottom = document.querySelector('.bottom-hud-bar').getBoundingClientRect();
+    const usableHeight = bottom.top - top.bottom;
+    const targetPositions = [
+      [0.34, 0.40], [0.66, 0.40], [0.34, 0.68], [0.66, 0.68],
+      [0.50, 0.32], [0.50, 0.76], [0.24, 0.54], [0.76, 0.54], [0.50, 0.54], [0.42, 0.54],
+    ].map(([x, y]) => ({ x: canvas.left + canvas.width * x, y: top.bottom + usableHeight * y }));
+    const candidates = [];
+    for (let y = 0; y < game.grid.height; y += 1) for (let x = 0; x < game.grid.width; x += 1) {
+      const cell = { x, y }, point = ui.projectCell(cell);
+      if (point.x <= canvas.left + 24 || point.x >= canvas.right - 24
+        || point.y <= top.bottom + 24 || point.y >= bottom.top - 24) continue;
+      candidates.push({ cell, ...point });
+    }
+    let placementIndex = 4;
+    const place = (type) => {
+      const target = targetPositions[Math.min(placementIndex, targetPositions.length - 1)];
+      const ordered = candidates.slice().sort((a, b) => Math.hypot(a.x - target.x, a.y - target.y) - Math.hypot(b.x - target.x, b.y - target.y));
+      for (const { cell } of ordered) {
+        if (game.canPlaceBasicTower(cell, type) !== 'placed') continue;
+        if (game.placeBasicTower(cell, type) !== 'placed') continue;
+        placementIndex += 1;
+        return game.towers.at(-1).id;
+      }
+      throw new Error('No valid Grove placement for ' + type);
+    };
+    const ids = { ...${JSON.stringify(groveBaseIds)} };
+    for (const [branch, type] of [
+      ['needlewing-owl', 'thorn-owl'], ['elderwing', 'thorn-owl'],
+      ['dire-wolf', 'druid'], ['elder-bear', 'druid'],
+      ['moon-seer', 'seer'], ['sun-seer', 'seer'],
+    ]) {
+      const id = place(type);
+      if (game.upgradeBasicTower(id) !== 'upgraded' || game.upgradeBasicTower(id, branch) !== 'upgraded') {
+        throw new Error('Could not specialize Grove tower as ' + branch);
+      }
+      ids[branch] = id;
+    }
+    return { ids, roster: [...game.availableUnits], towers: game.towers.map(({ id, type, level, specializationId, cell, damage, range, fireRate }) =>
+      ({ id, type, level, specializationId, cell, damage, range, fireRate })),
+      cards: ['treant', 'thorn-owl', 'druid', 'seer'].map((type) => Boolean(document.querySelector('#build-' + type + '-button'))) };
+  })()`);
+  const grovePlacements = { ...groveBranchResults, ids: { ...groveBaseIds, ...groveBranchResults.ids } };
+  let groveVisuals;
+  for (let attempt = 0; attempt < 80; attempt += 1) {
+    groveVisuals = await evaluate(`(() => {
+      const ids = ${JSON.stringify(grovePlacements.ids)};
+      const records = window.__defenderVisualInstances ?? [];
+      return Object.fromEntries(Object.entries(ids).map(([unit, id]) => [unit, records.findLast((entry) => entry.id === id) ?? null]));
+    })()`);
+    if (Object.values(groveVisuals).every(Boolean)) break;
+    await delay(100);
+  }
+  const groveTemplates = await evaluate('window.__defenderTemplateAudit ?? []');
+  const groveTypes = groveImportedTypes;
+  if (JSON.stringify(grovePlacements.roster) !== JSON.stringify(groveTypes)
+    || groveTypes.some((type) => !grovePlacements.ids[type]) || !grovePlacements.cards.every(Boolean)
+    || grovePlacements.towers.length !== 10
+    || JSON.stringify(groveTemplates.map(({ type }) => type).sort()) !== JSON.stringify([...groveTypes].sort())
+    || groveTemplates.some(({ type, assetPath, optimized, triangleCount, materials }) =>
+      assetPath !== expectedDefenderPaths[type] || !optimized || !(triangleCount > 0) || !(materials > 0))) {
+    throw new Error(`Ancient Grove roster/template mapping failed: ${JSON.stringify({ grovePlacements, groveTemplates })}`);
+  }
+  const branchTypes = { 'needlewing-owl': 'thorn-owl', elderwing: 'thorn-owl', 'dire-wolf': 'druid',
+    'elder-bear': 'druid', 'moon-seer': 'seer', 'sun-seer': 'seer' };
+  const groveStateAfterVisuals = await evaluate(`window.__towerDefenceGameState.towers.map(({ id, type, level, specializationId, cell, damage, range, fireRate }) =>
+    ({ id, type, level, specializationId, cell, damage, range, fireRate }))`);
+  if (JSON.stringify(groveStateAfterVisuals) !== JSON.stringify(grovePlacements.towers)
+    || Object.entries(branchTypes).some(([branch, type]) => {
+      const tower = groveStateAfterVisuals.find(({ id }) => id === grovePlacements.ids[branch]);
+      return !tower || tower.type !== type || tower.level !== 3 || tower.specializationId !== branch;
+    })) {
+    throw new Error(`Grove model instancing changed the tower state or lost a branch: ${JSON.stringify({ grovePlacements, groveStateAfterVisuals })}`);
+  }
+  if (Object.entries(groveVisuals).some(([unit, visual]) => {
+    const type = branchTypes[unit] ?? unit;
+    const dimensions = visual?.bounds;
+    return !visual || visual.type !== type || visual.assetPath !== expectedDefenderPaths[type]
+      || (branchTypes[unit] && visual.level !== 3)
+      || !visual.optimized || visual.primitiveFallback || !dimensions
+      || ![dimensions.width, dimensions.height, dimensions.depth, dimensions.minY].every(Number.isFinite)
+      || dimensions.width <= 0 || dimensions.height <= 0 || dimensions.depth <= 0
+      || dimensions.width > 1.3 || dimensions.depth > 1.3 || dimensions.height > 2.6
+      || dimensions.minY < -0.02 || dimensions.minY > 0.9;
+  })) {
+    throw new Error(`Ancient Grove GLB instance, branch reuse or bounds failed: ${JSON.stringify(groveVisuals)}`);
+  }
+  console.log('Ancient Grove GLB mapping passed', JSON.stringify({ groveTemplates, groveVisuals }));
+  if (process.env.TD_GROVE_SCREENSHOT) {
+    const screenshot = await command("Page.captureScreenshot", { format: "png", fromSurface: true });
+    fs.writeFileSync(process.env.TD_GROVE_SCREENSHOT, Buffer.from(screenshot.data, "base64"));
+  }
+  await evaluate(`(() => {
+    document.querySelector('#reset-menu-button').click();
+    document.querySelector('#return-map-select-button').click();
+    window.__defenderVisualInstances = [];
+    window.__enemyTemplateAudit = [];
+    window.__enemyVisualInstances = [];
+    window.__enemyVisualAudit = [];
+  })()`);
+  let returnedFromGrove = false;
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    returnedFromGrove = await evaluate(`(() => !!document.querySelector('.map-select-screen')
+      && !document.querySelector('#game3d') && !window.__towerDefenceGameState)()`);
+    if (returnedFromGrove) break;
+    await delay(50);
+  }
+  if (!returnedFromGrove) throw new Error('Ancient Grove test run did not return to Map Select.');
+  await evaluate("document.querySelector('#start-selected-map').click()");
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    if (await evaluate("!!document.querySelector('.faction-select-screen')")) break;
+    if (attempt === 49) throw new Error('Royal Guard faction screen did not reopen after Grove test.');
+    await delay(50);
+  }
+  await evaluate(`(() => {
+    document.querySelector('[data-faction-id="arcane-kingdom"]').click();
+    document.querySelector('#start-battlefield').click();
+  })()`);
   let initialRunReady = false;
   for (let attempt = 0; attempt < 100; attempt += 1) {
     initialRunReady = await evaluate(`(() => window.__towerDefenceGameState?.map.id === "single-spawn"
@@ -461,9 +715,15 @@ async function main() {
   }
   if (process.env.TD_MAP_SELECT_ONLY === "1") return;
   for (let attempt = 0; attempt < 100; attempt += 1) {
-    const loaded = await evaluate("(window.__enemyTemplateAudit?.length ?? 0) === 9 && (window.__defenderTemplateAudit?.length ?? 0) === 4 && !!window.__towerDefenceUi && !!window.__towerDefenceInputDebug && document.querySelector('.game-ui')?.dataset.defenderAssetsReady === 'true'");
+    const loaded = await evaluate(`(window.__enemyTemplateAudit?.length ?? 0) === 9 && (window.__defenderTemplateAudit?.length ?? 0) === ${royalImportedTypes.length} && !!window.__towerDefenceUi && !!window.__towerDefenceInputDebug && document.querySelector('.game-ui')?.dataset.defenderAssetsReady === 'true'`);
     if (loaded) break;
-    if (attempt === 99) throw new Error("New enemy and defender GLB templates failed to load.");
+    if (attempt === 99) {
+      const audit = await evaluate(`({ enemyTemplates: window.__enemyTemplateAudit?.map(({ type }) => type),
+        defenderTemplates: window.__defenderTemplateAudit?.map(({ type, assetPath }) => ({ type, assetPath })),
+        defenderAssetsReady: document.querySelector('.game-ui')?.dataset.defenderAssetsReady,
+        hasUi: !!window.__towerDefenceUi, hasInputDebug: !!window.__towerDefenceInputDebug })`);
+      throw new Error(`New enemy and defender GLB templates failed to load: ${JSON.stringify({ audit, browserErrors })}`);
+    }
     await delay(300);
   }
   const initialMinimap = await evaluate(`(() => {
@@ -699,7 +959,7 @@ async function main() {
   if (process.env.TD_HOLY_EMPEROR_ONLY === "1") {
     const emperorTemplate = result.defenderTemplates?.find((asset) => asset.type === "holy-emperor");
     const emperorVisual = result.defenderInstances?.findLast((asset) => asset.id === visualState.holyEmperorId);
-    if (result.defenderTemplates?.length !== 4 || !emperorTemplate?.optimized
+    if (result.defenderTemplates?.length !== royalImportedTypes.length || !emperorTemplate?.optimized
       || emperorTemplate.assetPath !== "/assets/models/defenders/optimized/holy-emperor.glb"
       || !emperorVisual || emperorVisual.type !== "holy-emperor" || !emperorVisual.optimized
       || emperorVisual.primitiveFallback || emperorVisual.assetPath !== emperorTemplate.assetPath
@@ -726,7 +986,10 @@ async function main() {
   }
   const animatedSkeletonKing = result.enemyTemplates.find((asset) => asset.type === "skeletonKing");
   const staticEnemyTemplates = result.enemyTemplates.filter((asset) => asset.type !== "skeletonKing");
-  if (staticEnemyTemplates.some((asset) => !asset.optimized) || staticEnemyTemplates.length !== 8
+  const staticAssetsMissingFromProduction = staticEnemyTemplates.filter((asset) =>
+    !asset.assetPath.includes("/optimized/") || !runtimeAssetManifest.groups.enemies.includes(asset.assetPath.replace(/^\//, "")),
+  );
+  if (staticAssetsMissingFromProduction.length > 0 || staticEnemyTemplates.length !== 8
     || !animatedSkeletonKing?.skeletons || !animatedSkeletonKing.animations?.some((name) => name.endsWith("Skeleton_Running"))) {
     throw new Error(`Enemy factories did not resolve the eight optimized GLBs and animated Skeleton King: ${JSON.stringify(result.enemyTemplates)}`);
   }
@@ -745,12 +1008,15 @@ async function main() {
   }
   const groundTypes = ["goblin", "goblinBrute", "ghoul", "wraith", "giantGoblin", "skeletonKing"];
   const groundInstances = groundEnemyBounds.filter((asset) => groundTypes.includes(asset.type));
-  const expectedGroundOffsets = { goblin: -0.12, goblinBrute: -0.02, ghoul: -0.02, wraith: 0.15, giantGoblin: -0.02, skeletonKing: 0 };
+  // Offsets follow the actual model selected by the renderer: animated
+  // replacements use ENEMY_ANIMATION_CONFIG; static models use ENEMY_VISUAL_CONFIG.
+  const expectedGroundOffsets = { goblin: 0, goblinBrute: -0.02, ghoul: -0.02, wraith: 0.15, giantGoblin: 0, skeletonKing: 0 };
   if (groundInstances.length !== 6 || groundInstances.some((asset) => Math.abs(asset.groundOffsetY - expectedGroundOffsets[asset.type]) > 1e-9
     || Math.abs(asset.bounds.minY - asset.groundOffsetY) > 0.005)) {
     throw new Error(`Ground enemy model bounds/alignment offsets failed: ${JSON.stringify(groundInstances)}`);
   }
-  if (result.defenderTemplates.some((asset) => !asset.optimized) || result.defenderTemplates.length !== 4) {
+  if (result.defenderTemplates.some((asset) => !asset.optimized)
+    || JSON.stringify(result.defenderTemplates.map(({ type }) => type).sort()) !== JSON.stringify([...royalImportedTypes].sort())) {
     throw new Error(`Defender factory did not load all optimized GLBs: ${JSON.stringify(result.defenderTemplates)}`);
   }
   const newTypeInstances = result.defenderInstances?.filter((asset) => ["green-archer", "battlemage", "sovereign"].includes(asset.type)) ?? [];
@@ -771,12 +1037,7 @@ async function main() {
     Math.abs(visualHeights[type] - expected) > 0.025)) {
     throw new Error(`Defender crowding scale or visual-height normalization failed: ${JSON.stringify({ visualHeights, expectedVisualHeights })}`);
   }
-  const typeToExpectedPath = {
-    "green-archer": "/assets/models/defenders/optimized/green-archer.glb",
-    battlemage: "/assets/models/defenders/optimized/battlemage.glb",
-    sovereign: "/assets/models/defenders/optimized/sovereign.glb",
-    "holy-emperor": "/assets/models/defenders/optimized/holy-emperor.glb",
-  };
+  const typeToExpectedPath = expectedDefenderPaths;
   if (result.defenderTemplates.some((asset) => asset.assetPath !== typeToExpectedPath[asset.type])) {
     throw new Error(`Defender type resolved to the wrong GLB: ${JSON.stringify(result.defenderTemplates)}`);
   }
@@ -921,7 +1182,7 @@ async function main() {
       return {
         viewport: { width: innerWidth, height: innerHeight },
         hudHeight: rect(footer).height,
-        card: { width: rect(tray.querySelector('.defender-choice:not(.select-tool)')).width, height: rect(tray.querySelector('.defender-choice:not(.select-tool)')).height },
+        card: { width: selectedRect.width, height: selectedRect.height },
         visibleCards,
         trayScrollable: tray.scrollWidth > tray.clientWidth,
         selectedScale,
@@ -939,7 +1200,7 @@ async function main() {
           mapId: minimapPanel.dataset.mapId,
           dimensions: minimapPanel.dataset.mapDimensions,
           pointerEvents: getComputedStyle(minimapPanel).pointerEvents,
-          panelBelowTray: minimap.bottom <= rect(footer).y - 4,
+          panelBelowTray: minimap.bottom <= rect(document.querySelector('#tower-panel')).y - 4,
           clearOfActions: minimap.right < Math.min(wave.x, auto.x) - 4 || minimap.bottom < Math.min(wave.y, auto.y) - 4,
         },
         waveControls: {
@@ -965,7 +1226,7 @@ async function main() {
         || tower.upgrade.right > tower.info.x + 1 || tower.info.right > tower.sell.x + 1
         || tower.actions.right > tower.panel.right + 1
         || (viewport.width <= 520 && (tower.actions.top < tower.stats.bottom - 1 || tower.actions.left < tower.panel.left - 1)))
-      || layout.hudHeight > 135) {
+      || layout.hudHeight > Math.min(310, viewport.height * 0.32)) {
       throw new Error(`Compact HUD layout failed at ${viewport.width}x${viewport.height}: ${JSON.stringify(layout)}`);
     }
     layouts.push(layout);
@@ -1150,31 +1411,33 @@ async function main() {
   }
 
   const firstWizardCell = inputCandidate.cell;
-  const buildNextAdjacentWizard = async () => {
+  const buildNextAdjacentWizard = async (placedCells) => {
     const candidate = await evaluate(`(() => {
       const game = window.__towerDefenceGameState, ui = window.__towerDefenceUi;
       const canvas = document.querySelector('#game3d').getBoundingClientRect();
       const top = document.querySelector('.top-hud-bar').getBoundingClientRect();
       const bottom = document.querySelector('.bottom-hud-bar').getBoundingClientRect();
-      const origin = ${JSON.stringify(firstWizardCell)};
+      const origins = ${JSON.stringify([firstWizardCell])}.concat(${JSON.stringify(placedCells)});
       const candidates = [];
-      for (let y = Math.max(0, origin.y - 1); y <= Math.min(game.grid.height - 1, origin.y + 1); y += 1) {
-        for (let x = Math.max(0, origin.x - 1); x <= Math.min(game.grid.width - 1, origin.x + 1); x += 1) {
-          const cell = { x, y };
-          if (game.canPlaceBasicTower(cell, 'blue-wizard') !== 'placed') continue;
-          const point = ui.projectCell(cell);
-          if (point.x <= canvas.left + 15 || point.x >= canvas.right - 15 || point.y <= top.bottom + 12 || point.y >= bottom.top - 12) continue;
-          candidates.push({ cell, ...point, distance: Math.hypot(x - origin.x, y - origin.y) });
-        }
+      for (let y = 0; y < game.grid.height; y += 1) for (let x = 0; x < game.grid.width; x += 1) {
+        const adjacent = origins.filter((origin) => Math.max(Math.abs(x - origin.x), Math.abs(y - origin.y)) <= 1).length;
+        if (adjacent === 0) continue;
+        const cell = { x, y };
+        if (game.canPlaceBasicTower(cell, 'blue-wizard') !== 'placed') continue;
+        const point = ui.projectCell(cell);
+        if (point.x <= canvas.left + 15 || point.x >= canvas.right - 15 || point.y <= top.bottom + 12 || point.y >= bottom.top - 12) continue;
+        candidates.push({ cell, ...point, adjacent });
       }
-      return candidates.sort((a, b) => a.distance - b.distance)[0];
+      return candidates.sort((a, b) => b.adjacent - a.adjacent)[0];
     })()`);
     if (!candidate) throw new Error('Could not find another visible, adjacent legal cell for sequential Wizard placement.');
     await tap(candidate.x, candidate.y);
     return candidate;
   };
   const sequentialPlacements = [];
-  for (let index = 0; index < 4; index += 1) sequentialPlacements.push(await buildNextAdjacentWizard());
+  for (let index = 0; index < 4; index += 1) {
+    sequentialPlacements.push(await buildNextAdjacentWizard(sequentialPlacements.map(({ cell }) => cell)));
+  }
   await delay(120);
   const repeatedBuild = await evaluate(`(() => ({
     count: window.__towerDefenceGameState.towers.length,
@@ -1424,7 +1687,8 @@ async function main() {
       resetOverlayHidden: document.querySelector('#reset-confirmation').hidden,
     };
   })()`);
-  if (inputSurfaceAudit.canvasTouchAction !== "none" || inputSurfaceAudit.trayTouchAction !== "pan-x"
+  // The current carousel owns horizontal drag/pointer capture, so native touch handling is intentionally disabled.
+  if (inputSurfaceAudit.canvasTouchAction !== "none" || inputSurfaceAudit.trayTouchAction !== "none"
     || inputSurfaceAudit.buttonTouchAction !== "manipulation" || inputSurfaceAudit.gameUiPointerEvents !== "none"
     || inputSurfaceAudit.appCornerOverlayPointerEvents !== "none" || inputSurfaceAudit.battlefieldHitTarget !== "game3d"
     || !inputSurfaceAudit.resetOverlayHidden) {

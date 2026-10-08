@@ -2,6 +2,8 @@ import "@babylonjs/loaders/glTF";
 import {
   AbstractMesh,
   AssetContainer,
+  Mesh,
+  Quaternion,
   Scene,
   SceneLoader,
   ShadowGenerator,
@@ -13,11 +15,25 @@ import { resolveAssetUrl } from "../../core/AssetUrl";
 export type EnvironmentAssetKey =
   | "castle-wall" | "castle-corner" | "castle-gate" | "castle-tower-base" | "castle-tower-roof"
   | "castle-flag" | "castle-tree" | "castle-tree-large" | "castle-rock" | "castle-rock-large"
-  | "castle-ground-hills" | "castle-fence" | "castle-ballista" | "medieval-wagon" | "medieval-crate";
+  | "castle-ground-hills" | "castle-fence" | "castle-ballista" | "medieval-wagon" | "medieval-crate"
+  | "forest-tree" | "forest-tree-high" | "forest-rocks-low" | "forest-rocks-high" | "forest-rocks-ramp"
+  | "forest-stones" | "forest-plant" | "forest-patch-grass" | "forest-patch-dirt";
 
 interface AssetSource {
   rootUrl: string;
   fileName: string;
+}
+
+interface EnvironmentMeshSource {
+  mesh: Mesh;
+  position: Vector3;
+  rotation: Quaternion;
+  scaling: Vector3;
+}
+
+interface EnvironmentInstanceTemplate {
+  root: TransformNode;
+  meshes: EnvironmentMeshSource[];
 }
 
 export interface EnvironmentSizeLimits {
@@ -42,6 +58,15 @@ const ASSETS: Record<EnvironmentAssetKey, AssetSource> = {
   "castle-ballista": { rootUrl: "/assets/environment/kenney-castle/", fileName: "siege-ballista.glb" },
   "medieval-wagon": { rootUrl: "/assets/environment/medieval/", fileName: "Prop_Wagon.gltf" },
   "medieval-crate": { rootUrl: "/assets/environment/medieval/", fileName: "Prop_Crate.gltf" },
+  "forest-tree": { rootUrl: "/assets/environment/forest/", fileName: "tree.glb" },
+  "forest-tree-high": { rootUrl: "/assets/environment/forest/", fileName: "tree-high.glb" },
+  "forest-rocks-low": { rootUrl: "/assets/environment/forest/", fileName: "rocks-low.glb" },
+  "forest-rocks-high": { rootUrl: "/assets/environment/forest/", fileName: "rocks-high.glb" },
+  "forest-rocks-ramp": { rootUrl: "/assets/environment/forest/", fileName: "rocks-ramp.glb" },
+  "forest-stones": { rootUrl: "/assets/environment/forest/", fileName: "stones.glb" },
+  "forest-plant": { rootUrl: "/assets/environment/forest/", fileName: "plant.glb" },
+  "forest-patch-grass": { rootUrl: "/assets/environment/forest/", fileName: "patch-grass.glb" },
+  "forest-patch-dirt": { rootUrl: "/assets/environment/forest/", fileName: "patch-dirt.glb" },
 };
 
 // Only the environment pieces already verified in the original arena cast shadows.
@@ -59,6 +84,7 @@ const SHADOW_SAFE_ASSETS = new Set<EnvironmentAssetKey>([
 export class EnvironmentAssetLibrary {
   private readonly templates = new Map<EnvironmentAssetKey, AssetContainer>();
   private readonly pendingLoads = new Map<EnvironmentAssetKey, Promise<AssetContainer>>();
+  private readonly instanceTemplates = new Map<EnvironmentAssetKey, EnvironmentInstanceTemplate>();
   private readonly debugEnvironment = new URLSearchParams(window.location.search).has("debugEnvironment");
 
   constructor(private readonly scene: Scene, private readonly shadows: ShadowGenerator) {}
@@ -94,13 +120,21 @@ export class EnvironmentAssetLibrary {
       return undefined;
     }
 
-    const entries = template.instantiateModelsToScene((sourceName) => `${name}-${sourceName}`, false);
     const root = new TransformNode(name, this.scene);
-    entries.rootNodes.forEach((node) => { node.parent = root; });
+    const instanceTemplate = this.instanceTemplate(key, template);
+    for (const [index, source] of instanceTemplate.meshes.entries()) {
+      const mesh = source.mesh.createInstance(`${name}-instance-${index}`);
+      mesh.parent = root;
+      mesh.position.copyFrom(source.position);
+      mesh.rotationQuaternion = source.rotation.clone();
+      mesh.scaling.copyFrom(source.scaling);
+      mesh.isVisible = true;
+      mesh.visibility = 1;
+    }
     root.position.copyFrom(position);
     root.rotation.y = rotationY;
     root.scaling.setAll(scale);
-    this.placeOnGround(root);
+    this.placeOnGround(root, position.y);
     const dimensions = this.worldDimensions(root);
     const debugInfo = {
       asset: ASSETS[key].fileName,
@@ -133,6 +167,8 @@ export class EnvironmentAssetLibrary {
   }
 
   dispose(): void {
+    this.instanceTemplates.forEach(({ root }) => root.dispose(false, false));
+    this.instanceTemplates.clear();
     this.templates.forEach((template) => template.dispose());
     this.templates.clear();
     this.pendingLoads.clear();
@@ -154,14 +190,56 @@ export class EnvironmentAssetLibrary {
     await pending;
   }
 
-  private placeOnGround(root: TransformNode): void {
+  /**
+   * Builds one invisible render source per mesh in an environment GLB. Every
+   * placed prop then becomes a Babylon hardware instance sharing geometry and
+   * material with that source instead of another imported mesh clone.
+   */
+  private instanceTemplate(key: EnvironmentAssetKey, template: AssetContainer): EnvironmentInstanceTemplate {
+    const cached = this.instanceTemplates.get(key);
+    if (cached) return cached;
+
+    const entries = template.instantiateModelsToScene((sourceName) => `environment-source-${key}-${sourceName}`, false);
+    const root = new TransformNode(`environment-source-${key}`, this.scene);
+    entries.rootNodes.forEach((node) => { node.parent = root; });
+    root.computeWorldMatrix(true);
+
+    const meshes = root.getChildMeshes().filter((mesh): mesh is Mesh => mesh instanceof Mesh && mesh.getTotalVertices() > 0)
+      .map((mesh) => {
+        mesh.computeWorldMatrix(true);
+        const scaling = new Vector3();
+        const rotation = new Quaternion();
+        const position = new Vector3();
+        mesh.getWorldMatrix().decompose(scaling, rotation, position);
+        mesh.isVisible = false;
+        mesh.isPickable = false;
+        mesh.receiveShadows = false;
+        return { mesh, position, rotation, scaling };
+      });
+    entries.animationGroups.forEach((group) => { group.stop(); group.dispose(); });
+
+    const result = { root, meshes };
+    this.instanceTemplates.set(key, result);
+    return result;
+  }
+
+  renderingStats(): { templateAssets: number; templateMeshes: number; instances: number } {
+    const sources = [...this.instanceTemplates.values()].flatMap((template) => template.meshes.map(({ mesh }) => mesh));
+    return {
+      templateAssets: this.instanceTemplates.size,
+      templateMeshes: sources.length,
+      instances: sources.reduce((sum, source) => sum + source.instances.length, 0),
+    };
+  }
+
+  private placeOnGround(root: TransformNode, targetY: number): void {
     const meshes = root.getChildMeshes();
     let minY = Number.POSITIVE_INFINITY;
     for (const mesh of meshes) {
       mesh.computeWorldMatrix(true);
       minY = Math.min(minY, this.minimumY(mesh));
     }
-    if (Number.isFinite(minY)) root.position.y -= minY;
+    if (Number.isFinite(minY)) root.position.y += targetY - minY;
   }
 
   private minimumY(mesh: AbstractMesh): number {

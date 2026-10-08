@@ -400,7 +400,7 @@ for (const eventName of ["pointerdown", "pointerup", "pointermove", "pointercanc
 
 const gameState = new GameState(map, faction.id);
 const { BabylonGameRenderer } = BabylonGameRendererModule;
-const renderer = new BabylonGameRenderer(canvas, map);
+const renderer = new BabylonGameRenderer(canvas, map, faction.id);
 const navigation = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined;
 console.info("APPLICATION BOOT", { navigationType: navigation?.type ?? "unknown" });
 const debugParams = new URLSearchParams(window.location.search);

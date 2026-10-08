@@ -84,10 +84,18 @@ The current implementation supersedes the earlier single-enemy/scaling notes abo
 
 ## Ancient Grove gameplay foundation
 
-- Ancient Grove now has its own Treant (10g), Thorn Owl (15g), Druid (55g), and Seer (75g) roster with configured level costs/stats and two L3 branches each.
+- Ancient Grove has its own Treant (7g), Thorn Owl (15g), Druid (55g), and Seer (75g) roster with configured level costs/stats and two L3 branches each.
 - Treant influence builds ground-only Thorn Rot at one stack per second; Sun Seer applies a separate four-second-grace/one-stack-per-second-decay Sunbrand. Both statuses and damage are resolved in the framework-independent game core.
-- The faction's original Living Maze slow remains unchanged. Ancient Grove's temporary visuals are intentionally simple Babylon primitives until dedicated art is added.
+- The faction's original Living Maze slow remains unchanged. Its source models are `3D/Treant.glb`, `3D/Thorn Owl.glb`, `3D/Druid.glb`, and `3D/Seer.glb`; optimized runtime copies are under `public/assets/models/defenders/optimized/` and share the existing Babylon defender template cache. L3 branches currently reuse their base unit's model because no separate branch GLBs exist in `3D/` (only `Bear.png`). Regenerate the four runtime copies with `powershell -ExecutionPolicy Bypass -File scripts/optimize-content-models.ps1 -Only 'Treant','Thorn Owl','Druid','Seer'`.
 - Focused simulation coverage is included in `npm run test:gameplay-depth`.
+
+## Ancient Grove Forest environment
+
+- Ancient Grove uses a presentation-only Forest variant of all three existing maps; Royal Guard retains the Castle environment. `MapConfig.ts`, blocked/buildable cells, routes, economy, and combat are shared and unchanged.
+- The clearing floor uses a baked grass/earth material with the existing subtle placement grid. Dense deterministic tree layers replace Castle walls, while spawn/goal gaps remain open and are framed with dirt patches and stones.
+- Map-edge blocked masses continue the woodland inside the normal camera view. Natural rock ridges and low-poly Forest boulders follow existing blocked-cell regions without adding collision.
+- The selected Kenney source assets are `tree`, `tree-high`, `rocks-low`, `rocks-high`, `rocks-ramp`, `stones`, `plant`, `patch-grass`, and `patch-dirt`. Packaged copies live in `public/assets/environment/forest/`; runtime code never references the source-only `Background/Forest/` path.
+- Each GLB template loads once. Repeated static scene copies share source geometry/materials, receive no per-frame updates, freeze their world matrices, and only a sparse subset of the inner tree border is eligible for shadows. `?terrainArtDebug=1` exposes per-map Forest composition counts.
 - Enemy HP bars are one dark-backed red health bar per enemy. Combat and damage/kill telemetry stay in framework-independent `GameState`/tower code.
 - The four source GLBs are `3D/Undead Dragon.glb`, `3D/Skeleton King.glb`, `3D/Green Archer.glb`, and `3D/Battlemage.glb`. Optimized-first runtime models and unchanged source fallbacks are under `public/assets/models/{enemies,defenders}/`.
 - Regenerate only these assets with `powershell -ExecutionPolicy Bypass -File scripts/optimize-content-models.ps1`. `npm run test:enemy-waves` covers core wave/combat behavior; `npm run test:content-assets` checks the browser asset/UI integration (requires the Vite dev server).

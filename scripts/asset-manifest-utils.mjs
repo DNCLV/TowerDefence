@@ -104,9 +104,6 @@ export function validateSourceManifest({ manifest, roots }, sources) {
     }
   }
 
-  if (!production.has("assets/models/quaternius/runtime/female_ranger.gltf")) {
-    problems.push("Optimized Quaternius Ranger fallback is missing from the production manifest.");
-  }
   const uiSource = sources.find((entry) => entry.relative === "src/main.ts")?.text;
   if (!uiSource) problems.push("Could not inspect main.ts for UI image paths");
   else {

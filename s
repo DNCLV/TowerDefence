@@ -1,0 +1,25 @@
+warning: in the working copy of 'scripts/asset-manifest-utils.mjs', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'scripts/optimize-content-models.ps1', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'scripts/report-production-size.mjs', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'scripts/test-performance-build.mjs', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/game/rendering3d/DefenderVisualConfig.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/game/rendering3d/QuaterniusDefenderFactory.ts', LF will be replaced by CRLF the next time Git touches it
+ README.md                                          |  12 [32m+[m[31m-[m
+ .../environment/medieval/T_WoodTrim_BaseColor.png  | Bin [31m2082310[m -> [32m962028[m bytes
+ .../environment/medieval/T_WoodTrim_Normal.png     | Bin [31m3596501[m -> [32m1624152[m bytes
+ .../environment/medieval/T_WoodTrim_Roughness.png  | Bin [31m1697111[m -> [32m510421[m bytes
+ scripts/asset-manifest-utils.mjs                   |   3 [31m-[m
+ scripts/optimize-content-models.ps1                |  22 [32m+[m[31m-[m
+ scripts/report-production-size.mjs                 | 116 [32m++++++[m[31m--[m
+ scripts/runtime-asset-manifest.json                |  27 [32m+[m[31m-[m
+ scripts/test-content-assets.cjs                    | 322 [32m+++++++++++++++++++[m[31m--[m
+ scripts/test-performance-build.mjs                 |  15 [32m+[m[31m-[m
+ src/game/rendering3d/BabylonGameRenderer.ts        | 145 [32m+++++++[m[31m---[m
+ src/game/rendering3d/DefenderVisualConfig.ts       |  37 [32m++[m[31m-[m
+ src/game/rendering3d/EnvironmentAssetLibrary.ts    |  90 [32m+++++[m[31m-[m
+ src/game/rendering3d/EnvironmentThemes.ts          |  21 [32m+[m[31m-[m
+ src/game/rendering3d/QuaterniusDefenderFactory.ts  |  71 [32m++[m[31m---[m
+ src/game/rendering3d/TerrainCliffRenderer.ts       |  50 [32m+++[m[31m-[m
+ src/game/rendering3d/WinterArenaArt.ts             | 288 [32m++++++++++++++++[m[31m--[m
+ src/main.ts                                        |   2 [32m+[m[31m-[m
+ 18 files changed, 1001 insertions(+), 220 deletions(-)

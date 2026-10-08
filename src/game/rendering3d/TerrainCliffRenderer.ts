@@ -40,16 +40,17 @@ export class TerrainCliffRenderer {
     private readonly groundNormal: Texture,
     private readonly mapWidth: number,
     private readonly mapDepth: number,
+    private readonly style: "castle" | "forest" = "castle",
   ) {
-    this.rockAlbedo = this.createCastleStoneTexture();
+    this.rockAlbedo = style === "forest" ? this.createForestRockTexture() : this.createCastleStoneTexture();
     this.rockAlbedo.wrapU = this.rockAlbedo.wrapV = Texture.WRAP_ADDRESSMODE;
 
     const plateauStone = this.createTerrainTopTexture();
-    plateauStone.name = "kenney-castle-plateau-stone";
+    plateauStone.name = style === "forest" ? "forest-mossy-rock-top" : "kenney-castle-plateau-stone";
     plateauStone.uScale = this.mapWidth / 4;
     plateauStone.vScale = this.mapDepth / 4;
     plateauStone.wrapU = plateauStone.wrapV = Texture.WRAP_ADDRESSMODE;
-    this.topMaterial = new PBRMaterial("royal-cliff-stone-top", scene);
+    this.topMaterial = new PBRMaterial(style === "forest" ? "forest-rock-ridge-top" : "royal-cliff-stone-top", scene);
     // Bias reflected light slightly toward the muted highland greens below.
     this.topMaterial.albedoColor = new Color3(1.08, 1.12, 1.02);
     this.topMaterial.albedoTexture = plateauStone;
@@ -57,20 +58,20 @@ export class TerrainCliffRenderer {
     this.topMaterial.bumpTexture.level = 0.06;
     this.topMaterial.emissiveColor = new Color3(0.045, 0.065, 0.025);
     this.topMaterial.roughness = 0.97;
-    this.lipMaterial = new PBRMaterial("royal-cliff-earth-edge", scene);
+    this.lipMaterial = new PBRMaterial(style === "forest" ? "forest-rock-earth-edge" : "royal-cliff-earth-edge", scene);
     // A pale cut-stone coping makes the raised lawn read as a landscaped rampart.
-    this.lipMaterial.albedoColor = new Color3(0.76, 0.70, 0.58);
+    this.lipMaterial.albedoColor = style === "forest" ? new Color3(0.30, 0.29, 0.20) : new Color3(0.76, 0.70, 0.58);
     this.lipMaterial.roughness = 0.97;
     this.lipMaterial.metallic = 0;
-    this.faceMaterial = new PBRMaterial("royal-cliff-natural-rock-face", scene);
-    this.faceMaterial.albedoColor = VISUAL_CONFIG.royalCliffTint;
+    this.faceMaterial = new PBRMaterial(style === "forest" ? "forest-natural-boulder-face" : "royal-cliff-natural-rock-face", scene);
+    this.faceMaterial.albedoColor = style === "forest" ? new Color3(0.72, 0.76, 0.66) : VISUAL_CONFIG.royalCliffTint;
     this.faceMaterial.albedoTexture = this.rockAlbedo;
     this.faceMaterial.metallic = 0;
     this.faceMaterial.roughness = 0.98;
     this.faceMaterial.backFaceCulling = false;
 
-    this.rubbleMaterial = new PBRMaterial("royal-cliff-top-rubble-material", scene);
-    this.rubbleMaterial.albedoColor = new Color3(0.55, 0.48, 0.39);
+    this.rubbleMaterial = new PBRMaterial(style === "forest" ? "forest-ridge-stones-material" : "royal-cliff-top-rubble-material", scene);
+    this.rubbleMaterial.albedoColor = style === "forest" ? new Color3(0.39, 0.45, 0.34) : new Color3(0.55, 0.48, 0.39);
     this.rubbleMaterial.roughness = 0.98;
     this.rubbleMaterial.metallic = 0;
   }
@@ -116,7 +117,7 @@ export class TerrainCliffRenderer {
     const triangles = triangulate(outline);
     if (triangles.length < 3) return 0;
 
-    const top = new Mesh(`${name}-castle-stone-top`, this.scene);
+    const top = new Mesh(`${name}-${this.style === "forest" ? "mossy-rock-top" : "castle-stone-top"}`, this.scene);
     const topPositions: number[] = [];
     const topUvs: number[] = [];
     for (const point of outline) {
@@ -289,6 +290,35 @@ export class TerrainCliffRenderer {
         ctx.lineTo(x + width - 4, y + 3);
         ctx.stroke();
       }
+    }
+    texture.update(false);
+    return texture;
+  }
+
+  private createForestRockTexture(): DynamicTexture {
+    const texture = new DynamicTexture("forest-natural-rock", { width: 256, height: 256 }, this.scene, true);
+    const ctx = texture.getContext();
+    ctx.fillStyle = "#696f63";
+    ctx.fillRect(0, 0, 256, 256);
+    let seed = 0x71f03;
+    const random = () => {
+      seed = (seed * 1664525 + 1013904223) >>> 0;
+      return seed / 0x100000000;
+    };
+    for (let index = 0; index < 54; index += 1) {
+      const x = random() * 256, y = random() * 256;
+      const radius = 8 + random() * 34;
+      const gradient = ctx.createRadialGradient(x, y, 1, x, y, radius);
+      gradient.addColorStop(0, index % 3 === 0 ? "rgba(91,126,66,0.30)" : "rgba(190,190,169,0.18)");
+      gradient.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.fillStyle = gradient;
+      ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+    }
+    for (let index = 0; index < 110; index += 1) {
+      const x = random() * 256, y = random() * 256;
+      ctx.strokeStyle = index % 2 ? "rgba(48,52,45,0.16)" : "rgba(209,213,188,0.10)";
+      ctx.lineWidth = 0.6 + random() * 1.2;
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + random() * 18 - 9, y + random() * 10 - 5); ctx.stroke();
     }
     texture.update(false);
     return texture;

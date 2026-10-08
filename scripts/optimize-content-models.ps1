@@ -2,7 +2,7 @@ param([string[]]$Only = @())
 $ErrorActionPreference = 'Stop'
 
 # Same glTF Transform simplify/resize pipeline as optimize-enemy-models.ps1.
-# Source GLBs stay untouched; runtime originals are retained as per-model fallbacks.
+# Source GLBs stay untouched; runtime originals are retained where a Runtime path is set.
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $toolPackage = '@gltf-transform/cli@4.5.1'
 $cachedCli = Get-ChildItem (Join-Path $env:LOCALAPPDATA 'npm-cache\_npx\*\node_modules\.bin\gltf-transform.cmd') -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -16,7 +16,11 @@ $models = @(
   @{ Source = 'Soveign'; Runtime = 'public\assets\models\defenders\sovereign.glb'; Optimized = 'public\assets\models\defenders\optimized\sovereign.glb'; Ratio = '0.075'; TextureLimit = 1024 },
   @{ Source = 'Blue Wizard'; Runtime = 'public\assets\models\defenders\blue-wizard.glb'; Optimized = 'public\assets\models\defenders\optimized\blue-wizard.glb'; Ratio = '0.14'; TextureLimit = 1024 },
   @{ Source = 'Holy Knight'; Runtime = 'public\assets\models\defenders\holy-knight.glb'; Optimized = 'public\assets\models\defenders\optimized\holy-knight.glb'; Ratio = '0.14'; TextureLimit = 1024 },
-  @{ Source = 'Holy Emperor'; Runtime = 'public\assets\models\defenders\holy-emperor.glb'; Optimized = 'public\assets\models\defenders\optimized\holy-emperor.glb'; Ratio = '0.10'; TextureLimit = 1024 }
+  @{ Source = 'Holy Emperor'; Runtime = 'public\assets\models\defenders\holy-emperor.glb'; Optimized = 'public\assets\models\defenders\optimized\holy-emperor.glb'; Ratio = '0.10'; TextureLimit = 1024 },
+  @{ Source = 'Treant'; Optimized = 'public\assets\models\defenders\optimized\treant.glb'; Ratio = '0.075'; TextureLimit = 1024 },
+  @{ Source = 'Thorn Owl'; Optimized = 'public\assets\models\defenders\optimized\thorn-owl.glb'; Ratio = '0.30'; TextureLimit = 1024 },
+  @{ Source = 'Druid'; Optimized = 'public\assets\models\defenders\optimized\druid.glb'; Ratio = '0.07'; TextureLimit = 1024 },
+  @{ Source = 'Seer'; Optimized = 'public\assets\models\defenders\optimized\seer.glb'; Ratio = '0.085'; TextureLimit = 1024 }
 )
 
 New-Item -ItemType Directory -Force -Path $temporaryDirectory | Out-Null
@@ -24,13 +28,16 @@ try {
   foreach ($model in $models) {
     if ($Only.Count -gt 0 -and $model.Source -notin $Only) { continue }
     $sourcePath = Join-Path $projectRoot "3D\$($model.Source).glb"
-    $runtimePath = Join-Path $projectRoot $model.Runtime
+    $runtimePath = if ($model.Runtime) { Join-Path $projectRoot $model.Runtime } else { $null }
     $optimizedPath = Join-Path $projectRoot $model.Optimized
     $simplifiedPath = Join-Path $temporaryDirectory "$($model.Source -replace ' ', '-').glb"
-    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $runtimePath), (Split-Path -Parent $optimizedPath) | Out-Null
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $optimizedPath) | Out-Null
 
-    # Preserve an exact unoptimized runtime copy for the optimized-first fallback.
-    Copy-Item -LiteralPath $sourcePath -Destination $runtimePath -Force
+    if ($runtimePath) {
+      New-Item -ItemType Directory -Force -Path (Split-Path -Parent $runtimePath) | Out-Null
+      # Preserve an exact unoptimized runtime copy for models with an optimized-first fallback.
+      Copy-Item -LiteralPath $sourcePath -Destination $runtimePath -Force
+    }
     if ($cachedCli) {
       & $cachedCli.FullName simplify $sourcePath $simplifiedPath --ratio $model.Ratio --error 0.02
     } else {
@@ -48,7 +55,8 @@ try {
     } else {
       Move-Item -LiteralPath $simplifiedPath -Destination $optimizedPath -Force
     }
-    Write-Output "Optimized $($model.Source): $($model.Runtime) + $($model.Optimized)"
+    $runtimeOutput = if ($runtimePath) { "$($model.Runtime) + " } else { '' }
+    Write-Output "Optimized $($model.Source): $runtimeOutput$($model.Optimized)"
   }
 
   # This skinned Ranger is only an emergency Wizard/Knight visual fallback. Keep

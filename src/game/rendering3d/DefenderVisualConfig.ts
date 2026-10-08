@@ -17,6 +17,8 @@ export interface DefenderVisualDefinition {
   targetVisualHeight: number;
   targetFootprint?: { width: number; depth: number };
   rotationY: number;
+  /** Local height above the grounded tile; used by hovering defenders only. */
+  hoverHeight?: number;
   primitiveFallback?: "wizard" | "knight" | "green-archer" | "battlemage" | "sovereign";
 }
 
@@ -86,14 +88,29 @@ export const DEFENDER_VISUAL_CONFIG: Record<DefenderType, DefenderVisualDefiniti
     visualScaleMultiplier: 0.9,
     rotationY: 0,
   },
-  // Ancient Grove currently uses intentionally simple Babylon primitives; these
-  // neutral bounds keep its visual-only scale tuning separate from cell logic.
-  treant: { displayName: "Treant", debugLabel: "TREANT", assetPath: "", modelScale: 1, visualScaleMultiplier: 0.9,
-    sourceBounds: { width: 0.8, height: 1.3, depth: 0.8 }, targetVisualHeight: 1.3, rotationY: 0 },
-  "thorn-owl": { displayName: "Thorn Owl", debugLabel: "OWL", assetPath: "", modelScale: 1, visualScaleMultiplier: 0.9,
-    sourceBounds: { width: 0.9, height: 0.7, depth: 0.7 }, targetVisualHeight: 0.7, rotationY: 0 },
-  druid: { displayName: "Druid", debugLabel: "DRUID", assetPath: "", modelScale: 1, visualScaleMultiplier: 0.9,
-    sourceBounds: { width: 0.7, height: 1.2, depth: 0.7 }, targetVisualHeight: 1.2, rotationY: 0 },
-  seer: { displayName: "Seer", debugLabel: "SEER", assetPath: "", modelScale: 1, visualScaleMultiplier: 0.9,
-    sourceBounds: { width: 0.7, height: 1.1, depth: 0.7 }, targetVisualHeight: 1.1, rotationY: 0 },
+  // Measured from the source GLBs in 3D/. Runtime uses only the optimized copies.
+  treant: {
+    displayName: "Treant", debugLabel: "TREANT",
+    assetPath: "/assets/models/defenders/optimized/treant.glb",
+    ...normalizedVisual({ width: 1.5544, height: 1.8933, depth: 0.7753 }, 1.15, { width: 0.7, depth: 0.72 }),
+    visualScaleMultiplier: 0.9, rotationY: 0,
+  },
+  "thorn-owl": {
+    displayName: "Thorn Owl", debugLabel: "OWL",
+    assetPath: "/assets/models/defenders/optimized/thorn-owl.glb",
+    ...normalizedVisual({ width: 1.8970, height: 0.8131, depth: 0.7977 }, 0.36),
+    visualScaleMultiplier: 0.9, rotationY: 0, hoverHeight: 0.33,
+  },
+  druid: {
+    displayName: "Druid", debugLabel: "DRUID",
+    assetPath: "/assets/models/defenders/optimized/druid.glb",
+    ...normalizedVisual({ width: 1.4543, height: 1.8930, depth: 1.0878 }, 1.2, { width: 0.7, depth: 0.7 }),
+    visualScaleMultiplier: 0.9, rotationY: 0,
+  },
+  seer: {
+    displayName: "Seer", debugLabel: "SEER",
+    assetPath: "/assets/models/defenders/optimized/seer.glb",
+    ...normalizedVisual({ width: 1.3139, height: 1.8974, depth: 1.2935 }, 1.2, { width: 0.68, depth: 0.7 }),
+    visualScaleMultiplier: 0.9, rotationY: 0,
+  },
 };

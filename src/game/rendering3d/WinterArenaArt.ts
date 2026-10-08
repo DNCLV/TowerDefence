@@ -2,6 +2,15 @@ import { Color3, DynamicTexture, MeshBuilder, PBRMaterial, PointLight, Scene, Sh
 import { EnvironmentAssetKey, EnvironmentAssetLibrary } from "./EnvironmentAssetLibrary";
 import { EnvironmentTheme } from "./EnvironmentThemes";
 import { VISUAL_CONFIG } from "./VisualConfig";
+import type { TerrainRegion } from "../config/MapConfig";
+
+export interface EnvironmentCompositionStats {
+  theme: EnvironmentTheme["style"];
+  trees: number;
+  rocks: number;
+  vegetation: number;
+  importedModels: number;
+}
 
 /** Static presentation only: shared materials, bounded props, no gameplay cells. */
 export class WinterArenaArt {
@@ -10,11 +19,15 @@ export class WinterArenaArt {
   private readonly safeStone: StandardMaterial;
   private readonly contactSoilMaterial: StandardMaterial;
   private readonly outskirtsTextures = new Map<string, DynamicTexture>();
-  private playableTexture?: DynamicTexture;
-  private playableNormal?: Texture;
-  private playableRoughnessTexture?: DynamicTexture;
+  private readonly playableTextures = new Map<EnvironmentTheme["style"], DynamicTexture>();
+  private readonly playableNormals = new Map<EnvironmentTheme["style"], Texture>();
+  private readonly playableRoughnessTextures = new Map<EnvironmentTheme["style"], DynamicTexture>();
   private readonly roadMaterial: PBRMaterial;
   private protectedGateZones: Array<{ x: number; z: number; side: "north" | "south" | "east" | "west" }> = [];
+  private forestBorderTreeCount = 0;
+  private forestBorderRockCount = 0;
+  private forestBorderVegetationCount = 0;
+  private forestClusterStats = { trees: 0, rocks: 0, vegetation: 0 };
   constructor(private readonly scene: Scene, private readonly assets: EnvironmentAssetLibrary,
     private readonly shadows: ShadowGenerator, private readonly width: number, private readonly depth: number) {
     this.stone = this.material("royal-guard-weathered-stone", new Color3(0.54, 0.43, 0.34));
@@ -23,7 +36,7 @@ export class WinterArenaArt {
     this.safeStone = this.material("royal-guard-cut-stone", new Color3(0.68, 0.56, 0.43));
     this.roadMaterial = new PBRMaterial("royal-gate-cobblestone-road", scene);
     this.roadMaterial.albedoTexture = this.createPavingTexture("castle-gate-paving", 256, 256, 5, 5, 0x5147);
-    this.roadMaterial.bumpTexture = this.playableGroundNormal();
+    this.roadMaterial.bumpTexture = this.playableGroundNormal({ style: "castle" });
     this.roadMaterial.roughness = 0.94;
     this.roadMaterial.metallic = 0;
     this.roadMaterial.albedoColor = new Color3(0.92, 0.88, 0.78);
@@ -31,6 +44,11 @@ export class WinterArenaArt {
 
   /** Only preload assets that this Royal Guard arena can actually instantiate. */
   requiredAssetKeys(theme: EnvironmentTheme): EnvironmentAssetKey[] {
+    if (theme.style === "forest") {
+      return [...new Set<EnvironmentAssetKey>([
+        ...theme.treeAssets, ...theme.rockAssets, ...theme.propAssets, "forest-rocks-ramp",
+      ])];
+    }
     return [...new Set<EnvironmentAssetKey>([
       "castle-wall", "castle-corner", "castle-gate", "castle-tower-base", "castle-tower-roof",
       "castle-flag", "castle-fence", "castle-ballista", "castle-rock", "castle-ground-hills",
@@ -42,31 +60,45 @@ export class WinterArenaArt {
   }
 
   /** Baked, map-sized courtyard paving; every logical tile remains the same size. */
-  playableGroundTexture(): DynamicTexture {
-    if (this.playableTexture) return this.playableTexture;
+  playableGroundTexture(theme: EnvironmentTheme): DynamicTexture {
+    const cached = this.playableTextures.get(theme.style);
+    if (cached) return cached;
     const longest = Math.max(this.width, this.depth);
     const textureWidth = Math.max(512, Math.round((1024 * this.width / longest) / 64) * 64);
     const textureHeight = Math.max(512, Math.round((1024 * this.depth / longest) / 64) * 64);
-    this.playableTexture = this.createPavingTexture("kenney-castle-courtyard-albedo", textureWidth, textureHeight,
-      this.width, this.depth, 0x71c3);
-    this.playableTexture.uScale = this.playableTexture.vScale = 1;
-    this.playableTexture.wrapU = this.playableTexture.wrapV = Texture.CLAMP_ADDRESSMODE;
-    this.playableTexture.anisotropicFilteringLevel = 8;
-    return this.playableTexture;
+    const texture = theme.style === "forest"
+      ? this.createForestFloorTexture("ancient-grove-clearing-albedo", textureWidth, textureHeight, 0x6f3a21)
+      : this.createPavingTexture("kenney-castle-courtyard-albedo", textureWidth, textureHeight,
+        this.width, this.depth, 0x71c3);
+    texture.uScale = texture.vScale = 1;
+    texture.wrapU = texture.wrapV = Texture.CLAMP_ADDRESSMODE;
+    texture.anisotropicFilteringLevel = 8;
+    this.playableTextures.set(theme.style, texture);
+    return texture;
   }
 
   /** Procedural normal detail avoids dependencies on any non-Kenney source textures. */
-  playableGroundNormal(): Texture {
-    if (this.playableNormal) return this.playableNormal;
-    const texture = new DynamicTexture("kenney-castle-paving-normal", { width: 128, height: 128 }, this.scene, false);
+  playableGroundNormal(theme: Pick<EnvironmentTheme, "style">): Texture {
+    const cached = this.playableNormals.get(theme.style);
+    if (cached) return cached;
+    const texture = new DynamicTexture(theme.style === "forest" ? "forest-floor-normal" : "kenney-castle-paving-normal",
+      { width: 128, height: 128 }, this.scene, false);
     const context = texture.getContext();
     context.fillStyle = "#8080ff";
     context.fillRect(0, 0, 128, 128);
-    context.strokeStyle = "#7777ed";
-    context.lineWidth = 2;
-    for (let i = 0; i <= 128; i += 32) {
-      context.beginPath(); context.moveTo(i, 0); context.lineTo(i, 128); context.stroke();
-      context.beginPath(); context.moveTo(0, i); context.lineTo(128, i); context.stroke();
+    if (theme.style === "forest") {
+      for (let index = 0; index < 96; index += 1) {
+        const x = (index * 47 + 13) % 128, y = (index * 83 + 29) % 128;
+        context.fillStyle = index % 2 === 0 ? "#7d7df8" : "#8484ff";
+        context.fillRect(x, y, 2, 2);
+      }
+    } else {
+      context.strokeStyle = "#7777ed";
+      context.lineWidth = 2;
+      for (let i = 0; i <= 128; i += 32) {
+        context.beginPath(); context.moveTo(i, 0); context.lineTo(i, 128); context.stroke();
+        context.beginPath(); context.moveTo(0, i); context.lineTo(128, i); context.stroke();
+      }
     }
     texture.update(false);
     texture.gammaSpace = false;
@@ -74,14 +106,16 @@ export class WinterArenaArt {
     texture.uScale = this.width / 4;
     texture.vScale = this.depth / 4;
     texture.anisotropicFilteringLevel = 8;
-    this.playableNormal = texture;
+    this.playableNormals.set(theme.style, texture);
     return texture;
   }
 
   /** Subtle surface breakup for PBR lighting; it does not alter tile geometry. */
-  playableGroundRoughness(): DynamicTexture {
-    if (this.playableRoughnessTexture) return this.playableRoughnessTexture;
-    const texture = new DynamicTexture("kenney-castle-paving-roughness", { width: 256, height: 256 }, this.scene, false);
+  playableGroundRoughness(theme: EnvironmentTheme): DynamicTexture {
+    const cached = this.playableRoughnessTextures.get(theme.style);
+    if (cached) return cached;
+    const texture = new DynamicTexture(theme.style === "forest" ? "forest-floor-roughness" : "kenney-castle-paving-roughness",
+      { width: 256, height: 256 }, this.scene, false);
     const context = texture.getContext();
     // glTF-style packed metallic/roughness channels: G is roughness, B is metallic.
     // Keep blue at zero so the non-metallic stone remains non-metallic.
@@ -113,7 +147,7 @@ export class WinterArenaArt {
     texture.uScale = this.width / 4;
     texture.vScale = this.depth / 4;
     texture.anisotropicFilteringLevel = 8;
-    this.playableRoughnessTexture = texture;
+    this.playableRoughnessTextures.set(theme.style, texture);
     return texture;
   }
 
@@ -154,6 +188,41 @@ export class WinterArenaArt {
     for (let i = 0; i < width * height / 28; i += 1) {
       context.fillStyle = random() < 0.5 ? "rgba(52,45,39,0.045)" : "rgba(255,248,225,0.10)";
       context.fillRect(random() * width, random() * height, 1.2, 1.2);
+    }
+    texture.update(false);
+    return texture;
+  }
+
+  /** Baked grass-and-earth clearing. The separate grid overlay remains the placement authority. */
+  private createForestFloorTexture(name: string, width: number, height: number, seed: number): DynamicTexture {
+    const texture = new DynamicTexture(name, { width, height }, this.scene, true);
+    const context = texture.getContext();
+    context.fillStyle = "#78a84e";
+    context.fillRect(0, 0, width, height);
+    let state = seed >>> 0;
+    const random = () => {
+      state = (state * 1664525 + 1013904223) >>> 0;
+      return state / 0x100000000;
+    };
+    const palette = [
+      "rgba(67,125,49,0.20)", "rgba(144,181,87,0.18)", "rgba(85,145,54,0.13)",
+      "rgba(143,108,61,0.16)", "rgba(102,76,43,0.10)",
+    ];
+    for (let index = 0; index < 88; index += 1) {
+      const x = random() * width, y = random() * height;
+      const radius = Math.min(width, height) * (0.025 + random() * 0.075);
+      const gradient = context.createRadialGradient(x, y, radius * 0.08, x, y, radius);
+      gradient.addColorStop(0, palette[index % palette.length]);
+      gradient.addColorStop(0.72, palette[index % palette.length].replace(/0\.\d+\)/, "0.045)"));
+      gradient.addColorStop(1, "rgba(0,0,0,0)");
+      context.fillStyle = gradient;
+      context.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+    }
+    for (let index = 0; index < Math.floor(width * height / 38); index += 1) {
+      const x = random() * width, y = random() * height;
+      context.strokeStyle = index % 4 === 0 ? "rgba(207,223,133,0.15)" : "rgba(43,91,37,0.10)";
+      context.lineWidth = 0.7;
+      context.beginPath(); context.moveTo(x, y); context.lineTo(x + random() * 2 - 1, y - 1.5 - random() * 2.5); context.stroke();
     }
     texture.update(false);
     return texture;
@@ -306,12 +375,16 @@ export class WinterArenaArt {
     return texture;
   }
 
-  perimeter(gates: Array<{ x: number; z: number; side: "north" | "south" | "east" | "west" }> = []): void {
+  perimeter(theme: EnvironmentTheme, gates: Array<{ x: number; z: number; side: "north" | "south" | "east" | "west" }> = []): void {
     this.protectedGateZones = gates.map((gate) => ({
       x: gate.side === "west" ? -0.9 : gate.side === "east" ? this.width + 0.9 : gate.x + 0.5,
       z: gate.side === "north" ? -0.9 : gate.side === "south" ? this.depth + 0.9 : gate.z + 0.5,
       side: gate.side,
     }));
+    if (theme.style === "forest") {
+      this.forestPerimeter(theme, gates);
+      return;
+    }
     // Open the decorative border exactly where the selected map's gates are located.
     const boundaries = [
       { horizontal: true, x: this.width / 2, z: -0.9, start: -0.5, end: this.width + 0.5, holes: gates.filter((gate) => gate.side === "north").map((gate) => gate.x) },
@@ -384,6 +457,65 @@ export class WinterArenaArt {
     });
   }
 
+  /** A tightly layered, visual-only tree wall replaces every castle perimeter module. */
+  private forestPerimeter(theme: EnvironmentTheme,
+    gates: Array<{ x: number; z: number; side: "north" | "south" | "east" | "west" }>): void {
+    this.forestBorderTreeCount = 0;
+    this.forestBorderRockCount = 0;
+    this.forestBorderVegetationCount = 0;
+    const sides = [
+      { side: "north" as const, length: this.width, fixed: -0.95 },
+      { side: "south" as const, length: this.width, fixed: this.depth + 0.95 },
+      { side: "west" as const, length: this.depth, fixed: -0.95 },
+      { side: "east" as const, length: this.depth, fixed: this.width + 0.95 },
+    ];
+    const gateCoordinate = (gate: typeof gates[number]) => gate.side === "north" || gate.side === "south"
+      ? gate.x + 0.5 : gate.z + 0.5;
+    for (const [sideIndex, boundary] of sides.entries()) {
+      const sideGates = gates.filter((gate) => gate.side === boundary.side);
+      for (let row = 0; row < 2; row += 1) {
+        const spacing = row === 0 ? 1.02 : 1.18;
+        const count = Math.ceil((boundary.length + 2.4) / spacing);
+        for (let index = 0; index <= count; index += 1) {
+          const hash = Math.abs((sideIndex + 1) * 1543 + row * 3571 + index * 7919);
+          const along = -1.2 + index * spacing + ((hash % 17) - 8) * 0.018;
+          const openingRadius = 1.35 + row * 0.52;
+          if (sideGates.some((gate) => Math.abs(along - gateCoordinate(gate)) < openingRadius)) continue;
+          const outward = 0.92 + row * 1.03 + ((hash >> 3) % 11) * 0.025;
+          const x = boundary.side === "west" ? -outward : boundary.side === "east" ? this.width + outward : along;
+          const z = boundary.side === "north" ? -outward : boundary.side === "south" ? this.depth + outward : along;
+          const key = theme.treeAssets[hash % theme.treeAssets.length];
+          const scale = 1.28 + (hash % 9) * 0.055 + row * 0.10;
+          const root = this.assets.instantiate(key, `forest-border-${sideIndex}-${row}-${index}`,
+            new Vector3(x, 0, z), (hash % 24) * Math.PI / 12, scale, row === 0 && index % 9 === 0,
+            { maxWidth: 2.2, maxHeight: 4.3, maxDepth: 2.2 });
+          if (!root) continue;
+          root.getChildMeshes().forEach((mesh) => { mesh.isPickable = false; mesh.receiveShadows = false; });
+          root.freezeWorldMatrix();
+          this.forestBorderTreeCount += 1;
+        }
+      }
+    }
+    // Ground patches and low stones frame entrances without occupying a playable cell.
+    gates.forEach((gate, gateIndex) => {
+      const horizontal = gate.side === "north" || gate.side === "south";
+      const outwardX = gate.side === "west" ? -1 : gate.side === "east" ? 1 : 0;
+      const outwardZ = gate.side === "north" ? -1 : gate.side === "south" ? 1 : 0;
+      const centerX = horizontal ? gate.x + 0.5 : gate.side === "west" ? -0.8 : this.width + 0.8;
+      const centerZ = horizontal ? gate.side === "north" ? -0.8 : this.depth + 0.8 : gate.z + 0.5;
+      this.assets.instantiate("forest-patch-dirt", `forest-entry-trail-${gateIndex}`,
+        new Vector3(centerX + outwardX * 1.4, -0.01, centerZ + outwardZ * 1.4), horizontal ? 0 : Math.PI / 2, 2.1, false);
+      this.forestBorderVegetationCount += 1;
+      for (const direction of [-1, 1]) {
+        const tangentX = horizontal ? direction : 0, tangentZ = horizontal ? 0 : direction;
+        this.assets.instantiate("forest-stones", `forest-entry-stones-${gateIndex}-${direction}`,
+          new Vector3(centerX + tangentX * 1.72 + outwardX * 0.55, 0, centerZ + tangentZ * 1.72 + outwardZ * 0.55),
+          direction * 0.42, 0.72, false);
+        this.forestBorderRockCount += 1;
+      }
+    });
+  }
+
   private createGateApproach(index: number, side: "north" | "south" | "east" | "west", gateX: number, gateZ: number): void {
     const horizontal = side === "north" || side === "south";
     const distance = 1.85;
@@ -435,7 +567,8 @@ export class WinterArenaArt {
     // tile marker and made both endpoints read as broad approach strips.
   }
 
-  clusters(theme: EnvironmentTheme, seed: number): TransformNode[] {
+  clusters(theme: EnvironmentTheme, seed: number, terrainRegions: readonly TerrainRegion[] = []): TransformNode[] {
+    if (theme.style === "forest") return this.forestClusters(theme, seed, terrainRegions);
     const roots: TransformNode[] = [];
     const addOutskirtsAsset = (key: EnvironmentAssetKey, name: string, x: number, z: number,
       rotation: number, scale: number): void => {
@@ -602,6 +735,107 @@ export class WinterArenaArt {
       bed.isPickable = false; bed.receiveShadows = false; bed.freezeWorldMatrix(); roots.push(bed);
     });
     return roots;
+  }
+
+  private forestClusters(theme: EnvironmentTheme, seed: number, terrainRegions: readonly TerrainRegion[]): TransformNode[] {
+    const roots: TransformNode[] = [];
+    this.forestClusterStats = { trees: 0, rocks: 0, vegetation: 0 };
+    const place = (key: EnvironmentAssetKey, name: string, x: number, z: number, rotation: number, scale: number,
+      category: keyof typeof this.forestClusterStats, allowInsideBlockedTerrain = false, elevation = 0): void => {
+      const root = this.assets.instantiate(key, name, new Vector3(x, elevation, z), rotation, scale, false,
+        { maxWidth: 2.6, maxHeight: 5.2, maxDepth: 2.6 });
+      if (!root) return;
+      const bounds = root.getHierarchyBoundingVectors(true);
+      if (category === "trees" && !allowInsideBlockedTerrain && bounds.max.x > -0.12 && bounds.min.x < this.width + 0.12
+        && bounds.max.z > -0.12 && bounds.min.z < this.depth + 0.12) {
+        root.dispose(false, false);
+        return;
+      }
+      root.getChildMeshes().forEach((mesh) => { mesh.isPickable = false; mesh.receiveShadows = false; });
+      root.freezeWorldMatrix();
+      roots.push(root);
+      this.forestClusterStats[category] += 1;
+    };
+    const inGateCorridor = (side: "north" | "south" | "east" | "west", coordinate: number, radius: number) =>
+      this.protectedGateZones.some((gate) => gate.side === side
+        && Math.abs(coordinate - (side === "north" || side === "south" ? gate.x : gate.z)) < radius);
+    const sides = [
+      { side: "north" as const, length: this.width }, { side: "south" as const, length: this.width },
+      { side: "west" as const, length: this.depth }, { side: "east" as const, length: this.depth },
+    ];
+    for (const [sideIndex, side] of sides.entries()) {
+      for (let row = 0; row < 2; row += 1) {
+        const spacing = 1.30 + row * 0.22;
+        const count = Math.ceil((side.length + 5) / spacing);
+        for (let index = 0; index <= count; index += 1) {
+          const hash = Math.abs(seed + sideIndex * 104729 + row * 1543 + index * 7919);
+          const along = -2.5 + index * spacing + ((hash % 19) - 9) * 0.027;
+          if (inGateCorridor(side.side, along, 1.75 + row * 0.40)) continue;
+          const distance = 3.05 + row * 1.48 + ((hash >> 4) % 13) * 0.035;
+          const x = side.side === "west" ? -distance : side.side === "east" ? this.width + distance : along;
+          const z = side.side === "north" ? -distance : side.side === "south" ? this.depth + distance : along;
+          const tree = theme.treeAssets[hash % theme.treeAssets.length];
+          place(tree, `forest-depth-tree-${sideIndex}-${row}-${index}`, x, z,
+            (hash % 32) * Math.PI / 16, 1.40 + (hash % 11) * 0.055 + row * 0.12, "trees");
+          if (index % 3 === 0) {
+            const tangent = ((hash >> 3) % 9 - 4) * 0.08;
+            const prop = index % 6 === 0 ? "forest-rocks-low" : "forest-plant";
+            const px = side.side === "west" || side.side === "east" ? x + tangent : x + 0.48;
+            const pz = side.side === "north" || side.side === "south" ? z + tangent : z + 0.48;
+            place(prop, `forest-depth-detail-${sideIndex}-${row}-${index}`, px, pz,
+              (hash % 20) * Math.PI / 10, prop === "forest-plant" ? 0.82 : 0.62,
+              prop === "forest-plant" ? "vegetation" : "rocks");
+          }
+        }
+      }
+    }
+    // Every blocked region keeps its exact GameState footprint; small real boulders sit inside boundary cells only.
+    for (const [regionIndex, region] of terrainRegions.entries()) {
+      const occupied = new Set(region.cells.map(({ x, y }) => `${x},${y}`));
+      const boundary = region.cells.filter(({ x, y }) => [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]]
+        .some(([nx, ny]) => !occupied.has(`${nx},${ny}`)));
+      const stride = Math.max(1, Math.ceil(boundary.length / Math.max(8, Math.sqrt(region.cells.length) * 3.2)));
+      for (let index = 0; index < boundary.length; index += stride) {
+        const cell = boundary[index];
+        const hash = Math.abs(seed + regionIndex * 65537 + cell.x * 7919 + cell.y * 1049);
+        const rock = hash % 4 === 0 ? "forest-rocks-high" : hash % 3 === 0 ? "forest-stones" : "forest-rocks-low";
+        place(rock, `forest-terrain-rock-${regionIndex}-${index}`, cell.x + 0.5, cell.y + 0.5,
+          (hash % 16) * Math.PI / 8, rock === "forest-rocks-high" ? 0.82 : 0.72, "rocks", true, 0.72);
+      }
+      // Edge-connected blocked masses visually continue the surrounding woodland.
+      // Trees stay at least one full blocked cell away from a walkable cell, so their crowns never hide placement lanes.
+      const touchesMapEdge = region.cells.some(({ x, y }) => x === 0 || y === 0 || x === this.width - 1 || y === this.depth - 1);
+      const deepCells = region.cells.filter(({ x, y }) => [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]]
+        .every(([nx, ny]) => occupied.has(`${nx},${ny}`)));
+      for (const [index, cell] of deepCells.entries()) {
+        const hash = Math.abs(seed + regionIndex * 99991 + cell.x * 3571 + cell.y * 6271);
+        if (touchesMapEdge ? hash % 3 === 0 : hash % 5 !== 0) continue;
+        const key = theme.treeAssets[hash % theme.treeAssets.length];
+        place(key, `forest-blocked-woodland-${regionIndex}-${index}`,
+          cell.x + 0.5 + ((hash % 9) - 4) * 0.025,
+          cell.y + 0.5 + (((hash >> 4) % 9) - 4) * 0.025,
+          (hash % 24) * Math.PI / 12, 1.12 + (hash % 8) * 0.055, "trees", true, 0.72);
+        if (hash % 7 === 0) {
+          place("forest-plant", `forest-blocked-understory-${regionIndex}-${index}`,
+            cell.x + 0.22, cell.y + 0.70, (hash % 12) * Math.PI / 6, 0.58, "vegetation", true, 0.72);
+        }
+      }
+    }
+    return roots;
+  }
+
+  compositionStats(theme: EnvironmentTheme): EnvironmentCompositionStats {
+    if (theme.style !== "forest") {
+      return { theme: "castle", trees: theme.treeCount, rocks: theme.rockCount,
+        vegetation: theme.propCount, importedModels: this.requiredAssetKeys(theme).length };
+    }
+    return {
+      theme: "forest",
+      trees: this.forestBorderTreeCount + this.forestClusterStats.trees,
+      rocks: this.forestBorderRockCount + this.forestClusterStats.rocks,
+      vegetation: this.forestBorderVegetationCount + this.forestClusterStats.vegetation,
+      importedModels: this.requiredAssetKeys(theme).length,
+    };
   }
 
   /** Small Kenney watch posts extend the castle silhouette beyond the playable grid. */

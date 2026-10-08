@@ -8,6 +8,7 @@ import { gridToWorld3D, TILE_SIZE_3D, worldToGrid3D } from "./Grid3D";
 import { WORLD_UNITS_PER_CELL } from "../../core/GameConstants";
 import type { DefenderType } from "../config/DefenderConfig";
 import { DEFENDER_CONFIG } from "../config/DefenderConfig";
+import type { FactionId } from "../config/FactionConfig";
 import type { EnemyType } from "../config/EnemyConfig";
 import { AFFIXES } from "../config/EnemyAffixConfig";
 import type { EnemyAffixId } from "../config/EnemyAffixConfig";
@@ -31,6 +32,7 @@ import { DEFENDER_VISUAL_CONFIG } from "./DefenderVisualConfig";
 import { getCommanderAuraMultiplier, getEnemySpeedMultiplier } from "../enemies/EnemyAffixSystem";
 import { EnvironmentAssetLibrary } from "./EnvironmentAssetLibrary";
 import { VISUAL_CONFIG } from "./VisualConfig";
+import { ACTIVE_RENDERING_QUALITY } from "./RenderingQualityConfig";
 import { EnvironmentTheme, themeForRun } from "./EnvironmentThemes";
 import { WinterArenaArt } from "./WinterArenaArt";
 import { TERRAIN_PLATEAU_HEIGHT, TerrainCliffRenderer } from "./TerrainCliffRenderer";
@@ -53,6 +55,8 @@ interface PerformanceSnapshot {
   enemies: number;
   allies: number;
   meshes: number;
+  activeMeshes: number;
+  drawCalls: number;
   skeletons: number;
   animationGroups: number;
   activeAnimationGroups: number;
@@ -61,11 +65,22 @@ interface PerformanceSnapshot {
   hpBars: number;
   shadowCasters: number;
   environmentProps: number;
+  environmentTemplateMeshes: number;
+  environmentInstances: number;
 }
 
 function createPresentationSeed(): number {
   const debugSeed = Number.parseInt(new URLSearchParams(window.location.search).get("themeSeed") ?? "", 10);
   return Number.isFinite(debugSeed) ? debugSeed : Math.floor(Math.random() * 0x7fffffff);
+}
+
+function stablePresentationSeed(value: string): number {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
 }
 
 /** Merges the exact blocked-cell lattice into contiguous elevated top-grid segments. */
@@ -245,10 +260,12 @@ export class BabylonGameRenderer {
   private disposed = false;
   private hasRenderedFirstFrame = false;
 
-  constructor(private readonly canvas: HTMLCanvasElement, map: MapDefinition = MAPS["single-spawn"]) {
+  constructor(private readonly canvas: HTMLCanvasElement, map: MapDefinition = MAPS["single-spawn"],
+    private readonly factionId: FactionId = "arcane-kingdom") {
     this.map = map;
-    this.currentTheme = themeForRun(this.presentationSeed);
-    this.engine = new Engine(canvas, true);
+    this.currentTheme = themeForRun(this.presentationSeed, this.factionId);
+    this.engine = new Engine(canvas, ACTIVE_RENDERING_QUALITY.antialias);
+    this.engine.setHardwareScalingLevel(ACTIVE_RENDERING_QUALITY.hardwareScalingLevel);
     this.scene = new Scene(this.engine);
     this.scene.clearColor.set(0.08, 0.12, 0.16, 1);
     const center = new Vector3(this.map.width / 2, 0, this.map.height / 2);
@@ -263,14 +280,14 @@ export class BabylonGameRenderer {
     const sun = new DirectionalLight("sun", new Vector3(-0.5, -1, 0.35), this.scene); sun.position = new Vector3(15, 30, -10);
     sun.intensity = VISUAL_CONFIG.royalDirectionalIntensity;
     sun.diffuse.copyFrom(VISUAL_CONFIG.royalSunColor);
-    this.shadowGenerator = new ShadowGenerator(1024, sun); this.shadowGenerator.useBlurExponentialShadowMap = true;
+    this.shadowGenerator = new ShadowGenerator(ACTIVE_RENDERING_QUALITY.shadowMapSize, sun); this.shadowGenerator.useBlurExponentialShadowMap = true;
     this.enemyFactory = new EnemyMeshFactory(this.scene, this.shadowGenerator, this.enemyShadowsEnabled);
     this.quaterniusEnemyFactory = new QuaterniusEnemyFactory(this.scene, this.shadowGenerator, this.enemyShadowsEnabled);
     this.archerFactory = new ArcherMeshFactory(this.scene, this.shadowGenerator);
     this.quaterniusFactory = new QuaterniusArcherFactory(this.scene, this.shadowGenerator);
     this.blueWizardFactory = new BlueWizardFactory(this.scene, this.shadowGenerator);
     this.holyKnightFactory = new HolyKnightFactory(this.scene, this.shadowGenerator);
-    this.quaterniusDefenderFactory = new QuaterniusDefenderFactory(this.scene, this.shadowGenerator);
+    this.quaterniusDefenderFactory = new QuaterniusDefenderFactory(this.scene, this.shadowGenerator, this.factionId);
     this.combatEffects = new CombatEffects3D(this.scene);
     for (const formation of FORMATIONS) {
       const material = new StandardMaterial(`formation-${formation.id}`, this.scene);
@@ -318,25 +335,34 @@ export class BabylonGameRenderer {
     this.environmentAssets = new EnvironmentAssetLibrary(this.scene, this.shadowGenerator);
     this.arenaArt = new WinterArenaArt(this.scene, this.environmentAssets, this.shadowGenerator, this.map.width, this.map.height);
     this.applyThemeMaterials();
-    const defenderAssetInitialization = Promise.all([
-      this.blueWizardFactory.load().catch((error: unknown) => {
-        if (this.disposed) return;
-        console.warn("Blue Wizard failed to load; loading the existing Quaternius archer fallback.", error);
-        return this.quaterniusFactory.load().catch((fallbackError: unknown) => {
-          if (!this.disposed) console.warn("Quaternius ranger fallback failed to load; using primitive archer.", fallbackError);
-        });
-      }),
-      this.holyKnightFactory.load().catch((error: unknown) => {
-        if (this.disposed) return;
-        console.warn("Holy Knight failed to load; loading the existing ranger fallback.", error);
-        return this.quaterniusFactory.load().catch((fallbackError: unknown) => {
-          if (!this.disposed) console.warn("Quaternius ranger fallback failed to load for Holy Knight.", fallbackError);
-        });
-      }),
+    const selectedFactionLoads: Promise<void | undefined>[] = [
       this.quaterniusDefenderFactory.load().catch((error: unknown) => {
-        if (!this.disposed) console.warn("New defender GLB preload failed.", error);
+        if (!this.disposed) console.warn("Selected-faction defender GLB preload failed.", error);
       }),
-    ]).then(() => {
+    ];
+    // Ancient Grove has its own complete roster. Avoid fetching/parsing Royal
+    // Guard-only Wizard/Knight assets before the selected battlefield is ready.
+    if (this.factionId === "arcane-kingdom") {
+      selectedFactionLoads.push(
+        this.blueWizardFactory.load().catch((error: unknown) => {
+          if (this.disposed) return;
+          console.warn("Blue Wizard failed to load; using a lightweight fallback visual.", error);
+          if (!import.meta.env.DEV) return;
+          return this.quaterniusFactory.load().catch((fallbackError: unknown) => {
+            if (!this.disposed) console.warn("Quaternius ranger fallback failed to load; using primitive archer.", fallbackError);
+          });
+        }),
+        this.holyKnightFactory.load().catch((error: unknown) => {
+          if (this.disposed) return;
+          console.warn("Holy Knight failed to load; using a lightweight fallback visual.", error);
+          if (!import.meta.env.DEV) return;
+          return this.quaterniusFactory.load().catch((fallbackError: unknown) => {
+            if (!this.disposed) console.warn("Quaternius ranger fallback failed to load for Holy Knight.", fallbackError);
+          });
+        }),
+      );
+    }
+    const defenderAssetInitialization = Promise.all(selectedFactionLoads).then(() => {
       if (this.disposed) return;
       this.defenderAssetsReady = true;
       this.rebuildTowerVisuals();
@@ -1386,14 +1412,14 @@ export class BabylonGameRenderer {
     this.outskirtsGroundMaterial = outskirtsMaterial;
     const ground = MeshBuilder.CreateGround("snowGround", { width, height: depth, subdivisions: 1 }, this.scene);
     ground.position = new Vector3(width / 2, 0, depth / 2);
-    const grassAlbedo = this.arenaArt.playableGroundTexture();
-    const grass = new PBRMaterial("royal-grass-packed-earth-pbr", this.scene);
-    const grassNormal = this.arenaArt.playableGroundNormal();
-    grass.albedoColor = VISUAL_CONFIG.royalGroundBaseColor;
+    const grassAlbedo = this.arenaArt.playableGroundTexture(this.currentTheme);
+    const grass = new PBRMaterial(this.currentTheme.style === "forest" ? "forest-clearing-grass-earth-pbr" : "royal-grass-packed-earth-pbr", this.scene);
+    const grassNormal = this.arenaArt.playableGroundNormal(this.currentTheme);
+    grass.albedoColor = this.currentTheme.playableGround;
     grass.albedoTexture = grassAlbedo;
     grass.bumpTexture = grassNormal;
     grass.bumpTexture.level = 0.12;
-    grass.metallicTexture = this.arenaArt.playableGroundRoughness();
+    grass.metallicTexture = this.arenaArt.playableGroundRoughness(this.currentTheme);
     grass.useRoughnessFromMetallicTextureGreen = true;
     grass.useMetallnessFromMetallicTextureBlue = true;
     grass.roughness = 0.96;
@@ -1408,11 +1434,13 @@ export class BabylonGameRenderer {
     const raisedGridLines = mergeTerrainGridLines(this.map.terrainRegions.flatMap((region) => region.cells), TERRAIN_PLATEAU_HEIGHT + 0.008);
     this.createGridLayer("terrain-grid-top", raisedGridLines);
 
-    const terrain = new TerrainCliffRenderer(this.scene, grassAlbedo, grassNormal, width, depth);
+    const terrain = new TerrainCliffRenderer(this.scene, grassAlbedo, grassNormal, width, depth, this.currentTheme.style);
     const terrainStats = terrain.render(this.map.terrainRegions);
     if (this.terrainArtDebug) {
       const report: {
         map: MapDefinition["id"];
+        themeId: string;
+        themeStyle: EnvironmentTheme["style"];
         groundMaterial: string;
         cliffTopMaterial: string;
         cliffSideMaterial: string;
@@ -1427,15 +1455,18 @@ export class BabylonGameRenderer {
         buildGridOpacity: number;
         texturesReady: boolean;
         environmentReady: boolean;
+        environmentComposition?: ReturnType<WinterArenaArt["compositionStats"]>;
         groundTextures: typeof terrainStats.groundTextureNames;
         cliffTextures: typeof terrainStats.cliffTextureNames;
         terrainMeshes: Array<{ name: string; enabled: boolean; visible: boolean; vertices: number }>;
       } = {
         map: this.map.id,
+        themeId: this.currentTheme.id,
+        themeStyle: this.currentTheme.style,
         groundMaterial: grass.name,
-        cliffTopMaterial: "royal-cliff-stone-top",
-        cliffSideMaterial: "royal-cliff-natural-rock-face",
-        cliffLipMaterial: "royal-cliff-earth-edge",
+        cliffTopMaterial: this.currentTheme.style === "forest" ? "forest-rock-ridge-top" : "royal-cliff-stone-top",
+        cliffSideMaterial: this.currentTheme.style === "forest" ? "forest-natural-boulder-face" : "royal-cliff-natural-rock-face",
+        cliffLipMaterial: this.currentTheme.style === "forest" ? "forest-rock-earth-edge" : "royal-cliff-earth-edge",
         terrainRegionCount: this.map.terrainRegions.length,
         renderedFormationCount: terrainStats.formationCount,
         terrainMeshCount: terrainStats.meshCount,
@@ -1470,11 +1501,11 @@ export class BabylonGameRenderer {
   private async createArenaArt(): Promise<void> {
     await this.environmentAssets.preload(this.arenaArt.requiredAssetKeys(this.currentTheme));
     if (this.disposed) return;
-    this.arenaArt.perimeter([
+    this.arenaArt.perimeter(this.currentTheme, [
       ...this.map.layout.activeSpawns.map(({ gateCell, side }) => ({ x: gateCell.x, z: gateCell.y, side })),
       { x: this.map.layout.castle.gateCell.x, z: this.map.layout.castle.gateCell.y, side: this.map.layout.castle.side },
     ]);
-    this.arenaArt.warmOutskirtsAccents();
+    if (this.currentTheme.style === "castle") this.arenaArt.warmOutskirtsAccents();
     const red = this.material("spawn-ember", this.currentTheme.spawnAccent,
       this.currentTheme.spawnAccent.scale(VISUAL_CONFIG.spawnGlowStrength));
     const gold = this.material("exit-gold", this.currentTheme.exitAccent,
@@ -1493,8 +1524,16 @@ export class BabylonGameRenderer {
     this.createEndpointVisual("exit", goal.x, goal.z, gold, this.currentTheme.exitAccent, this.map.layout.castle.side);
     this.environmentReady = true;
     if (this.terrainArtDebug) {
-      const terrainDebug = (window as Window & { __terrainArtDebug?: { environmentReady: boolean } }).__terrainArtDebug;
-      if (terrainDebug) terrainDebug.environmentReady = true;
+      const terrainDebug = (window as Window & { __terrainArtDebug?: {
+        environmentReady: boolean;
+        environmentComposition?: ReturnType<WinterArenaArt["compositionStats"]>;
+        environmentRendering?: ReturnType<EnvironmentAssetLibrary["renderingStats"]>;
+      } }).__terrainArtDebug;
+      if (terrainDebug) {
+        terrainDebug.environmentReady = true;
+        terrainDebug.environmentComposition = this.arenaArt.compositionStats(this.currentTheme);
+        terrainDebug.environmentRendering = this.environmentAssets.renderingStats();
+      }
     }
     if (!this.disableEnvironmentProps) this.rebuildThemeProps();
     if (this.environmentSafeMode) this.applyEnvironmentSafeMode();
@@ -1565,7 +1604,7 @@ export class BabylonGameRenderer {
   /** Presentation-only reset hook. Gameplay grid and state are deliberately untouched. */
   public async selectNextEnvironmentTheme(): Promise<void> {
     this.themeRunOrdinal += 1;
-    this.currentTheme = themeForRun(this.presentationSeed + this.themeRunOrdinal);
+    this.currentTheme = themeForRun(this.presentationSeed + this.themeRunOrdinal, this.factionId);
     this.applyThemeMaterials();
     if (this.environmentReady) {
       if (!this.disableEnvironmentProps) this.rebuildThemeProps();
@@ -1581,7 +1620,12 @@ export class BabylonGameRenderer {
     this.scene.fogColor = theme.fogColor;
     this.scene.clearColor.set(theme.fogColor.r * 0.28, theme.fogColor.g * 0.32, theme.fogColor.b * 0.38, 1);
     this.sky.diffuse.copyFrom(Color3.Lerp(theme.ambientTint, VISUAL_CONFIG.royalAmbientColor, 0.24));
-    this.playableGroundMaterial?.albedoColor.copyFrom(VISUAL_CONFIG.royalGroundBaseColor);
+    this.playableGroundMaterial?.albedoColor.copyFrom(theme.playableGround);
+    if (this.playableGroundMaterial) {
+      this.playableGroundMaterial.albedoTexture = this.arenaArt.playableGroundTexture(theme);
+      this.playableGroundMaterial.bumpTexture = this.arenaArt.playableGroundNormal(theme);
+      this.playableGroundMaterial.metallicTexture = this.arenaArt.playableGroundRoughness(theme);
+    }
     if (this.outskirtsGroundMaterial) {
       this.outskirtsGroundMaterial.diffuseColor.copyFrom(Color3.White());
       this.outskirtsGroundMaterial.diffuseTexture = this.arenaArt.outskirtsTexture(theme);
@@ -1613,7 +1657,23 @@ export class BabylonGameRenderer {
     }
     this.themeProps.length = 0;
 
-    this.themeProps.push(...this.arenaArt.clusters(this.currentTheme, this.presentationSeed + this.themeRunOrdinal));
+    // Forest scenery stays identical for a given map across reloads and run resets.
+    // Castle keeps its existing run-to-run presentation variation.
+    const compositionSeed = this.currentTheme.style === "forest"
+      ? stablePresentationSeed(`forest:${this.map.id}`)
+      : this.presentationSeed + this.themeRunOrdinal;
+    this.themeProps.push(...this.arenaArt.clusters(this.currentTheme,
+      compositionSeed, this.map.terrainRegions));
+    if (this.terrainArtDebug) {
+      const report = (window as Window & { __terrainArtDebug?: {
+        environmentComposition?: ReturnType<WinterArenaArt["compositionStats"]>;
+        environmentRendering?: ReturnType<EnvironmentAssetLibrary["renderingStats"]>;
+      } }).__terrainArtDebug;
+      if (report) {
+        report.environmentComposition = this.arenaArt.compositionStats(this.currentTheme);
+        report.environmentRendering = this.environmentAssets.renderingStats();
+      }
+    }
   }
 
   /** One thin vertex-alpha line overlay for the playfield and one for raised blocked cells. */
@@ -2195,7 +2255,8 @@ export class BabylonGameRenderer {
     this.perfOverlay.textContent = [
       `${snapshot.fps} FPS / ${snapshot.frameTimeMs} ms`,
       `Enemies ${snapshot.enemies} | Allies ${snapshot.allies}`,
-      `Meshes ${snapshot.meshes} | Skeletons ${snapshot.skeletons}`,
+      `Meshes ${snapshot.activeMeshes}/${snapshot.meshes} | Draws ${snapshot.drawCalls}`,
+      `Skeletons ${snapshot.skeletons} | Env instances ${snapshot.environmentInstances}`,
       `Animations ${snapshot.activeAnimationGroups}/${snapshot.animationGroups}`,
       `Effects ${snapshot.combatEffects} | Arrows ${snapshot.projectiles}`,
       `HP bars ${snapshot.hpBars} | Shadows ${snapshot.shadowCasters}`,
@@ -2228,6 +2289,8 @@ export class BabylonGameRenderer {
   private performanceSnapshot(phase: PerformanceSnapshot["phase"], gameState: GameState): PerformanceSnapshot {
     const averageFrameTime = this.averageFrameTimeMs();
     const shadowCasters = this.shadowGenerator.getShadowMap()?.renderList?.length ?? 0;
+    const drawCalls = (this.engine as Engine & { _drawCalls?: { current?: number } })._drawCalls?.current ?? 0;
+    const environmentRendering = this.environmentAssets.renderingStats();
     return {
       phase,
       wave: gameState.currentWave,
@@ -2236,6 +2299,8 @@ export class BabylonGameRenderer {
       enemies: gameState.enemies.length,
       allies: gameState.towers.length,
       meshes: this.scene.meshes.length,
+      activeMeshes: this.scene.getActiveMeshes().length,
+      drawCalls,
       skeletons: this.scene.skeletons.length,
       animationGroups: this.scene.animationGroups.length,
       activeAnimationGroups: this.scene.animationGroups.filter((group) => group.isStarted).length,
@@ -2244,6 +2309,8 @@ export class BabylonGameRenderer {
       hpBars: this.scene.meshes.filter((mesh) => mesh.name.includes("health-") && mesh.isEnabled()).length,
       shadowCasters,
       environmentProps: this.themeProps.length,
+      environmentTemplateMeshes: environmentRendering.templateMeshes,
+      environmentInstances: environmentRendering.instances,
     };
   }
 }
