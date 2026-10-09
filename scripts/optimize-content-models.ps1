@@ -20,7 +20,9 @@ $models = @(
   @{ Source = 'Treant'; Optimized = 'public\assets\models\defenders\optimized\treant.glb'; Ratio = '0.075'; TextureLimit = 1024 },
   @{ Source = 'Thorn Owl'; Optimized = 'public\assets\models\defenders\optimized\thorn-owl.glb'; Ratio = '0.30'; TextureLimit = 1024 },
   @{ Source = 'Druid'; Optimized = 'public\assets\models\defenders\optimized\druid.glb'; Ratio = '0.07'; TextureLimit = 1024 },
-  @{ Source = 'Seer'; Optimized = 'public\assets\models\defenders\optimized\seer.glb'; Ratio = '0.085'; TextureLimit = 1024 }
+  @{ Source = 'Seer'; Optimized = 'public\assets\models\defenders\optimized\seer.glb'; Ratio = '0.085'; TextureLimit = 1024 },
+  @{ Source = 'Bark Titan'; Optimized = 'public\assets\models\defenders\optimized\bark-titan.glb'; Ratio = '0.075'; TextureLimit = 1024 },
+  @{ Source = 'Thorn Dancer'; Optimized = 'public\assets\models\defenders\optimized\thorn-dancer.glb'; Ratio = '0.10'; TextureLimit = 1024 }
 )
 
 New-Item -ItemType Directory -Force -Path $temporaryDirectory | Out-Null

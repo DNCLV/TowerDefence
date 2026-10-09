@@ -20,6 +20,7 @@ import { getVeteranProgress } from "./game/FactionBonusSystem";
 import { BuildCarousel } from "./BuildCarousel";
 import { FACTION_BONUS_CONFIG } from "./game/config/FactionBonusConfig";
 import type { Tower } from "./game/towers/Tower";
+import { getVerdantResonanceProfile } from "./game/config/AncientGroveUnitConfig";
 
 const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) throw new Error("Missing #app root element");
@@ -36,11 +37,14 @@ function defenderPortrait(type: DefenderType): string | undefined {
     case "thorn-owl": return resolveAssetUrl("assets/ui/defenders/thorn-owl.png");
     case "druid": return resolveAssetUrl("assets/ui/defenders/druid.png");
     case "seer": return resolveAssetUrl("assets/ui/defenders/seer.png");
+    case "bark-titan": return resolveAssetUrl("assets/ui/defenders/bark-titan.png");
+    case "thorn-dancer": return resolveAssetUrl("assets/ui/defenders/thorn-dancer.png");
   }
 }
 
 function defenderGlyph(type: DefenderType): string {
-  return type === "treant" ? "♣" : type === "thorn-owl" ? "✦" : type === "druid" ? "❧" : type === "seer" ? "☾" : "✦";
+  return type === "treant" || type === "bark-titan" ? "♣"
+    : type === "thorn-owl" ? "✦" : type === "druid" || type === "thorn-dancer" ? "❧" : type === "seer" ? "☾" : "✦";
 }
 
 function defenderPortraitMarkup(type: DefenderType, fallbackClassName: string): string {
@@ -57,11 +61,13 @@ function renderMapPreview(map: MapDefinition): string {
   const spawnColors = ["#ff6b66", "#69c5ff", "#69df9c"];
   const spawns = geometry.spawns.map(({ id, cell }, index) =>
     `<circle class="map-preview-spawn" data-spawn-id="${id}" data-cell-x="${cell.x}" data-cell-y="${cell.y}" style="--spawn-color:${spawnColors[index % spawnColors.length]}" cx="${cell.x + 0.5}" cy="${cell.y + 0.5}" r="0.36"/>`).join("");
+  const goals = geometry.goals.map(({ id, cell }) =>
+    `<circle class="map-preview-goal" data-goal-id="${id}" data-cell-x="${cell.x}" data-cell-y="${cell.y}" cx="${cell.x + 0.5}" cy="${cell.y + 0.5}" r="0.42"/>`).join("");
   return `<svg viewBox="0 0 ${geometry.width} ${geometry.height}" preserveAspectRatio="xMidYMid meet" focusable="false" data-grid-width="${geometry.width}" data-grid-height="${geometry.height}" data-terrain-cells="${map.terrain.length}">
     <rect class="map-preview-field" x="0" y="0" width="${geometry.width}" height="${geometry.height}"/>
     <g class="map-preview-terrain-regions">${terrain}</g>
     <g class="map-preview-spawns">${spawns}</g>
-    <circle class="map-preview-goal" data-cell-x="${geometry.goal.x}" data-cell-y="${geometry.goal.y}" cx="${geometry.goal.x + 0.5}" cy="${geometry.goal.y + 0.5}" r="0.42"/>
+    <g class="map-preview-goals">${goals}</g>
   </svg>`;
 }
 
@@ -127,7 +133,7 @@ function getFactionPresentation(faction: FactionDefinition): { bonusName: string
   };
 }
 
-function showFactionSelect(map: MapDefinition): void {
+function showFactionSelect(map: MapDefinition, playerIndex = 0, selectedFactions: FactionDefinition[] = []): void {
   factionSelect?.remove();
   factionSelect = document.createElement("main");
   factionSelect.className = "map-select-screen faction-select-screen";
@@ -135,7 +141,7 @@ function showFactionSelect(map: MapDefinition): void {
     <section class="map-select-panel faction-select-panel" aria-labelledby="faction-select-title">
       <header class="map-select-heading">
         <p class="map-select-eyebrow">${map.name.toUpperCase()} · COMMAND ALIGNMENT</p>
-        <h1 id="faction-select-title">CHOOSE FACTION</h1>
+        <h1 id="faction-select-title">${map.multiplayer ? `PLAYER ${playerIndex + 1} FACTION` : "CHOOSE FACTION"}</h1>
         <p class="map-select-tagline">CHOOSE YOUR BANNER <i></i> SHAPE YOUR DEFENSE</p>
         <p class="map-select-intro">Every faction brings a different answer to the enemy threat.</p>
       </header>
@@ -156,7 +162,7 @@ function showFactionSelect(map: MapDefinition): void {
           </article>`;
         }).join("")}
       </div>
-      <footer class="map-select-footer faction-select-footer"><span>${map.name} · ${map.startingGold} Gold</span><button id="start-battlefield" class="faction-select-button" type="button" data-select-faction="${selectedFaction.id}">CONTINUE WITH ${selectedFaction.name.toUpperCase()} <span aria-hidden="true">→</span></button><button id="back-to-map-select" type="button" class="setup-back-button">← BACK TO MAPS</button></footer>
+      <footer class="map-select-footer faction-select-footer"><span>${map.name} · ${map.multiplayer ? `${map.multiplayer.startingGoldPerPlayer} Gold per player` : `${map.startingGold} Gold`}</span><button id="start-battlefield" class="faction-select-button" type="button" data-select-faction="${selectedFaction.id}">CONTINUE WITH ${selectedFaction.name.toUpperCase()} <span aria-hidden="true">→</span></button><button id="back-to-map-select" type="button" class="setup-back-button">← BACK TO MAPS</button></footer>
     </section>`;
   app!.append(factionSelect);
   const screen = factionSelect;
@@ -204,7 +210,12 @@ function showFactionSelect(map: MapDefinition): void {
       if (!screen.isConnected) return;
       screen.remove();
       factionSelect = undefined;
-      startGame(map, faction);
+      const factions = [...selectedFactions, faction];
+      if (map.multiplayer && playerIndex + 1 < map.multiplayer.playerSlots.length) {
+        showFactionSelect(map, playerIndex + 1, factions);
+      } else {
+        startGame(map, factions);
+      }
     }, 260);
   });
   screen.querySelector<HTMLButtonElement>("#back-to-map-select")?.addEventListener("click", () => {
@@ -224,7 +235,11 @@ mapStartButton.addEventListener("click", () => {
   showFactionSelect(mapToStart);
 });
 
-async function startGame(map: MapDefinition, faction: FactionDefinition): Promise<void> {
+async function startGame(map: MapDefinition, factionSelection: FactionDefinition | readonly FactionDefinition[]): Promise<void> {
+const factions: readonly FactionDefinition[] = Array.isArray(factionSelection)
+  ? factionSelection as readonly FactionDefinition[] : [factionSelection as FactionDefinition];
+const faction = factions[0];
+const rosterUnits: DefenderType[] = [...new Set(factions.flatMap((entry) => entry.units))];
 performance.mark("tower-defence-battlefield-load-requested");
 const loadingOverlay = document.createElement("div");
 loadingOverlay.className = "battlefield-loading-overlay";
@@ -256,6 +271,7 @@ ui.innerHTML = `
     <div class="hud-status-group">
   <section class="status-panel" aria-label="Game status">
     <div class="status-heading"><span class="game-title">Tower Defence</span><span class="field-status-label">FIELD STATUS</span></div>
+    ${map.multiplayer ? `<div class="player-switch" role="group" aria-label="Active local player">${map.multiplayer.playerSlots.map((slot) => `<button type="button" data-player-id="${slot.playerId}" aria-pressed="${slot.playerIndex === 0}">P${slot.playerIndex + 1}</button>`).join("")}<span id="active-player-faction"></span></div>` : ""}
     <div class="stat-row"><span class="stat-icon icon-wave" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 21V4m1 1c5-4 8 4 13 0v10c-5 4-8-4-13 0"/></svg></span><span class="stat-label">Wave</span><strong id="stat-wave" class="stat-value">1</strong></div>
     <div class="stat-row"><span class="stat-icon icon-enemies" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3a8 8 0 0 0-5 14v3h10v-3a8 8 0 0 0-5-14Z"/><path d="M9 11h.1M15 11h.1M9 16v2m3-2v2m3-2v2"/></svg></span><span class="stat-label">Enemies</span><strong id="stat-enemies" class="stat-value">0</strong></div>
     <div class="stat-row"><span class="stat-icon icon-gold" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M14.5 8.5c-.6-.7-1.4-1-2.5-1-1.3 0-2.2.7-2.2 1.7 0 2.8 4.7 1.2 4.7 4 0 1.1-1 2-2.6 2-1.1 0-2.1-.4-2.8-1.2M12 5.5v13"/></svg></span><span class="stat-label">Gold</span><strong id="stat-gold" class="stat-value stat-gold-value">0</strong></div>
@@ -323,7 +339,7 @@ ui.innerHTML = `
     <button id="select-tool-button" class="defender-choice select-tool is-selected" type="button" aria-label="Select tool" aria-pressed="true">
       <span class="select-tool-icon" aria-hidden="true">↖</span><span class="unit-card-copy"><strong>SELECT</strong><small>TOOL</small></span><span class="unit-card-selection">ACTIVE</span>
     </button>
-    ${faction.units.map((type) => {
+    ${rosterUnits.map((type) => {
       const defender = DEFENDER_CONFIG[type];
       return `<button id="build-${type}-button" class="defender-choice${type === "holy-emperor" ? " is-ultimate" : ""}" type="button" aria-label="Select ${defender.name}" aria-pressed="false">
         <span class="unit-portrait-frame">${defenderPortraitMarkup(type, "unit-portrait-fallback")}</span>
@@ -410,9 +426,9 @@ for (const eventName of ["pointerdown", "pointerup", "pointermove", "pointercanc
   ui.addEventListener(eventName, (event) => event.stopPropagation(), { passive: eventName === "wheel" || eventName.startsWith("touch") });
 }
 
-const gameState = new GameState(map, faction.id);
+const gameState = new GameState(map, factions.map((entry) => entry.id));
 const { BabylonGameRenderer } = BabylonGameRendererModule;
-const renderer = new BabylonGameRenderer(canvas, map, faction.id);
+const renderer = new BabylonGameRenderer(canvas, map, factions.map((entry) => entry.id));
 const navigation = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined;
 console.info("APPLICATION BOOT", { navigationType: navigation?.type ?? "unknown" });
 const debugParams = new URLSearchParams(window.location.search);
@@ -626,11 +642,11 @@ const setSelection = (towerId?: number): void => {
   renderSelectedTower(gameState);
 };
 
-const buildButtons = Object.fromEntries(faction.units.map((type) => [
+const buildButtons = Object.fromEntries(rosterUnits.map((type) => [
   type, query<HTMLButtonElement>(`#build-${type}-button`),
 ])) as Record<DefenderType, HTMLButtonElement>;
 const selectToolButton = query<HTMLButtonElement>("#select-tool-button");
-const carouselItems = [selectToolButton, ...faction.units.map((type) => buildButtons[type])];
+const carouselItems = [selectToolButton, ...rosterUnits.map((type) => buildButtons[type])];
 for (const button of Object.values(buildButtons)) button.disabled = true;
 startButton.disabled = true;
 let previousDefenderAssetsReady: boolean | undefined;
@@ -646,6 +662,7 @@ const updateCarouselSummary = (type?: DefenderType): void => {
   carouselSummary.textContent = `${range} · ${targets}`;
 };
 const chooseBuildType = (type: DefenderType): void => {
+  if (!gameState.availableUnits.includes(type)) return;
   selectedBuildType = type;
   renderer.setBuildDefenderType(type);
   selectToolButton.classList.remove("is-selected");
@@ -654,7 +671,7 @@ const chooseBuildType = (type: DefenderType): void => {
     button.classList.toggle("is-selected", buttonType === type);
     button.setAttribute("aria-pressed", String(buttonType === type));
   }
-  buildCarousel?.setSelected(faction.units.indexOf(type) + 1);
+  buildCarousel?.setSelected(rosterUnits.indexOf(type) + 1);
   updateCarouselSummary(type);
   if (selectedTowerId === undefined) renderBuildUnitInfo();
 };
@@ -672,13 +689,36 @@ const chooseSelectTool = (): void => {
   if (selectedTowerId === undefined) renderBuildUnitInfo();
 };
 selectToolButton.addEventListener("click", chooseSelectTool);
-for (const type of faction.units) buildButtons[type].addEventListener("click", () => chooseBuildType(type));
+for (const type of rosterUnits) buildButtons[type].addEventListener("click", () => chooseBuildType(type));
 buildCarousel = new BuildCarousel(
   defenderChoicePanel, carouselItems,
   query<HTMLButtonElement>("#carousel-previous"), query<HTMLButtonElement>("#carousel-next"),
-  (index) => index === 0 ? chooseSelectTool() : chooseBuildType(faction.units[index - 1]), uiLifecycle.signal,
+  (index) => index === 0 ? chooseSelectTool() : chooseBuildType(rosterUnits[index - 1]), uiLifecycle.signal,
 );
 buildCarousel.setSelected(0, false);
+
+const playerSwitchButtons = Array.from(ui.querySelectorAll<HTMLButtonElement>("[data-player-id]"));
+const activePlayerFaction = ui.querySelector<HTMLElement>("#active-player-faction");
+const syncActivePlayerUi = (): void => {
+  const units = new Set(gameState.availableUnits);
+  cancelSellConfirmation();
+  closeSpecializationChoice();
+  chooseSelectTool();
+  for (const [type, button] of Object.entries(buildButtons) as [DefenderType, HTMLButtonElement][]) {
+    button.hidden = !units.has(type);
+    button.disabled = !renderer.areDefenderAssetsReady || !units.has(type);
+  }
+  for (const button of playerSwitchButtons) button.setAttribute("aria-pressed", String(button.dataset.playerId === gameState.activePlayerId));
+  if (activePlayerFaction) activePlayerFaction.textContent = `${gameState.faction.name} · ${gameState.gold}G`;
+  ui.dataset.activePlayerId = gameState.activePlayerId;
+  buildCarousel?.refresh();
+  lastSelectedTowerRenderKey = "";
+  renderSelectedTower(gameState);
+};
+for (const button of playerSwitchButtons) button.addEventListener("click", () => {
+  if (gameState.setActivePlayer(button.dataset.playerId as `player-${number}`)) syncActivePlayerUi();
+});
+syncActivePlayerUi();
 
 const setInfoPanelOpen = (open: boolean): void => {
   infoPanel.hidden = !open;
@@ -823,6 +863,7 @@ renderer.start(gameState, (state) => {
   loadingOverlay.remove();
   minimap.update(state, renderer.getApproximateMinimapView());
   goldValue.textContent = String(state.gold);
+  if (activePlayerFaction) activePlayerFaction.textContent = `${state.faction.name} · ${state.gold}G`;
   livesValue.textContent = String(state.lives);
   waveValue.textContent = String(state.currentWave);
   enemiesValue.textContent = String(state.enemiesRemaining);
@@ -831,7 +872,9 @@ renderer.start(gameState, (state) => {
     previousDefenderAssetsReady = defenderAssetsReady;
     if (defenderAssetsReady) performance.mark("tower-defence-defender-assets-ready");
     ui.dataset.defenderAssetsReady = String(defenderAssetsReady);
-    for (const button of Object.values(buildButtons)) button.disabled = !defenderAssetsReady;
+    for (const [type, button] of Object.entries(buildButtons) as [DefenderType, HTMLButtonElement][]) {
+      button.disabled = !defenderAssetsReady || !state.availableUnits.includes(type);
+    }
     buildUnitInfoHint.textContent = defenderAssetsReady ? "Click or tap a tile to place" : "Loading defender visuals…";
   }
   startButton.disabled = !defenderAssetsReady || state.waveActive || state.gameOver || Boolean(state.hpTierWarning) || Boolean(state.affixWarning);
@@ -945,7 +988,8 @@ function formatCompactDamage(value: number): string {
 
 function getTowerBuffs(state: GameState, tower: Tower): TowerBuff[] {
   const buffs: TowerBuff[] = [];
-  const veteran = getVeteranProgress(state.factionId, tower);
+  const towerFactionId = state.getTowerFactionId(tower);
+  const veteran = getVeteranProgress(towerFactionId, tower);
   if (veteran.rank > 0) {
     buffs.push({ icon: "★", name: veteran.label,
       detail: `Veteran Corps rank ${veteran.rank}; +${Math.round(veteran.damageBonus * 100)}% damage and +${Math.round(veteran.attackSpeedBonus * 100)}% attack speed.` });
@@ -967,10 +1011,15 @@ function getTowerBuffs(state: GameState, tower: Tower): TowerBuff[] {
     if (splashRatio > 0) buffs.push({ icon: "✺", name: "Splash",
       detail: `${Math.round(splashRatio * 100)}% damage within ${formatBalanceNumber(DEFENDER_CONFIG[tower.type].splashRadiusTiles?.[tower.level] ?? 1.5)} tiles.` });
   }
+  if (tower.type === "thorn-dancer") {
+    const aura = getVerdantResonanceProfile(tower.specializationId);
+    buffs.push({ icon: "❧", name: "Verdant Resonance",
+      detail: `${formatBalanceNumber(aura.radiusCells)} tile aura: +${Math.round((aura.dotDamageMultiplier - 1) * 100)}% Grove DoT damage, +${Math.round((aura.slowStrengthMultiplier - 1) * 100)}% Grove slow strength, and ground-only Grove effects can affect flying enemies inside it.` });
+  }
   if (DEFENDER_CONFIG[tower.type].supportsMapWideTargeting) {
     buffs.push({ icon: "◉", name: "Map-wide targeting", detail: "Can acquire Ground and Air enemies anywhere on the map." });
   }
-  if (state.factionId === FACTION_BONUS_CONFIG.ancientGroveId) {
+  if (towerFactionId === FACTION_BONUS_CONFIG.ancientGroveId) {
     buffs.push({ icon: "❧", name: "Living Maze", detail: `Ground enemies on influenced paths slow by up to ${Math.round(FACTION_BONUS_CONFIG.livingMaze.maxSlow * 100)}%. Flying enemies are unaffected.` });
   }
   return buffs;
@@ -987,15 +1036,17 @@ function renderSelectedTower(state: GameState): void {
     setSelection();
     return;
   }
+  const towerFactionId = state.getTowerFactionId(tower);
+  const isOwner = tower.ownerPlayerId === state.activePlayerId;
   const renderKey = [
     tower.id, tower.type, tower.level, tower.damage, tower.range, tower.fireRate,
     tower.specializationId, tower.formationId, tower.combatStats.kills, tower.combatStats.damageDone,
-    state.factionId, state.gold, pendingSellTowerId, selectionMessage,
+    towerFactionId, state.activePlayerId, state.gold, pendingSellTowerId, selectionMessage,
   ].join("|");
   if (renderKey === lastSelectedTowerRenderKey) return;
   lastSelectedTowerRenderKey = renderKey;
-  const veteran = getVeteranProgress(state.factionId, tower);
-  const veteranRankedUp = state.factionId === "arcane-kingdom"
+  const veteran = getVeteranProgress(towerFactionId, tower);
+  const veteranRankedUp = towerFactionId === "arcane-kingdom"
     && lastSelectedVeteranRank !== undefined && veteran.rank > lastSelectedVeteranRank;
   lastSelectedVeteranRank = veteran.rank;
   towerPanel.hidden = false;
@@ -1007,7 +1058,7 @@ function renderSelectedTower(state: GameState): void {
   towerPortrait.textContent = portrait ? "" : defenderGlyph(tower.type);
   towerPortrait.classList.toggle("has-placeholder", !portrait);
   towerPortrait.style.backgroundImage = portrait ? `url("${portrait}")` : "none";
-  towerLevel.textContent = `Level ${tower.level}`;
+  towerLevel.textContent = `Level ${tower.level} · P${state.getPlayer(tower.ownerPlayerId)!.playerIndex + 1}`;
   const specialization = tower.specializationId ? TOWER_SPECIALIZATIONS[tower.specializationId] : undefined;
   towerSpecialization.hidden = !specialization;
   towerSpecialization.textContent = specialization ? specialization.name.toUpperCase() : "";
@@ -1029,7 +1080,7 @@ function renderSelectedTower(state: GameState): void {
       return button;
     }));
   }
-  if (state.factionId === "arcane-kingdom") {
+  if (towerFactionId === "arcane-kingdom") {
     towerVeteran.hidden = false;
     const title = veteran.rank === 0 ? "VETERAN" : veteran.label.toUpperCase();
     const damage = `${formatCompactDamage(veteran.damage)} DMG`;
@@ -1060,7 +1111,7 @@ function renderSelectedTower(state: GameState): void {
   if (isSovereign) renderSovereignProfiles(towerSovereignProfiles, tower.level);
   towerDamage.textContent = String(tower.damage);
   towerRange.textContent = mapWide ? "MAP WIDE" : tower.rangeMode === "adjacent8"
-    ? "1 Tile"
+    ? `${tower.range} ${tower.range === 1 ? "Tile" : "Tiles"}`
     : `${Number((tower.range / WORLD_UNITS_PER_CELL).toFixed(1))} Tiles`;
   towerFireRate.textContent = `${tower.fireRate.toFixed(2)}/s`;
   towerKills.textContent = String(tower.combatStats.kills);
@@ -1072,11 +1123,12 @@ function renderSelectedTower(state: GameState): void {
     ? `Confirm selling for ${sellRefund} gold`
     : `Sell tower for ${sellRefund} gold`);
   sellButton.classList.toggle("is-confirming", awaitingSellConfirmation);
+  sellButton.disabled = !isOwner;
   const nextLevel = getTowerLevelStats(tower.level + 1, tower.type);
   const upgradeCost = nextLevel.level === tower.level + 1 ? nextLevel.upgradeCost : null;
   const maxLevel = upgradeCost === null;
   upgradeButton.textContent = maxLevel ? "MAX LEVEL" : `UPGRADE · ${upgradeCost}G`;
-  upgradeButton.disabled = maxLevel || state.gold < (upgradeCost ?? 0);
+  upgradeButton.disabled = !isOwner || maxLevel || state.gold < (upgradeCost ?? 0);
   const tooltipLines: string[] = [];
   if (!maxLevel) {
     tooltipLines.push(`Upgrade to Level ${nextLevel.level}`);
@@ -1111,7 +1163,7 @@ function renderSelectedTower(state: GameState): void {
     tooltipLines.push("MAX LEVEL - no further upgrade");
   }
   upgradeTooltip.textContent = tooltipLines.join("\n");
-  towerMessage.textContent = selectionMessage;
+  towerMessage.textContent = !isOwner ? `Owned by P${state.getPlayer(tower.ownerPlayerId)!.playerIndex + 1}; switch player to modify.` : selectionMessage;
 }
 
 function openSpecializationChoice(towerId: number): void {
@@ -1178,8 +1230,10 @@ function renderBuildUnitInfo(): void {
   buildUnitInfoFallback.hidden = Boolean(portrait);
   if (portrait) buildUnitInfoImage.src = portrait;
   else { buildUnitInfoImage.removeAttribute("src"); buildUnitInfoFallback.textContent = defenderGlyph(selectedBuildType); }
-  buildUnitInfoCapabilities.hidden = !isMapWide;
-  buildUnitInfoCapabilities.textContent = isMapWide ? getDefenderCapabilitySummary(selectedBuildType, 1) : "";
+  const hasSpecialCapabilities = isMapWide || defender.radialAttack || selectedBuildType === "thorn-dancer";
+  const capabilitySummary = hasSpecialCapabilities ? getDefenderCapabilitySummary(selectedBuildType, 1) : "";
+  buildUnitInfoCapabilities.hidden = capabilitySummary.length === 0;
+  buildUnitInfoCapabilities.textContent = capabilitySummary;
   buildUnitInfoName.textContent = defender.name;
   buildUnitInfoRole.textContent = (selectedBuildType === "sovereign"
     ? defender.roleLabel ?? defender.specializationLabel
@@ -1451,6 +1505,11 @@ function getDefenderCapabilitySummary(type: DefenderType, level: number): string
   const splashRadius = defender.splashRadiusTiles?.[level];
   if (splashRatio > 0 && splashRadius !== undefined) {
     parts.push(`${defender.splashLabel ?? "Splash"} ${Math.round(splashRatio * 100)}% within ${formatBalanceNumber(splashRadius)} tiles`);
+  }
+  if (defender.radialAttack) parts.push(`360° full damage across ${defender.levels[level - 1].range} surrounding cell ring${defender.levels[level - 1].range === 1 ? "" : "s"}`);
+  if (type === "thorn-dancer") {
+    const aura = getVerdantResonanceProfile();
+    parts.push(`${formatBalanceNumber(aura.radiusCells)} tile Verdant Resonance aura`);
   }
   return parts.join(" · ").toUpperCase();
 }

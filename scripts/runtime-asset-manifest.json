@@ -14,7 +14,9 @@
       "assets/models/defenders/optimized/treant.glb",
       "assets/models/defenders/optimized/thorn-owl.glb",
       "assets/models/defenders/optimized/druid.glb",
-      "assets/models/defenders/optimized/seer.glb"
+      "assets/models/defenders/optimized/seer.glb",
+      "assets/models/defenders/optimized/bark-titan.glb",
+      "assets/models/defenders/optimized/thorn-dancer.glb"
     ],
     "enemies": [
       "assets/models/enemies/optimized/goblin.glb",
@@ -66,7 +68,9 @@
       "assets/ui/defenders/treant.png",
       "assets/ui/defenders/thorn-owl.png",
       "assets/ui/defenders/druid.png",
-      "assets/ui/defenders/seer.png"
+      "assets/ui/defenders/seer.png",
+      "assets/ui/defenders/bark-titan.png",
+      "assets/ui/defenders/thorn-dancer.png"
     ]
   },
   "developmentOnly": [

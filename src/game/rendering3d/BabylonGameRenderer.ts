@@ -29,6 +29,7 @@ import { QuaterniusEnemyFactory, QuaterniusEnemyVisual } from "./QuaterniusEnemy
 import { QuaterniusDefenderFactory, QuaterniusDefenderVisual } from "./QuaterniusDefenderFactory";
 import { ENEMY_VISUAL_CONFIG } from "./EnemyVisualConfig";
 import { DEFENDER_VISUAL_CONFIG } from "./DefenderVisualConfig";
+import { getVerdantResonanceProfile } from "../config/AncientGroveUnitConfig";
 import { getCommanderAuraMultiplier, getEnemySpeedMultiplier } from "../enemies/EnemyAffixSystem";
 import { EnvironmentAssetLibrary } from "./EnvironmentAssetLibrary";
 import { VISUAL_CONFIG } from "./VisualConfig";
@@ -144,8 +145,11 @@ export class BabylonGameRenderer {
   private readonly selectedTowerMarkerMaterial: StandardMaterial;
   private readonly rangeMaterial: StandardMaterial;
   private readonly circularRangeMarker: AbstractMesh;
+  private readonly verdantAuraMarker: AbstractMesh;
   private readonly adjacentRangeMarkers: AbstractMesh[] = [];
   private readonly allyAccentMaterial: StandardMaterial;
+  private readonly allySecondaryAccentMaterial: StandardMaterial;
+  private readonly buildZoneVisuals = new Map<string, Mesh>();
   private readonly shadowGenerator: ShadowGenerator;
   private readonly enemyFactory: EnemyMeshFactory;
   private readonly quaterniusEnemyFactory: QuaterniusEnemyFactory;
@@ -260,9 +264,14 @@ export class BabylonGameRenderer {
   private disposed = false;
   private hasRenderedFirstFrame = false;
 
+  private readonly factionIds: readonly FactionId[];
+  private readonly factionId: FactionId;
+
   constructor(private readonly canvas: HTMLCanvasElement, map: MapDefinition = MAPS["single-spawn"],
-    private readonly factionId: FactionId = "arcane-kingdom") {
+    factionSelection: FactionId | readonly FactionId[] = "arcane-kingdom") {
     this.map = map;
+    this.factionIds = Array.isArray(factionSelection) ? factionSelection : [factionSelection];
+    this.factionId = this.factionIds[0] ?? "arcane-kingdom";
     this.currentTheme = themeForRun(this.presentationSeed, this.factionId);
     this.engine = new Engine(canvas, ACTIVE_RENDERING_QUALITY.antialias);
     this.engine.setHardwareScalingLevel(ACTIVE_RENDERING_QUALITY.hardwareScalingLevel);
@@ -287,7 +296,7 @@ export class BabylonGameRenderer {
     this.quaterniusFactory = new QuaterniusArcherFactory(this.scene, this.shadowGenerator);
     this.blueWizardFactory = new BlueWizardFactory(this.scene, this.shadowGenerator);
     this.holyKnightFactory = new HolyKnightFactory(this.scene, this.shadowGenerator);
-    this.quaterniusDefenderFactory = new QuaterniusDefenderFactory(this.scene, this.shadowGenerator, this.factionId);
+    this.quaterniusDefenderFactory = new QuaterniusDefenderFactory(this.scene, this.shadowGenerator, this.factionIds);
     this.combatEffects = new CombatEffects3D(this.scene);
     for (const formation of FORMATIONS) {
       const material = new StandardMaterial(`formation-${formation.id}`, this.scene);
@@ -342,7 +351,7 @@ export class BabylonGameRenderer {
     ];
     // Ancient Grove has its own complete roster. Avoid fetching/parsing Royal
     // Guard-only Wizard/Knight assets before the selected battlefield is ready.
-    if (this.factionId === "arcane-kingdom") {
+    if (this.factionIds.includes("arcane-kingdom")) {
       selectedFactionLoads.push(
         this.blueWizardFactory.load().catch((error: unknown) => {
           if (this.disposed) return;
@@ -376,6 +385,7 @@ export class BabylonGameRenderer {
       this.preloadEnemyAssetsForWave(1);
     }
     this.createGroundAndGrid();
+    this.createBuildZoneVisuals();
     this.pendingInitialization.push(this.createArenaArt());
     this.highlight = MeshBuilder.CreateGround("selection", { width: 0.92, height: 0.92 }, this.scene);
     this.selectionMaterial = new StandardMaterial("selectionMaterial", this.scene);
@@ -394,8 +404,19 @@ export class BabylonGameRenderer {
     this.circularRangeMarker.material = this.rangeMaterial;
     this.circularRangeMarker.isPickable = false;
     this.circularRangeMarker.setEnabled(false);
-    for (let dy = -1; dy <= 1; dy += 1) {
-      for (let dx = -1; dx <= 1; dx += 1) {
+    this.verdantAuraMarker = MeshBuilder.CreateDisc("verdant-resonance-range", { radius: 1, tessellation: 48 }, this.scene);
+    this.verdantAuraMarker.rotation.x = Math.PI / 2;
+    this.verdantAuraMarker.position.y = 0.016;
+    const verdantAuraMaterial = new StandardMaterial("verdant-resonance-range-material", this.scene);
+    verdantAuraMaterial.diffuseColor = new Color3(0.42, 0.76, 0.32);
+    verdantAuraMaterial.emissiveColor = new Color3(0.08, 0.25, 0.06);
+    verdantAuraMaterial.alpha = 0.1;
+    verdantAuraMaterial.disableLighting = true;
+    this.verdantAuraMarker.material = verdantAuraMaterial;
+    this.verdantAuraMarker.isPickable = false;
+    this.verdantAuraMarker.setEnabled(false);
+    for (let dy = -2; dy <= 2; dy += 1) {
+      for (let dx = -2; dx <= 2; dx += 1) {
         if (dx === 0 && dy === 0) continue;
         const marker = MeshBuilder.CreateGround(`tower-adjacent-range-${dx}-${dy}`, {
           width: 0.94, height: 0.94,
@@ -449,6 +470,10 @@ export class BabylonGameRenderer {
     this.allyAccentMaterial.diffuseColor = VISUAL_CONFIG.allyAccentColor;
     this.allyAccentMaterial.emissiveColor = VISUAL_CONFIG.allyAccentColor.scale(0.32);
     this.allyAccentMaterial.alpha = 0.72;
+    this.allySecondaryAccentMaterial = new StandardMaterial("allySecondaryFactionAccent", this.scene);
+    this.allySecondaryAccentMaterial.diffuseColor = Color3.FromHexString("#d890ff");
+    this.allySecondaryAccentMaterial.emissiveColor = Color3.FromHexString("#8d42bf");
+    this.allySecondaryAccentMaterial.alpha = 0.72;
     for (const [rank, color] of [[1, "#7ab8e8"], [2, "#83d6c2"], [3, "#f0cf72"]] as const) {
       const material = new StandardMaterial(`veteran-rank-${rank}`, this.scene);
       material.diffuseColor = Color3.FromHexString(color);
@@ -817,6 +842,7 @@ export class BabylonGameRenderer {
     this.syncSpecializationVisuals(gameState);
     this.syncVeteranVisuals(gameState);
     this.syncLivingMazeVisuals(gameState);
+    this.syncBuildZoneVisuals(gameState);
     this.updateSelectedTowerRange(gameState);
     this.updateSelectedTowerIndicator(gameState);
     if (processAttackEvents) this.beginEnemyDeathVisuals(gameState);
@@ -1046,7 +1072,8 @@ export class BabylonGameRenderer {
     const activeIds = new Set<number>();
     for (const tower of gameState.towers) {
       const visual = this.towerVisuals.get(tower.id);
-      const rank = gameState.factionId === "arcane-kingdom" ? getVeteranProgress(gameState.factionId, tower).rank : 0;
+      const towerFactionId = gameState.getTowerFactionId(tower);
+      const rank = towerFactionId === "arcane-kingdom" ? getVeteranProgress(towerFactionId, tower).rank : 0;
       const existing = this.veteranVisuals.get(tower.id);
       if (!visual || rank === 0) {
         existing?.meshes.forEach((mesh) => mesh.dispose(false, false));
@@ -1075,7 +1102,8 @@ export class BabylonGameRenderer {
   }
 
   private syncLivingMazeVisuals(gameState: GameState): void {
-    const cells = gameState.factionId === "ancient-grove" ? gameState.factionBonuses.getLivingMazeInfluencedCells() : [];
+    const cells = gameState.players.some((player) => player.factionId === "ancient-grove")
+      ? gameState.factionBonuses.getLivingMazeInfluencedCells() : [];
     const signature = cells.map(({ x, y }) => `${x},${y}`).sort().join("|");
     if (signature === this.livingMazeVisualSignature) return;
     this.livingMazeVisualSignature = signature;
@@ -1090,6 +1118,31 @@ export class BabylonGameRenderer {
       mesh.renderingGroupId = 1;
       this.livingMazeVisuals.set(`${cell.x},${cell.y}`, mesh);
     }
+  }
+
+  /** A few translucent rectangles communicate permissions only while placing; GameState remains authoritative. */
+  private createBuildZoneVisuals(): void {
+    for (const zone of this.map.multiplayer?.buildZones ?? []) {
+      const color = zone.kind === "shared" ? Color3.FromHexString("#e4cf72")
+        : zone.ownerPlayerId === "player-2" ? Color3.FromHexString("#c57bea") : Color3.FromHexString("#69cdea");
+      const material = new StandardMaterial(`build-zone-material-${zone.id}`, this.scene);
+      material.diffuseColor = color;
+      material.emissiveColor = color.scale(0.22);
+      material.alpha = zone.kind === "shared" ? 0.065 : 0.04;
+      material.disableLighting = true;
+      const mesh = MeshBuilder.CreateGround(`build-zone-${zone.id}`, { width: zone.width, height: zone.height, subdivisions: 1 }, this.scene);
+      mesh.position.set(zone.x + zone.width / 2, 0.012, zone.y + zone.height / 2);
+      mesh.material = material;
+      mesh.isPickable = false;
+      mesh.setEnabled(false);
+      mesh.freezeWorldMatrix();
+      this.buildZoneVisuals.set(zone.id, mesh);
+    }
+  }
+
+  private syncBuildZoneVisuals(gameState: GameState): void {
+    const visibleZoneIds = this.buildDefenderType ? new Set(gameState.activePlayer.buildZoneIds) : new Set<string>();
+    for (const [zoneId, mesh] of this.buildZoneVisuals) mesh.setEnabled(visibleZoneIds.has(zoneId));
   }
 
   private syncEnemyAffixVisual(enemyId: number, enemy: GameState["enemies"][number], root: TransformNode, hpBarY: number): void {
@@ -1152,12 +1205,23 @@ export class BabylonGameRenderer {
       this.circularRangeMarker.scaling.set(radiusInTiles, radiusInTiles, 1);
     }
 
+    const showVerdantAura = selected?.type === "thorn-dancer";
+    this.verdantAuraMarker.setEnabled(showVerdantAura);
+    if (showVerdantAura && selected) {
+      const point = gridToWorld3D(selected.cell);
+      const aura = getVerdantResonanceProfile(selected.specializationId);
+      this.verdantAuraMarker.position.x = point.x;
+      this.verdantAuraMarker.position.z = point.z;
+      this.verdantAuraMarker.scaling.set(aura.radiusCells, aura.radiusCells, 1);
+    }
+
     let markerIndex = 0;
-    for (let dy = -1; dy <= 1; dy += 1) {
-      for (let dx = -1; dx <= 1; dx += 1) {
+    for (let dy = -2; dy <= 2; dy += 1) {
+      for (let dx = -2; dx <= 2; dx += 1) {
         if (dx === 0 && dy === 0) continue;
         const marker = this.adjacentRangeMarkers[markerIndex++];
-        const visible = selected?.rangeMode === "adjacent8" || selected?.rangeMode === "hybrid";
+        const selectedCellRange = selected?.rangeMode === "adjacent8" ? selected.range : selected?.rangeMode === "hybrid" ? 1 : 0;
+        const visible = selectedCellRange >= Math.max(Math.abs(dx), Math.abs(dy));
         marker.setEnabled(visible);
         if (!visible || !selected) continue;
         const point = gridToWorld3D({ x: selected.cell.x + dx, y: selected.cell.y + dy });
@@ -1456,6 +1520,7 @@ export class BabylonGameRenderer {
         buildGridOpacity: number;
         texturesReady: boolean;
         environmentReady: boolean;
+        endpointDecorationMeshCount: number;
         environmentComposition?: ReturnType<WinterArenaArt["compositionStats"]>;
         groundTextures: typeof terrainStats.groundTextureNames;
         cliffTextures: typeof terrainStats.cliffTextureNames;
@@ -1478,6 +1543,7 @@ export class BabylonGameRenderer {
         buildGridOpacity: VISUAL_CONFIG.buildGridAlpha,
         texturesReady: grassAlbedo.isReady(),
         environmentReady: false,
+        endpointDecorationMeshCount: 0,
         groundTextures: terrainStats.groundTextureNames,
         cliffTextures: terrainStats.cliffTextureNames,
         terrainMeshes: this.scene.meshes.filter((mesh) => mesh.name.startsWith("snow-cliff-formation-")).map((mesh) => ({
@@ -1504,7 +1570,7 @@ export class BabylonGameRenderer {
     if (this.disposed) return;
     this.arenaArt.perimeter(this.currentTheme, [
       ...this.map.layout.activeSpawns.map(({ gateCell, side }) => ({ x: gateCell.x, z: gateCell.y, side })),
-      { x: this.map.layout.castle.gateCell.x, z: this.map.layout.castle.gateCell.y, side: this.map.layout.castle.side },
+      ...(this.map.layout.goals ?? [this.map.layout.castle]).map((goal) => ({ x: goal.gateCell.x, z: goal.gateCell.y, side: goal.side })),
     ]);
     if (this.currentTheme.style === "castle") this.arenaArt.warmOutskirtsAccents();
     const red = this.material("spawn-ember", this.currentTheme.spawnAccent,
@@ -1517,21 +1583,30 @@ export class BabylonGameRenderer {
     this.spawnZoneMaterial = this.material("spawn-zone-material", this.currentTheme.spawnAccent);
     for (const spawn of this.map.layout.activeSpawns) {
       const point = gridToWorld3D(spawn.entryCell);
-      this.zoneMarker(`spawn-zone-${spawn.id}`, point.x, point.z, this.currentTheme.spawnAccent, this.spawnZoneMaterial);
-      this.createEndpointVisual(`spawn-${spawn.id}`, point.x, point.z, red, this.currentTheme.spawnAccent, spawn.side);
+      if (this.currentTheme.style === "castle") {
+        this.zoneMarker(`spawn-zone-${spawn.id}`, point.x, point.z, this.currentTheme.spawnAccent, this.spawnZoneMaterial);
+        this.createEndpointVisual(`spawn-${spawn.id}`, point.x, point.z, red, this.currentTheme.spawnAccent, spawn.side);
+      }
     }
-    const goal = gridToWorld3D(this.map.layout.castle.approachCell);
-    this.exitZoneMaterial = this.zoneMarker("castle-zone", goal.x, goal.z, this.currentTheme.exitAccent);
-    this.createEndpointVisual("exit", goal.x, goal.z, gold, this.currentTheme.exitAccent, this.map.layout.castle.side);
+    if (this.currentTheme.style === "castle") {
+      for (const [index, goalDefinition] of (this.map.layout.goals ?? [this.map.layout.castle]).entries()) {
+        const goal = gridToWorld3D(goalDefinition.approachCell);
+        this.exitZoneMaterial = this.zoneMarker(index === 0 ? "castle-zone" : `castle-zone-${goalDefinition.id}`, goal.x, goal.z, this.currentTheme.exitAccent);
+        this.createEndpointVisual(`exit-${goalDefinition.id}`, goal.x, goal.z, gold, this.currentTheme.exitAccent, goalDefinition.side);
+      }
+    }
     this.environmentReady = true;
     if (this.terrainArtDebug) {
       const terrainDebug = (window as Window & { __terrainArtDebug?: {
         environmentReady: boolean;
+        endpointDecorationMeshCount?: number;
         environmentComposition?: ReturnType<WinterArenaArt["compositionStats"]>;
         environmentRendering?: ReturnType<EnvironmentAssetLibrary["renderingStats"]>;
       } }).__terrainArtDebug;
       if (terrainDebug) {
         terrainDebug.environmentReady = true;
+        terrainDebug.endpointDecorationMeshCount = this.scene.meshes.filter((mesh) =>
+          /^(spawn-zone-|castle-zone|spawn-.*-(ring|portal)|exit-(ring|portal))/.test(mesh.name)).length;
         terrainDebug.environmentComposition = this.arenaArt.compositionStats(this.currentTheme);
         terrainDebug.environmentRendering = this.environmentAssets.renderingStats();
       }
@@ -2193,6 +2268,8 @@ export class BabylonGameRenderer {
       case "thorn-owl":
       case "druid":
       case "seer":
+      case "bark-titan":
+      case "thorn-dancer":
         visual = this.quaterniusDefenderFactory.create(tower.id, tower.type, tower.level);
         break;
       default: {
@@ -2213,7 +2290,7 @@ export class BabylonGameRenderer {
     }, this.scene);
     factionRing.parent = visual.root;
     factionRing.position.y = 0.018;
-    factionRing.material = this.allyAccentMaterial;
+    factionRing.material = tower.ownerPlayerId === "player-2" ? this.allySecondaryAccentMaterial : this.allyAccentMaterial;
     factionRing.isPickable = false;
     return visual;
   }

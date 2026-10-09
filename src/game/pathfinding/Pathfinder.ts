@@ -35,3 +35,27 @@ export function findPathThrough(grid: Grid, start: Cell, waypoints: readonly Cel
   }
   return route;
 }
+
+export interface GoalRouteCandidate { goalId: string; goal: Cell; path: Cell[]; }
+
+/** Resolves a deterministic shortest reachable goal with bias against insignificant lane switching. */
+export function findPathToAnyGoal(
+  grid: Grid,
+  start: Cell,
+  goals: readonly { id: string; cell: Cell }[],
+  preferredGoalId?: string,
+  currentGoalId?: string,
+  switchMinimumSavings = 0,
+): GoalRouteCandidate | null {
+  const routes = goals.map(({ id, cell }) => {
+    const path = findPath(grid, start, cell);
+    return path ? { goalId: id, goal: cell, path } : undefined;
+  }).filter((candidate): candidate is GoalRouteCandidate => candidate !== undefined);
+  if (routes.length === 0) return null;
+  routes.sort((a, b) => a.path.length - b.path.length || a.goalId.localeCompare(b.goalId));
+  const shortest = routes[0];
+  const stableGoalId = currentGoalId ?? preferredGoalId;
+  const stable = routes.find((candidate) => candidate.goalId === stableGoalId);
+  if (!stable) return shortest;
+  return stable.path.length - shortest.path.length >= switchMinimumSavings ? shortest : stable;
+}

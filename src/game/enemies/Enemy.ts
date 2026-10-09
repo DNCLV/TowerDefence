@@ -22,6 +22,11 @@ export interface Enemy {
   currentPathIndex: number;
   /** Personal route, replaced only when a tower changes map topology. */
   path: Cell[];
+  /** Stable destination choice used for multi-goal rerouting hysteresis. */
+  targetGoalId?: string;
+  preferredGoalId?: string;
+  /** Goal restrictions inherited from the spawn lane and retained across repaths. */
+  allowedGoalIds?: string[];
   alive: boolean;
   affixes: EnemyAffix[];
   shield: number;

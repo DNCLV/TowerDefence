@@ -113,4 +113,16 @@ export const DEFENDER_VISUAL_CONFIG: Record<DefenderType, DefenderVisualDefiniti
     ...normalizedVisual({ width: 1.3139, height: 1.8974, depth: 1.2935 }, 1.61, { width: 0.68, depth: 0.7 }),
     visualScaleMultiplier: 0.9, rotationY: 0,
   },
+  "bark-titan": {
+    displayName: "Bark Titan", debugLabel: "BARK TITAN",
+    assetPath: "/assets/models/defenders/optimized/bark-titan.glb",
+    ...normalizedVisual({ width: 1.48647, height: 1.89841, depth: 0.84258 }, 1.82, { width: 0.78, depth: 0.8 }),
+    visualScaleMultiplier: 0.94, rotationY: 0,
+  },
+  "thorn-dancer": {
+    displayName: "Thorn Dancer", debugLabel: "THORN DANCER",
+    assetPath: "/assets/models/defenders/optimized/thorn-dancer.glb",
+    ...normalizedVisual({ width: 1.45986, height: 1.89563, depth: 0.48566 }, 1.68, { width: 0.7, depth: 0.72 }),
+    visualScaleMultiplier: 0.9, rotationY: 0,
+  },
 };

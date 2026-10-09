@@ -14,8 +14,15 @@ const expectedDefenderPaths = {
   "thorn-owl": "/assets/models/defenders/optimized/thorn-owl.glb",
   druid: "/assets/models/defenders/optimized/druid.glb",
   seer: "/assets/models/defenders/optimized/seer.glb",
+  "bark-titan": "/assets/models/defenders/optimized/bark-titan.glb",
+  "thorn-dancer": "/assets/models/defenders/optimized/thorn-dancer.glb",
 };
-const groveImportedTypes = ["treant", "thorn-owl", "druid", "seer"];
+const expectedDedicatedGrovePortraits = {
+  "bark-titan": "/assets/ui/defenders/bark-titan.png",
+  "thorn-dancer": "/assets/ui/defenders/thorn-dancer.png",
+};
+const groveImportedTypes = ["treant", "thorn-owl", "druid", "seer", "bark-titan", "thorn-dancer"];
+const groveRosterTypes = ["treant", "thorn-owl", "druid", "seer", "bark-titan", "thorn-dancer"];
 const royalImportedTypes = ["green-archer", "battlemage", "sovereign", "holy-emperor"];
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), "td-content-assets-"));
@@ -117,6 +124,36 @@ function getManifestAssetPaths() {
 }
 
 async function main() {
+  const repoRoot = path.resolve(__dirname, "..");
+  const groveManifest = new Set(runtimeAssetManifest.groups.ancientGroveDefenders);
+  const uiManifest = new Set(runtimeAssetManifest.groups.ui);
+  for (const [type, runtimePath] of Object.entries({
+    "bark-titan": expectedDefenderPaths["bark-titan"],
+    "thorn-dancer": expectedDefenderPaths["thorn-dancer"],
+  })) {
+    const relative = runtimePath.replace(/^\//, "");
+    if (!groveManifest.has(relative) || !fs.existsSync(path.join(repoRoot, "public", relative))) {
+      throw new Error(`${type} dedicated runtime GLB is missing from the Ancient Grove manifest or public assets: ${runtimePath}`);
+    }
+  }
+  if (expectedDefenderPaths["bark-titan"] === expectedDefenderPaths.treant
+    || expectedDefenderPaths["thorn-dancer"] === expectedDefenderPaths.seer) {
+    throw new Error("Bark Titan and Thorn Dancer must not resolve to the temporary Treant/Seer GLBs.");
+  }
+  for (const [type, portraitPath] of Object.entries(expectedDedicatedGrovePortraits)) {
+    const relative = portraitPath.replace(/^\//, "");
+    if (!uiManifest.has(relative) || !fs.existsSync(path.join(repoRoot, "public", relative))) {
+      throw new Error(`${type} dedicated portrait is missing from the UI manifest or public assets: ${portraitPath}`);
+    }
+  }
+  const runtimeSources = [
+    "src/game/rendering3d/DefenderVisualConfig.ts",
+    "src/game/rendering3d/QuaterniusDefenderFactory.ts",
+    "src/main.ts",
+  ].map((relative) => fs.readFileSync(path.join(repoRoot, relative), "utf8"));
+  if (runtimeSources.some((source) => /(?:[A-Za-z]:[\\/]|["'`]\/?3D[\\/])/i.test(source))) {
+    throw new Error("Runtime source must not reference source-only 3D/ assets or absolute filesystem paths.");
+  }
   const paths = getManifestAssetPaths();
   for (const assetPath of paths) {
     const response = await fetch(new URL(assetPath.replace(/^\//, ""), appUrl));
@@ -138,7 +175,7 @@ async function main() {
   await new Promise((resolve) => socket.addEventListener("open", resolve, { once: true }));
   socket.addEventListener("message", (event) => {
     const message = JSON.parse(event.data);
-    if (message.method === "Runtime.exceptionThrown" || message.method === "Log.entryAdded"
+    if (message.method === "Runtime.exceptionThrown" || message.method === "Runtime.consoleAPICalled" || message.method === "Log.entryAdded"
       || message.method === "Network.loadingFailed") browserErrors.push(message);
     if (message.id && pending.has(message.id)) { pending.get(message.id)(message.result || message.error); pending.delete(message.id); }
   });
@@ -149,11 +186,11 @@ async function main() {
   await command("Emulation.setTouchEmulationEnabled", { enabled: true, configuration: "mobile" });
   await command("Page.navigate", { url: `${appUrl}?waveDebug=1&inputDebug=1&minimapDebug=1&defenderVisualDebug=1&enemyVisualDebug=1&enemyGroundDebug=1&terrainArtDebug=1` });
   for (let attempt = 0; attempt < 100; attempt += 1) {
-    const ready = await evaluate("document.querySelectorAll('.map-choice-card').length === 3");
+    const ready = await evaluate("document.querySelectorAll('.map-choice-card').length === 4");
     if (ready) break;
     if (attempt === 99) {
       const pageState = await evaluate(`({ url: location.href, title: document.title, body: document.body.innerText.slice(0, 800), app: document.querySelector('#app')?.innerHTML.slice(0, 800) })`);
-      throw new Error(`Choose Map screen did not load three map choices: ${JSON.stringify({ pageState, browserErrors })}`);
+      throw new Error(`Choose Map screen did not load four map choices: ${JSON.stringify({ pageState, browserErrors })}`);
     }
     await delay(100);
   }
@@ -261,23 +298,139 @@ async function main() {
       threeSpawnColors: [...document.querySelectorAll('[data-map-id="three-spawns"] .map-preview-spawn')].map((node) => node.style.getPropertyValue('--spawn-color')),
     };
   })()`);
-  if (mapSelection.checks.length !== 3 || mapSelection.checks.some((choice) => !choice.selected || !choice.canStart)
+  if (mapSelection.checks.length !== 4 || mapSelection.checks.some((choice) => !choice.selected || !choice.canStart)
     || mapSelection.defaultMap !== "single-spawn"
     || mapSelection.continueText.replace(/\s+/g, " ").toUpperCase() !== "CONTINUE →"
     || !mapSelection.minimapAbsentBeforeStarting
-    || JSON.stringify(mapSelection.mapNames) !== JSON.stringify(["Open Field", "Split Advance", "Triple Convergence"])
-    || JSON.stringify(mapSelection.startingGolds) !== JSON.stringify([100, 135, 150])
-    || mapSelection.previews.length !== 3
+    || JSON.stringify(mapSelection.mapNames) !== JSON.stringify(["Open Field", "Split Advance", "Triple Convergence", "Twin Bastion"])
+    || JSON.stringify(mapSelection.startingGolds) !== JSON.stringify([100, 135, 150, 80])
+    || mapSelection.previews.length !== 4
     || mapSelection.previews.some((preview) => !preview.visible || preview.width <= 0 || preview.height <= 0
       || preview.terrainCells !== preview.terrainRectCells || preview.terrainRects <= 0
       || preview.spawns.length === 0 || !Number.isFinite(preview.goal.x) || !Number.isFinite(preview.goal.y))
-    || JSON.stringify(mapSelection.previews.map(({ width, height }) => [width, height])) !== JSON.stringify([[17, 32], [23, 41], [43, 66]])
-    || JSON.stringify(mapSelection.previews.map(({ spawns }) => spawns.map(({ x, y }) => [x, y]))) !== JSON.stringify([[[8, 0]], [[6, 0], [17, 0]], [[8, 0], [21, 0], [35, 0]]])
-    || JSON.stringify(mapSelection.previews.map(({ goal }) => [goal.x, goal.y])) !== JSON.stringify([[8, 31], [11, 40], [21, 65]])
-    || JSON.stringify(mapSelection.previews.map(({ terrainCells }) => terrainCells)) !== JSON.stringify([220, 357, 1041])
-    || JSON.stringify(mapSelection.previews.map(({ terrainRects }) => terrainRects)) !== JSON.stringify([2, 5, 9])
+    || JSON.stringify(mapSelection.previews.map(({ width, height }) => [width, height])) !== JSON.stringify([[17, 32], [23, 41], [43, 66], [77, 80]])
+    || JSON.stringify(mapSelection.previews.map(({ spawns }) => spawns.map(({ x, y }) => [x, y]))) !== JSON.stringify([[[8, 0]], [[6, 0], [17, 0]], [[8, 0], [21, 0], [35, 0]], [[18, 0], [58, 0]]])
+    || JSON.stringify(mapSelection.previews.map(({ goal }) => [goal.x, goal.y])) !== JSON.stringify([[8, 31], [11, 40], [21, 65], [18, 79]])
+    || JSON.stringify(mapSelection.previews.map(({ terrainCells }) => terrainCells)) !== JSON.stringify([220, 357, 1041, 1247])
+    || JSON.stringify(mapSelection.previews.map(({ terrainRects }) => terrainRects)) !== JSON.stringify([2, 5, 9, 12])
     || JSON.stringify(mapSelection.threeSpawnColors) !== JSON.stringify(["#ff6b66", "#69c5ff", "#69df9c"])) {
     throw new Error(`Map selection flow failed: ${JSON.stringify(mapSelection)}`);
+  }
+  if (process.env.TD_MULTIPLAYER_ONLY === "1") {
+    const reverseFactions = process.env.TD_MULTIPLAYER_REVERSE === "1";
+    const playerOneFaction = reverseFactions ? "ancient-grove" : "arcane-kingdom";
+    const playerTwoFaction = reverseFactions ? "arcane-kingdom" : "ancient-grove";
+    await evaluate(`document.querySelector('.map-choice-card[data-map-id="twin-bastion"]').click()`);
+    await evaluate("document.querySelector('#start-selected-map').click()");
+    for (let attempt = 0; attempt < 50 && !(await evaluate("document.querySelector('#faction-select-title')?.textContent.includes('PLAYER 1')")); attempt += 1) await delay(100);
+    await evaluate(`document.querySelector('[data-faction-id="${playerOneFaction}"]').click(); document.querySelector('#start-battlefield').click()`);
+    for (let attempt = 0; attempt < 50 && !(await evaluate("document.querySelector('#faction-select-title')?.textContent.includes('PLAYER 2')")); attempt += 1) await delay(100);
+    await evaluate(`document.querySelector('[data-faction-id="${playerTwoFaction}"]').click(); document.querySelector('#start-battlefield').click()`);
+    let multiplayerReady = false;
+    for (let attempt = 0; attempt < 120; attempt += 1) {
+      multiplayerReady = await evaluate("window.__towerDefenceGameState?.map.id === 'twin-bastion' && document.querySelectorAll('[data-player-id]').length === 2");
+      if (multiplayerReady) break;
+      await delay(150);
+    }
+    if (!multiplayerReady) throw new Error("Twin Bastion browser prototype did not initialize.");
+    const multiplayer = await evaluate(`(() => {
+      const game = window.__towerDefenceGameState;
+      const before = { activePlayerId: game.activePlayerId, factionId: game.factionId, gold: game.gold };
+      document.querySelector('[data-player-id="player-2"]').click();
+      return {
+        map: game.map.id,
+        dimensions: [game.map.width, game.map.height],
+        players: game.players.map(({ playerId, factionId, gold }) => ({ playerId, factionId, gold })),
+        goals: game.goals.map(({ id, approachCell }) => ({ id, approachCell })),
+        spawns: game.layout.activeSpawns.map(({ id, preferredGoalId }) => ({ id, preferredGoalId })),
+        before,
+        after: { activePlayerId: game.activePlayerId, factionId: game.factionId, gold: game.gold },
+        playerButtons: [...document.querySelectorAll('[data-player-id]')].map((button) => ({ id: button.dataset.playerId, pressed: button.getAttribute('aria-pressed') })),
+        minimap: { spawnCount: document.querySelector('#minimap-panel')?.dataset.spawnCount, goalCount: document.querySelector('#minimap-panel')?.dataset.goalCount },
+      };
+    })()`);
+    if (multiplayer.map !== "twin-bastion" || JSON.stringify(multiplayer.dimensions) !== JSON.stringify([77, 80])
+      || JSON.stringify(multiplayer.players) !== JSON.stringify([
+        { playerId: "player-1", factionId: playerOneFaction, gold: 80 },
+        { playerId: "player-2", factionId: playerTwoFaction, gold: 80 },
+      ])
+      || multiplayer.goals.length !== 2 || multiplayer.spawns[0]?.preferredGoalId !== "goal-a" || multiplayer.spawns[1]?.preferredGoalId !== "goal-b"
+      || multiplayer.before.activePlayerId !== "player-1" || multiplayer.after.activePlayerId !== "player-2" || multiplayer.after.factionId !== playerTwoFaction
+      || multiplayer.playerButtons[1]?.pressed !== "true" || multiplayer.minimap.spawnCount !== "2" || multiplayer.minimap.goalCount !== "2") {
+      throw new Error(`Twin Bastion browser state failed: ${JSON.stringify(multiplayer)}`);
+    }
+    console.log(`Twin Bastion browser prototype passed (${playerOneFaction} / ${playerTwoFaction})`, JSON.stringify(multiplayer));
+    return;
+  }
+  if (process.env.TD_GROVE_UNITS_ONLY === "1") {
+    await evaluate("document.querySelector('#start-selected-map').click()");
+    for (let attempt = 0; attempt < 50 && !(await evaluate("!!document.querySelector('.faction-select-screen')")); attempt += 1) await delay(100);
+    await evaluate(`document.querySelector('[data-faction-id="ancient-grove"]').click(); document.querySelector('#start-battlefield').click()`);
+    let ready = false;
+    for (let attempt = 0; attempt < 120; attempt += 1) {
+      ready = await evaluate(`window.__towerDefenceGameState?.factionId === 'ancient-grove'
+        && document.querySelector('.game-ui')?.dataset.defenderAssetsReady === 'true'
+        && !!document.querySelector('#build-bark-titan-button') && !!document.querySelector('#build-thorn-dancer-button')`);
+      if (ready) break;
+      await delay(150);
+    }
+    if (!ready) throw new Error("Ancient Grove expanded roster did not initialize.");
+    const placed = await evaluate(`(() => {
+      const game = window.__towerDefenceGameState;
+      game.gold = 20_000;
+      const entries = [
+        ['bark-titan', null], ['thorn-dancer', null],
+        ['bark-titan', 'stonebark-titan'], ['bark-titan', 'heartwood-crusher'],
+        ['thorn-dancer', 'blight-dancer'], ['thorn-dancer', 'winterthorn-dancer'],
+      ];
+      const result = [];
+      for (const [type, branch] of entries) {
+        let tower;
+        for (let y = 1; y < game.grid.height - 1 && !tower; y += 1) for (let x = 1; x < game.grid.width - 1; x += 1) {
+          const cell = { x, y };
+          if (game.canPlaceBasicTower(cell, type) !== 'placed' || game.placeBasicTower(cell, type) !== 'placed') continue;
+          tower = game.towers.at(-1);
+          break;
+        }
+        if (!tower) throw new Error('No legal placement for ' + type + ' / ' + branch);
+        if (branch && (game.upgradeBasicTower(tower.id) !== 'upgraded' || game.upgradeBasicTower(tower.id, branch) !== 'upgraded')) {
+          throw new Error('Could not specialize ' + branch);
+        }
+        result.push({ id: tower.id, type, branch });
+      }
+      window.__towerDefenceUi.selectTower(result.find(({ type, branch }) => type === 'thorn-dancer' && !branch).id);
+      return result;
+    })()`);
+    let browserResult;
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      browserResult = await evaluate(`(() => {
+        const placed = ${JSON.stringify(placed)};
+        const instances = window.__defenderVisualInstances ?? [];
+        return {
+          roster: [...window.__towerDefenceGameState.availableUnits],
+          towers: window.__towerDefenceGameState.towers.map(({ id, type, level, specializationId }) => ({ id, type, level, specializationId })),
+          visuals: placed.map(({ id }) => instances.findLast((entry) => entry.id === id) ?? null),
+          templates: window.__defenderTemplateAudit ?? [],
+          portraits: Object.fromEntries(['bark-titan', 'thorn-dancer'].map((type) => [type,
+            document.querySelector('#build-' + type + '-button .unit-portrait-frame img')?.getAttribute('src') ?? null])),
+          auraBuff: [...document.querySelectorAll('#tower-buff-icons .tower-buff-icon')].some((node) => node.getAttribute('aria-label')?.includes('Verdant Resonance')),
+        };
+      })()`);
+      if (browserResult.visuals.every(Boolean) && browserResult.auraBuff) break;
+      await delay(100);
+    }
+    if (JSON.stringify(browserResult.roster) !== JSON.stringify(groveRosterTypes)
+      || browserResult.visuals.some((visual, index) => !visual || visual.type !== placed[index].type
+        || visual.assetPath !== expectedDefenderPaths[placed[index].type] || visual.primitiveFallback)
+      || browserResult.towers.filter(({ type }) => type === 'bark-titan' || type === 'thorn-dancer').length !== 6
+      || placed.filter(({ branch }) => branch).some(({ id, branch }) => !browserResult.towers.some((tower) => tower.id === id && tower.level === 3 && tower.specializationId === branch))
+      || JSON.stringify(browserResult.templates.map(({ type }) => type).sort()) !== JSON.stringify([...groveImportedTypes].sort())
+      || Object.entries(expectedDedicatedGrovePortraits).some(([type, portrait]) => !browserResult.portraits[type]?.endsWith(portrait))
+      || !browserResult.auraBuff) {
+      throw new Error(`Ancient Grove expanded roster browser test failed: ${JSON.stringify({ placed, browserResult, browserErrors })}`);
+    }
+    console.log("Ancient Grove expanded roster browser test passed", JSON.stringify({ placed, browserResult }));
+    return;
   }
   await evaluate("document.querySelector('#start-selected-map').click()");
   let factionSelectReady = false;
@@ -317,9 +470,9 @@ async function main() {
       throw new Error('Faction card selection did not update the selected details and global action.');
     }
     const groveUnits = document.querySelector('.faction-choice-card.is-selected .faction-unit-list');
-    if (groveUnits.children.length !== 4 || !['Treant', 'Thorn Owl', 'Druid', 'Seer'].every((unit) => groveUnits.textContent.includes(unit))
+    if (groveUnits.children.length !== 6 || !['Treant', 'Thorn Owl', 'Druid', 'Seer', 'Bark Titan', 'Thorn Dancer'].every((unit) => groveUnits.textContent.includes(unit))
       || groveUnits.textContent.includes('Holy Emperor')) {
-      throw new Error('Ancient Grove must offer the four Grove units; Holy Emperor remains exclusive to Royal Guard.');
+      throw new Error('Ancient Grove must offer its six Grove units; Holy Emperor remains exclusive to Royal Guard.');
     }
     grove.focus();
     grove.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
@@ -368,6 +521,7 @@ async function main() {
   let groveEnvironment = await evaluate('window.__terrainArtDebug ?? null');
   if (groveEnvironment?.themeStyle !== 'forest' || groveEnvironment?.themeId !== 'ancient-grove-forest'
     || groveEnvironment?.groundMaterial !== 'forest-clearing-grass-earth-pbr'
+    || groveEnvironment?.endpointDecorationMeshCount !== 0
     || groveEnvironment?.environmentComposition?.trees < 150
     || groveEnvironment?.environmentComposition?.rocks < groveEnvironment?.terrainRegionCount
     // The manifest contains nine forest source files, but templateAssets counts
@@ -428,7 +582,7 @@ async function main() {
   }
   const groveBaseIds = await evaluate(`(() => {
     const game = window.__towerDefenceGameState;
-    game.gold = 5000;
+    game.gold = 20_000;
     const ui = window.__towerDefenceUi;
     const canvas = document.querySelector('#game3d').getBoundingClientRect();
     const top = document.querySelector('.top-hud-bar').getBoundingClientRect();
@@ -458,7 +612,7 @@ async function main() {
       throw new Error('No valid Grove placement for ' + type);
     };
     const ids = {};
-    for (const type of ['treant', 'thorn-owl', 'druid', 'seer']) ids[type] = place(type);
+    for (const type of ${JSON.stringify(groveRosterTypes)}) ids[type] = place(type);
     return ids;
   })()`);
   if (process.env.TD_GROVE_SCREENSHOT) {
@@ -485,7 +639,7 @@ async function main() {
         || point.y <= top.bottom + 24 || point.y >= bottom.top - 24) continue;
       candidates.push({ cell, ...point });
     }
-    let placementIndex = 4;
+    let placementIndex = ${groveRosterTypes.length};
     const place = (type) => {
       const target = targetPositions[Math.min(placementIndex, targetPositions.length - 1)];
       const ordered = candidates.slice().sort((a, b) => Math.hypot(a.x - target.x, a.y - target.y) - Math.hypot(b.x - target.x, b.y - target.y));
@@ -502,6 +656,8 @@ async function main() {
       ['needlewing-owl', 'thorn-owl'], ['elderwing', 'thorn-owl'],
       ['dire-wolf', 'druid'], ['elder-bear', 'druid'],
       ['moon-seer', 'seer'], ['sun-seer', 'seer'],
+      ['stonebark-titan', 'bark-titan'], ['heartwood-crusher', 'bark-titan'],
+      ['blight-dancer', 'thorn-dancer'], ['winterthorn-dancer', 'thorn-dancer'],
     ]) {
       const id = place(type);
       if (game.upgradeBasicTower(id) !== 'upgraded' || game.upgradeBasicTower(id, branch) !== 'upgraded') {
@@ -511,7 +667,7 @@ async function main() {
     }
     return { ids, roster: [...game.availableUnits], towers: game.towers.map(({ id, type, level, specializationId, cell, damage, range, fireRate }) =>
       ({ id, type, level, specializationId, cell, damage, range, fireRate })),
-      cards: ['treant', 'thorn-owl', 'druid', 'seer'].map((type) => Boolean(document.querySelector('#build-' + type + '-button'))) };
+      cards: ${JSON.stringify(groveRosterTypes)}.map((type) => Boolean(document.querySelector('#build-' + type + '-button'))) };
   })()`);
   const grovePlacements = { ...groveBranchResults, ids: { ...groveBaseIds, ...groveBranchResults.ids } };
   let groveVisuals;
@@ -525,17 +681,19 @@ async function main() {
     await delay(100);
   }
   const groveTemplates = await evaluate('window.__defenderTemplateAudit ?? []');
-  const groveTypes = groveImportedTypes;
+  const groveTypes = groveRosterTypes;
   if (JSON.stringify(grovePlacements.roster) !== JSON.stringify(groveTypes)
     || groveTypes.some((type) => !grovePlacements.ids[type]) || !grovePlacements.cards.every(Boolean)
-    || grovePlacements.towers.length !== 10
-    || JSON.stringify(groveTemplates.map(({ type }) => type).sort()) !== JSON.stringify([...groveTypes].sort())
+    || grovePlacements.towers.length !== 16
+    || JSON.stringify(groveTemplates.map(({ type }) => type).sort()) !== JSON.stringify([...groveImportedTypes].sort())
     || groveTemplates.some(({ type, assetPath, optimized, triangleCount, materials }) =>
       assetPath !== expectedDefenderPaths[type] || !optimized || !(triangleCount > 0) || !(materials > 0))) {
     throw new Error(`Ancient Grove roster/template mapping failed: ${JSON.stringify({ grovePlacements, groveTemplates })}`);
   }
   const branchTypes = { 'needlewing-owl': 'thorn-owl', elderwing: 'thorn-owl', 'dire-wolf': 'druid',
-    'elder-bear': 'druid', 'moon-seer': 'seer', 'sun-seer': 'seer' };
+    'elder-bear': 'druid', 'moon-seer': 'seer', 'sun-seer': 'seer',
+    'stonebark-titan': 'bark-titan', 'heartwood-crusher': 'bark-titan',
+    'blight-dancer': 'thorn-dancer', 'winterthorn-dancer': 'thorn-dancer' };
   const groveStateAfterVisuals = await evaluate(`window.__towerDefenceGameState.towers.map(({ id, type, level, specializationId, cell, damage, range, fireRate }) =>
     ({ id, type, level, specializationId, cell, damage, range, fireRate }))`);
   if (JSON.stringify(groveStateAfterVisuals) !== JSON.stringify(grovePlacements.towers)
@@ -548,12 +706,13 @@ async function main() {
   if (Object.entries(groveVisuals).some(([unit, visual]) => {
     const type = branchTypes[unit] ?? unit;
     const dimensions = visual?.bounds;
+    const maxWidth = type === "thorn-owl" ? 1.65 : 1.3;
     return !visual || visual.type !== type || visual.assetPath !== expectedDefenderPaths[type]
       || (branchTypes[unit] && visual.level !== 3)
       || !visual.optimized || visual.primitiveFallback || !dimensions
       || ![dimensions.width, dimensions.height, dimensions.depth, dimensions.minY].every(Number.isFinite)
       || dimensions.width <= 0 || dimensions.height <= 0 || dimensions.depth <= 0
-      || dimensions.width > 1.3 || dimensions.depth > 1.3 || dimensions.height > 2.6
+      || dimensions.width > maxWidth || dimensions.depth > 1.3 || dimensions.height > 2.6
       || dimensions.minY < -0.02 || dimensions.minY > 0.9;
   })) {
     throw new Error(`Ancient Grove GLB instance, branch reuse or bounds failed: ${JSON.stringify(groveVisuals)}`);
@@ -650,7 +809,7 @@ async function main() {
       await command("Page.navigate", { url: reviewUrl.toString() });
       let mapSelectReady = false;
       for (let attempt = 0; attempt < 80; attempt += 1) {
-        mapSelectReady = await evaluate("document.querySelectorAll('.map-choice-card').length === 3");
+        mapSelectReady = await evaluate("document.querySelectorAll('.map-choice-card').length === 4");
         if (mapSelectReady) break;
         await delay(100);
       }
@@ -697,7 +856,7 @@ async function main() {
     await command("Page.navigate", { url: initialDebugUrl.toString() });
     let initialMapSelectReady = false;
     for (let attempt = 0; attempt < 80; attempt += 1) {
-      initialMapSelectReady = await evaluate("document.querySelectorAll('.map-choice-card').length === 3");
+      initialMapSelectReady = await evaluate("document.querySelectorAll('.map-choice-card').length === 4");
       if (initialMapSelectReady) break;
       await delay(100);
     }
@@ -914,7 +1073,7 @@ async function main() {
     || visualState.archerBranchChoice.options.some(({ disabled, cost }) => disabled || !cost.includes("70 Gold"))
     || visualState.archerBranchChoice.bounds.left < 0 || visualState.archerBranchChoice.bounds.right > 390
     || visualState.archerBranchChoice.bounds.top < 0 || visualState.archerBranchChoice.bounds.bottom > 844
-    || visualState.archerLevel3.level !== "Level 3" || visualState.archerLevel3.specialization !== "dragon-slayer"
+    || visualState.archerLevel3.level !== "Level 3 · P1" || visualState.archerLevel3.specialization !== "dragon-slayer"
     || visualState.archerLevel3.specializationLabel !== "DRAGON SLAYER"
     || !visualState.archerLevel3.specializationDetail.includes("damage to air")) {
     throw new Error(`Mobile specialization branch UI failed: ${JSON.stringify({
@@ -932,14 +1091,14 @@ async function main() {
     || visualState.holyEmperor.portraitIsFallback) {
     throw new Error(`Holy Emperor build card/details failed: ${JSON.stringify(visualState.holyEmperor)}`);
   }
-  if (visualState.holyEmperorLevel1.level !== "Level 1" || visualState.holyEmperorLevel1.damage !== "450"
+  if (visualState.holyEmperorLevel1.level !== "Level 1 · P1" || visualState.holyEmperorLevel1.damage !== "450"
     || visualState.holyEmperorLevel1.range !== "MAP WIDE" || visualState.holyEmperorLevel1.rate !== "0.85/s"
     || !visualState.holyEmperorLevel1.details.includes("TARGETS GROUND + AIR")
     || !visualState.holyEmperorLevel1.upgrade.includes("400G")
-    || visualState.holyEmperorLevel2.level !== "Level 2" || visualState.holyEmperorLevel2.damage !== "700"
+    || visualState.holyEmperorLevel2.level !== "Level 2 · P1" || visualState.holyEmperorLevel2.damage !== "700"
     || visualState.holyEmperorLevel2.rate !== "1.00/s" || !visualState.holyEmperorLevel2.upgrade.includes("500G")
     || !visualState.holyEmperorLevel2.tooltip.includes("Divine Splash: 65% within 1.75 tiles")
-    || visualState.holyEmperorLevel3.level !== "Level 3" || visualState.holyEmperorLevel3.damage !== "950"
+    || visualState.holyEmperorLevel3.level !== "Level 3 · P1" || visualState.holyEmperorLevel3.damage !== "950"
     || visualState.holyEmperorLevel3.rate !== "1.25/s" || !visualState.holyEmperorLevel3.details.includes("DIVINE SPLASH 65% WITHIN 1.75 TILES")
     || visualState.holyEmperorLevel3.upgrade !== "MAX LEVEL") {
     throw new Error(`Holy Emperor upgrade UI failed: ${JSON.stringify({
@@ -1066,9 +1225,9 @@ async function main() {
   if (visualState.sovereign.name !== "Sovereign" || visualState.sovereign.role !== "Adaptive / Ultimate"
     || visualState.sovereign.profiles.length !== 3 || visualState.sovereign.range !== "Range4.5 Tiles"
     || visualState.sovereign.costSummary !== "Build Cost100 Gold"
-    || visualState.selectedSovereign.name !== "Sovereign" || visualState.selectedSovereign.level !== "Level 1"
+    || visualState.selectedSovereign.name !== "Sovereign" || visualState.selectedSovereign.level !== "Level 1 · P1"
     || visualState.selectedSovereign.profiles.length !== 3 || visualState.selectedSovereign.range !== "Range4.5 Tiles"
-    || visualState.sovereignLevel2.level !== "Level 2" || !visualState.sovereignLevel2.profiles[0].includes("170 dmg · 1.65/s")
+    || visualState.sovereignLevel2.level !== "Level 2 · P1" || !visualState.sovereignLevel2.profiles[0].includes("170 dmg · 1.65/s")
     || !visualState.sovereignLevel2.profiles[1].includes("105 dmg · 2.40/s")
     || !visualState.sovereignLevel2.profiles[2].includes("430 dmg · 0.60/s")
     || !visualState.sovereignBranchChoice.visible || visualState.sovereignBranchChoice.options.map(({ name }) => name).join("|") !== "Storm Regent|War Sovereign"
@@ -1081,10 +1240,10 @@ async function main() {
     || visualState.archerBranchChoice.options.some(({ disabled, cost }) => disabled || !cost.includes("70 Gold"))
     || visualState.archerBranchChoice.bounds.left < 0 || visualState.archerBranchChoice.bounds.right > 390
     || visualState.archerBranchChoice.bounds.top < 0 || visualState.archerBranchChoice.bounds.bottom > 844
-    || visualState.archerLevel3.level !== "Level 3" || visualState.archerLevel3.specialization !== "dragon-slayer"
+    || visualState.archerLevel3.level !== "Level 3 · P1" || visualState.archerLevel3.specialization !== "dragon-slayer"
     || visualState.archerLevel3.specializationLabel !== "DRAGON SLAYER"
     || !visualState.archerLevel3.specializationDetail.includes("damage to air")
-    || visualState.sovereignLevel3.level !== "Level 3" || visualState.sovereignLevel3.action !== "MAX LEVEL"
+    || visualState.sovereignLevel3.level !== "Level 3 · P1" || visualState.sovereignLevel3.action !== "MAX LEVEL"
     || !visualState.sovereignLevel3.profiles[0].includes("360 dmg · 1.80/s")
     || !visualState.sovereignLevel3.profiles[1].includes("225 dmg · 2.60/s")
     || !visualState.sovereignLevel3.profiles[2].includes("950 dmg · 0.65/s")) {

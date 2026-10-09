@@ -51,6 +51,8 @@ assert.deepEqual(Object.fromEntries(Object.entries(TOWER_SPECIALIZATIONS).map(([
   "needlewing-owl": [105, 270, 2.25], elderwing: [82, 288, 1.7],
   "dire-wolf": [95, null, 2.5], "elder-bear": [310, null, 0.8],
   "moon-seer": [260, 198, 1.15], "sun-seer": [95, 198, 1.1],
+  "stonebark-titan": [1500, 2, 0.5], "heartwood-crusher": [2100, 1, 0.5],
+  "blight-dancer": [280, 216, 1.2], "winterthorn-dancer": [280, 216, 1.2],
 });
 
 // L3 choice is required, validated, and charged only after a valid branch is chosen.
@@ -63,6 +65,8 @@ for (const [type, choices] of Object.entries({
   "thorn-owl": ["needlewing-owl", "elderwing"],
   druid: ["dire-wolf", "elder-bear"],
   seer: ["moon-seer", "sun-seer"],
+  "bark-titan": ["stonebark-titan", "heartwood-crusher"],
+  "thorn-dancer": ["blight-dancer", "winterthorn-dancer"],
 })) {
   for (const specializationId of choices) {
     const state = new GameState("single-spawn", "arcane-kingdom", 10);
@@ -80,8 +84,8 @@ for (const [type, choices] of Object.entries({
   }
 }
 
-// Ancient Grove's four-unit roster, progression prices and distinct role stats.
-assert.deepEqual(FACTIONS["ancient-grove"].units, ["treant", "thorn-owl", "druid", "seer"]);
+// Ancient Grove's roster, progression prices and distinct role stats.
+assert.deepEqual(FACTIONS["ancient-grove"].units, ["treant", "thorn-owl", "druid", "seer", "bark-titan", "thorn-dancer"]);
 assert.deepEqual(["treant", "thorn-owl", "druid", "seer"].map((id) => DEFENDER_CONFIG[id].buildCost), [7, 15, 55, 75]);
 assert.deepEqual(["treant", "thorn-owl", "druid", "seer"].map((id) => DEFENDER_CONFIG[id].levels.map(({ damage, fireRate, upgradeCost }) => [damage, fireRate, upgradeCost])), [
   [[18, 1, null], [32, 1.05, 15], [52, 1.15, 25]],

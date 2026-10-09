@@ -2,7 +2,7 @@
 import { WORLD_UNITS_PER_CELL } from "../../core/GameConstants";
 
 export type DefenderType = "blue-wizard" | "holy-knight" | "green-archer" | "battlemage" | "sovereign" | "holy-emperor"
-  | "treant" | "thorn-owl" | "druid" | "seer";
+  | "treant" | "thorn-owl" | "druid" | "seer" | "bark-titan" | "thorn-dancer";
 export type DefenderRangeMode = "circular" | "adjacent8" | "hybrid";
 export type SovereignAttackMode = "antiAir" | "rapid" | "heavy";
 
@@ -34,6 +34,8 @@ export interface DefenderDefinition {
   splashLabel?: string;
   /** Per-level splash radius in grid cells. Unspecified defenders keep the 1.5-cell default. */
   splashRadiusTiles?: readonly number[];
+  /** Hits every valid enemy in the tower's own range instead of one primary target. */
+  radialAttack?: boolean;
   /** Per-level, target-dependent stats for the Sovereign's single-target modes. */
   attackProfiles?: Record<SovereignAttackMode, readonly Pick<DefenderLevelStats, "damage" | "fireRate">[]>;
 }
@@ -170,6 +172,25 @@ export const DEFENDER_CONFIG: Record<DefenderType, DefenderDefinition> = {
       { level: 1, damage: 65, range: 4.8 * WORLD_UNITS_PER_CELL, fireRate: 0.85, upgradeCost: null },
       { level: 2, damage: 110, range: 5.2 * WORLD_UNITS_PER_CELL, fireRate: 0.95, upgradeCost: 100 },
       { level: 3, damage: 95, range: 5.5 * WORLD_UNITS_PER_CELL, fireRate: 1.1, upgradeCost: 150 },
+    ],
+  },
+  "bark-titan": {
+    id: "bark-titan", name: "Bark Titan", rangeMode: "adjacent8", targetTypes: ["ground"], buildCost: 150,
+    roleLabel: "Heavy 360° Melee AoE", specializationLabel: "Ground only · Stonebark or Heartwood",
+    radialAttack: true,
+    levels: [
+      { level: 1, damage: 520, range: 1, fireRate: 0.5, upgradeCost: null },
+      { level: 2, damage: 850, range: 1, fireRate: 0.5, upgradeCost: 200 },
+      { level: 3, damage: 1_250, range: 1, fireRate: 0.5, upgradeCost: 350 },
+    ],
+  },
+  "thorn-dancer": {
+    id: "thorn-dancer", name: "Thorn Dancer", rangeMode: "circular", targetTypes: ["ground", "air"], buildCost: 300,
+    roleLabel: "Ranged Aura Support", specializationLabel: "Verdant Resonance · Blight or Winterthorn",
+    levels: [
+      { level: 1, damage: 120, range: 5.5 * WORLD_UNITS_PER_CELL, fireRate: 1.1, upgradeCost: null },
+      { level: 2, damage: 210, range: 5.8 * WORLD_UNITS_PER_CELL, fireRate: 1.15, upgradeCost: 300 },
+      { level: 3, damage: 280, range: 6 * WORLD_UNITS_PER_CELL, fireRate: 1.2, upgradeCost: 500 },
     ],
   },
 };

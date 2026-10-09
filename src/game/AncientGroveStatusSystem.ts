@@ -3,9 +3,10 @@ import type { Enemy } from "./enemies/Enemy";
 
 /** Portable Ancient Grove status timers. All values are simulation seconds. */
 export class AncientGroveStatusSystem {
-  updateEnemy(enemy: Enemy, deltaSeconds: number, treantLevel: number): void {
+  updateEnemy(enemy: Enemy, deltaSeconds: number, treantLevel: number, allowGroundEffectsAgainstFlying = false): void {
     const dt = Math.max(0, deltaSeconds);
-    this.updateThornRot(enemy, dt, enemy.movementType === "ground" ? treantLevel : 0);
+    if (enemy.movementType === "flying" && !allowGroundEffectsAgainstFlying) this.clearThornRot(enemy);
+    else this.updateThornRot(enemy, dt, treantLevel);
     this.updateSunbrand(enemy, dt);
   }
 
@@ -19,15 +20,19 @@ export class AncientGroveStatusSystem {
   }
 
   clearEnemy(enemy: Enemy): void {
+    this.clearThornRot(enemy);
+    enemy.sunbrandStacks = 0;
+    enemy.sunbrandGraceSecondsRemaining = 0;
+    enemy.sunbrandDecayTimer = 0;
+    enemy.sunbrandDamageRemainder = 0;
+  }
+
+  private clearThornRot(enemy: Enemy): void {
     enemy.thornRotStacks = 0;
     enemy.thornRotStackTimer = 0;
     enemy.thornRotOutsideSeconds = 0;
     enemy.thornRotSourceLevel = 0;
     enemy.thornRotDamageRemainder = 0;
-    enemy.sunbrandStacks = 0;
-    enemy.sunbrandGraceSecondsRemaining = 0;
-    enemy.sunbrandDecayTimer = 0;
-    enemy.sunbrandDamageRemainder = 0;
   }
 
   private updateThornRot(enemy: Enemy, dt: number, treantLevel: number): void {

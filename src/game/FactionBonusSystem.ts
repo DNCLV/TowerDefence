@@ -86,8 +86,8 @@ export class FactionBonusSystem {
 
   isTreantInfluenced(cell: Cell): boolean { return this.treantInfluencedPathCells.has(cellKey(cell)); }
 
-  getTreantLevelAt(cell: Cell, towers: readonly Pick<Tower, "cell" | "type" | "level">[]): number {
-    if (this.factionId !== FACTION_BONUS_CONFIG.ancientGroveId || !this.isTreantInfluenced(cell)) return 0;
+  getTreantLevelAt(cell: Cell, towers: readonly Pick<Tower, "cell" | "type" | "level">[], includeOffPathCell = false): number {
+    if (this.factionId !== FACTION_BONUS_CONFIG.ancientGroveId || (!includeOffPathCell && !this.isTreantInfluenced(cell))) return 0;
     return towers.reduce((highest, tower) => tower.type === "treant"
       && Math.max(Math.abs(tower.cell.x - cell.x), Math.abs(tower.cell.y - cell.y)) <= FACTION_BONUS_CONFIG.livingMaze.influenceRangeCells
       ? Math.max(highest, tower.level) : highest, 0);
@@ -100,27 +100,29 @@ export class FactionBonusSystem {
     });
   }
 
-  updateLivingMazeExposure(enemy: Enemy, deltaSeconds: number): void {
-    if (this.factionId !== FACTION_BONUS_CONFIG.ancientGroveId || enemy.movementType !== "ground") {
+  updateLivingMazeExposure(enemy: Enemy, deltaSeconds: number, allowFlying = false, currentCell?: Cell): void {
+    if (this.factionId !== FACTION_BONUS_CONFIG.ancientGroveId || (enemy.movementType !== "ground" && !allowFlying)) {
       enemy.livingMazeExposureSeconds = 0;
       return;
     }
-    const currentCell = enemy.path[enemy.currentPathIndex];
-    if (!currentCell || !this.isLivingMazeInfluenced(currentCell)) {
+    const occupiedCell = currentCell ?? enemy.path[enemy.currentPathIndex];
+    if (!occupiedCell || !this.isLivingMazeInfluenced(occupiedCell)) {
       enemy.livingMazeExposureSeconds = 0;
       return;
     }
     enemy.livingMazeExposureSeconds += Math.max(0, deltaSeconds);
   }
 
-  getLivingMazeSlowMultiplier(enemy: Pick<Enemy, "movementType" | "combatClass" | "livingMazeExposureSeconds">): number {
-    if (this.factionId !== FACTION_BONUS_CONFIG.ancientGroveId || enemy.movementType !== "ground") return 1;
+  getLivingMazeSlowMultiplier(enemy: Pick<Enemy, "movementType" | "combatClass" | "livingMazeExposureSeconds">,
+    slowStrengthMultiplier = 1, allowFlying = false): number {
+    if (this.factionId !== FACTION_BONUS_CONFIG.ancientGroveId || (enemy.movementType !== "ground" && !allowFlying)) return 1;
     const stage = [...FACTION_BONUS_CONFIG.livingMaze.exposureStages].reverse()
       .find((candidate) => enemy.livingMazeExposureSeconds >= candidate.seconds);
     if (!stage) return 1;
     const rawSlow = 1 - stage.slowMultiplier;
     const bossFactor = enemy.combatClass === "boss" ? FACTION_BONUS_CONFIG.livingMaze.bossResistanceMultiplier : 1;
-    return 1 - Math.min(FACTION_BONUS_CONFIG.livingMaze.maxSlow, rawSlow * bossFactor);
+    return 1 - Math.min(FACTION_BONUS_CONFIG.livingMaze.maxSlow * slowStrengthMultiplier,
+      rawSlow * bossFactor * slowStrengthMultiplier);
   }
 }
 

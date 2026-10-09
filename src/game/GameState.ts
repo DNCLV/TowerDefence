@@ -2,13 +2,13 @@ import { Cell, cellKey, sameCell } from "../core/types";
 import { WORLD_UNITS_PER_CELL } from "../core/GameConstants";
 import { Enemy, applyArcherMark, createEnemy, getEnemyHpForWave, getEnemyHpMultiplier, getEnemyHpTier, updateEnemySpecialStatuses } from "./enemies/Enemy";
 import { Grid } from "./grid/Grid";
-import { findPath, findPathThrough } from "./pathfinding/Pathfinder";
-import { Tower, TowerAttackMode, canTowerTargetEnemy, createBasicTower, getTowerAttackProfile, getTowerDamageType, getTowerLevelStats, getTowerSellRefund, getTowerSplashRadiusMultiplier, getTowerSplashRadiusTiles, getTowerSplashRatio, getTowerSplashRatioForTarget, getTowerSplashTargetLimit, isTowerInRange, isTowerAdjacent8, upgradeTower } from "./towers/Tower";
+import { findPath, findPathThrough, findPathToAnyGoal } from "./pathfinding/Pathfinder";
+import { Tower, TowerAttackMode, canTowerTargetEnemy, createBasicTower, getTowerAttackProfile, getTowerDamageType, getTowerLevelStats, getTowerSellRefund, getTowerSplashRadiusMultiplier, getTowerSplashRadiusTiles, getTowerSplashRatio, getTowerSplashRatioForTarget, getTowerSplashTargetLimit, isTowerInRange, isTowerAdjacent8, isEnemyWithinTowerCellRadius, upgradeTower } from "./towers/Tower";
 import { DEFENDER_CONFIG, DefenderType } from "./config/DefenderConfig";
 import { LEVEL_1 } from "./config/Level1";
 import { BALANCE } from "./config/BalanceConfig";
 import { RunLayout, RunSpawn } from "./map/RunLayout";
-import { MAPS, MapDefinition, MapId } from "./config/MapConfig";
+import { MAPS, MapDefinition, MapId, PlayerId } from "./config/MapConfig";
 import { FactionDefinition, getFaction } from "./config/FactionConfig";
 import { ENEMY_CONFIG, EnemyType } from "./config/EnemyConfig";
 import { ENEMY_THREAT_WEIGHT, MAX_ACTIVE_WAVE_ENEMIES, countWaveComposition, createWaveSpawnQueue, getWaveComposition, getWaveGoldReward } from "./config/WaveConfig";
@@ -21,10 +21,13 @@ import { FactionBonusSystem } from "./FactionBonusSystem";
 import { AncientGroveStatusSystem, getSunbrandDamage, getSunbrandTargetPriority, getThornRotDamage } from "./AncientGroveStatusSystem";
 import { FACTION_BONUS_CONFIG } from "./config/FactionBonusConfig";
 import { CURRENT_CAMPAIGN_FINAL_WAVE } from "./config/CampaignProgressionConfig";
+import { MULTIPLAYER_CONFIG } from "./config/MultiplayerConfig";
+import type { PlayerState } from "./PlayerState";
+import { getVerdantResonanceProfile } from "./config/AncientGroveUnitConfig";
 
-export type PlacementResult = "placed" | "not-enough-gold" | "invalid-cell" | "enemy-occupied" | "blocks-path" | "game-over";
-export type UpgradeResult = "upgraded" | "specialization-required" | "invalid-specialization" | "not-enough-gold" | "max-level" | "game-over" | "tower-not-found";
-export type SellResult = { refund: number } | "game-over" | "tower-not-found";
+export type PlacementResult = "placed" | "not-enough-gold" | "invalid-cell" | "forbidden-zone" | "invalid-player" | "enemy-occupied" | "blocks-path" | "game-over";
+export type UpgradeResult = "upgraded" | "specialization-required" | "invalid-specialization" | "not-enough-gold" | "max-level" | "game-over" | "tower-not-found" | "not-owner" | "invalid-player";
+export type SellResult = { refund: number } | "game-over" | "tower-not-found" | "not-owner" | "invalid-player";
 export type ResetReason = "try-again";
 export interface HPTierWarning {
   completedWave: number;
@@ -42,7 +45,7 @@ export interface TowerAttackEvent {
   enemyDied: boolean;
   attackMode: TowerAttackMode;
   isSplash: boolean;
-  effectKind: "primary" | "splash" | "chain" | "cleave";
+  effectKind: "primary" | "splash" | "chain" | "cleave" | "radial" | "shockwave";
   specializationId?: TowerSpecializationId;
   damageType: DamageType;
   sourceX: number;
@@ -64,19 +67,24 @@ export interface WaveTelemetry {
 export class GameState {
   readonly grid: Grid;
   readonly map: MapDefinition;
-  /** Player-owned faction selection; multiplayer can later provide one per player/spawn. */
-  readonly faction: FactionDefinition;
-  readonly factionId: FactionDefinition["id"];
-  readonly availableUnits: readonly DefenderType[];
+  readonly players: PlayerState[];
+  activePlayerId: PlayerId;
+  get activePlayer(): PlayerState { return this.players.find((player) => player.playerId === this.activePlayerId) ?? this.players[0]; }
+  get faction(): FactionDefinition { return getFaction(this.activePlayer.factionId); }
+  get factionId(): FactionDefinition["id"] { return this.activePlayer.factionId; }
+  get availableUnits(): readonly DefenderType[] { return this.faction.units; }
+  get isMultiplayer(): boolean { return this.players.length > 1; }
   layout!: RunLayout;
   readonly spawnPaths = new Map<string, Cell[]>();
   private readonly spawnPathVariants = new Map<string, Cell[][]>();
   private readonly spawnVariantCursors = new Map<string, number>();
   get spawn(): Cell { return this.layout.activeSpawns[0].entryCell; }
   get exit(): Cell { return this.layout.castle.approachCell; }
+  get goals() { return this.layout.goals ?? [this.layout.castle]; }
   path: Cell[];
-  gold = 0;
-  lives = BALANCE.startingLives;
+  get gold(): number { return this.activePlayer.gold; }
+  set gold(value: number) { this.activePlayer.gold = value; }
+  lives: number = BALANCE.startingLives;
   towers: Tower[] = [];
   enemies: Enemy[] = [];
   /** Presentation can consume these after each update; combat does not depend on them. */
@@ -116,46 +124,81 @@ export class GameState {
   private hpTierWarningSecondsRemaining = 0;
   private affixWarningSecondsRemaining = 0;
 
-  constructor(map: MapDefinition | MapId = "single-spawn", factionId: FactionDefinition["id"] = "arcane-kingdom", affixSeed = createRunSeed()) {
+  constructor(map: MapDefinition | MapId = "single-spawn", factionSelection: FactionDefinition["id"] | readonly FactionDefinition["id"][] = "arcane-kingdom", affixSeed = createRunSeed()) {
     this.map = typeof map === "string" ? MAPS[map] : map;
-    this.faction = getFaction(factionId);
-    this.factionId = this.faction.id;
-    this.factionBonuses = new FactionBonusSystem(this.factionId);
-    this.availableUnits = this.faction.units;
+    const requestedFactions = Array.isArray(factionSelection) ? factionSelection : [factionSelection];
+    const slots = this.map.multiplayer?.playerSlots ?? [{ playerId: "player-1" as PlayerId, playerIndex: 0, buildZoneIds: [] }];
+    this.players = slots.map((slot, index) => ({
+      ...slot,
+      gold: this.map.multiplayer?.startingGoldPerPlayer ?? this.map.startingGold,
+      factionId: requestedFactions[index] ?? requestedFactions[0] ?? "arcane-kingdom",
+      ownedTowerIds: [],
+    }));
+    this.activePlayerId = this.players[0].playerId;
+    this.factionBonuses = new FactionBonusSystem(this.players.some((player) => player.factionId === FACTION_BONUS_CONFIG.ancientGroveId)
+      ? FACTION_BONUS_CONFIG.ancientGroveId : this.players[0].factionId);
     this.grid = new Grid(this.map.width, this.map.height);
     this.affixSystem = new EnemyAffixSystem(affixSeed);
     [
       ...this.map.terrain,
       ...this.map.layout.activeSpawns.map((spawn) => spawn.gateCell),
-      this.map.layout.castle.gateCell,
+      ...(this.map.layout.goals ?? [this.map.layout.castle]).map((goal) => goal.gateCell),
     ].forEach((cell) => this.grid.setTerrain(cell, true));
     this.layout = this.copyMapLayout();
     this.path = [];
     this.refreshSpawnPaths();
     this.refreshLivingMazeInfluence();
-    this.gold = this.map.startingGold;
+    this.lives = this.map.multiplayer?.teamStartingLives ?? BALANCE.startingLives;
     this.logLayout();
   }
 
+  setActivePlayer(playerId: PlayerId): boolean {
+    if (!this.players.some((player) => player.playerId === playerId)) return false;
+    this.activePlayerId = playerId;
+    return true;
+  }
+
+  getPlayer(playerId: PlayerId = this.activePlayerId): PlayerState | undefined {
+    return this.players.find((player) => player.playerId === playerId);
+  }
+
+  getTowerFactionId(tower: Pick<Tower, "ownerPlayerId">): FactionDefinition["id"] {
+    return this.getPlayer(tower.ownerPlayerId)?.factionId ?? this.players[0].factionId;
+  }
+
+  canPlayerBuildAt(playerId: PlayerId, cell: Cell): boolean {
+    if (!this.map.multiplayer) return playerId === this.players[0].playerId;
+    const player = this.getPlayer(playerId);
+    if (!player) return false;
+    return this.map.multiplayer.buildZones.some((zone) => player.buildZoneIds.includes(zone.id)
+      && cell.x >= zone.x && cell.x < zone.x + zone.width && cell.y >= zone.y && cell.y < zone.y + zone.height);
+  }
+
   /** Checks a proposed build without changing economy, grid, or tower state. */
-  canPlaceBasicTower(cell: Cell, type: DefenderType = "blue-wizard"): PlacementResult {
+  canPlaceBasicTower(cell: Cell, type: DefenderType = "blue-wizard", playerId: PlayerId = this.activePlayerId): PlacementResult {
     if (this.gameOver) return "game-over";
-    if (!this.availableUnits.includes(type)) return "invalid-cell";
-    if (!this.grid.isBuildable(cell) || this.layout.activeSpawns.some((spawn) => sameCell(cell, spawn.entryCell)) || sameCell(cell, this.exit)) return "invalid-cell";
+    const player = this.getPlayer(playerId);
+    if (!player) return "invalid-player";
+    if (!getFaction(player.factionId).units.includes(type)) return "invalid-cell";
+    if (!this.canPlayerBuildAt(playerId, cell)) return "forbidden-zone";
+    if (!this.grid.isBuildable(cell) || this.layout.activeSpawns.some((spawn) => sameCell(cell, spawn.entryCell)) || this.goals.some((goal) => sameCell(cell, goal.approachCell))) return "invalid-cell";
     if (this.enemies.some((enemy) => enemy.alive && sameCell(this.enemyCurrentCell(enemy), cell))) return "enemy-occupied";
-    if (this.gold < DEFENDER_CONFIG[type].buildCost) return "not-enough-gold";
+    if (player.gold < DEFENDER_CONFIG[type].buildCost) return "not-enough-gold";
 
     this.grid.setBlocked(cell, true);
-    const pathExists = this.layout.activeSpawns.every((spawn) => this.groundRoute(spawn.entryCell) !== null)
-      && this.enemies.every((enemy) => !enemy.alive || enemy.movementType === "flying" || this.shortestRouteForEnemy(enemy) !== null);
+    const pathExists = this.layout.activeSpawns.every((spawn) => this.groundRoute(spawn.entryCell, spawn) !== null)
+      && this.enemies.every((enemy) => !enemy.alive || enemy.movementType === "flying" || this.shortestRouteForEnemy(enemy, false) !== null);
     this.grid.setBlocked(cell, false);
     return pathExists ? "placed" : "blocks-path";
   }
 
-  upgradeBasicTower(towerId: number, specializationId?: TowerSpecializationId): UpgradeResult {
+  upgradeBasicTower(towerId: number, specializationId?: TowerSpecializationId, playerId: PlayerId = this.activePlayerId): UpgradeResult {
     if (this.gameOver) return "game-over";
     const tower = this.towers.find((candidate) => candidate.id === towerId);
     if (!tower) return "tower-not-found";
+    const player = this.getPlayer(playerId);
+    if (!player) return "invalid-player";
+    if (tower.ownerPlayerId !== playerId) return "not-owner";
     const next = getTowerLevelStats(tower.level + 1, tower.type);
     if (next.level === tower.level) return "max-level";
     if (next.level !== tower.level + 1 || next.upgradeCost === null) return "max-level";
@@ -164,20 +207,24 @@ export class GameState {
       if (!specializationId) return "specialization-required";
       if (!choices.includes(specializationId) || TOWER_SPECIALIZATIONS[specializationId].defenderType !== tower.type) return "invalid-specialization";
     }
-    if (this.gold < next.upgradeCost) return "not-enough-gold";
-    this.gold -= next.upgradeCost;
+    if (player.gold < next.upgradeCost) return "not-enough-gold";
+    player.gold -= next.upgradeCost;
     upgradeTower(tower, specializationId);
     this.refreshFormations();
     return "upgraded";
   }
 
-  sellTower(towerId: number): SellResult {
+  sellTower(towerId: number, playerId: PlayerId = this.activePlayerId): SellResult {
     if (this.gameOver) return "game-over";
     const index = this.towers.findIndex((candidate) => candidate.id === towerId);
     if (index < 0) return "tower-not-found";
+    const player = this.getPlayer(playerId);
+    if (!player) return "invalid-player";
+    if (this.towers[index].ownerPlayerId !== playerId) return "not-owner";
     const [tower] = this.towers.splice(index, 1);
     const refund = getTowerSellRefund(tower);
-    this.gold += refund;
+    player.gold += refund;
+    player.ownedTowerIds = player.ownedTowerIds.filter((id) => id !== tower.id);
     this.grid.setBlocked(tower.cell, false);
     this.refreshFormations();
     this.refreshSpawnPaths();
@@ -189,21 +236,24 @@ export class GameState {
     return { refund };
   }
 
-  placeBasicTower(cell: Cell, type: DefenderType = "blue-wizard"): PlacementResult {
-    const validation = this.canPlaceBasicTower(cell, type);
+  placeBasicTower(cell: Cell, type: DefenderType = "blue-wizard", playerId: PlayerId = this.activePlayerId): PlacementResult {
+    const validation = this.canPlaceBasicTower(cell, type, playerId);
     if (validation !== "placed") return validation;
     this.grid.setBlocked(cell, true);
-    const newPath = findPath(this.grid, this.spawn, this.exit);
+    const newPath = this.groundRoute(this.spawn, this.layout.activeSpawns[0]);
     // The path was validated above. This guard keeps state safe if Grid changes later.
     if (!newPath) { this.grid.setBlocked(cell, false); return "blocks-path"; }
-    this.gold -= DEFENDER_CONFIG[type].buildCost;
+    const player = this.getPlayer(playerId)!;
+    player.gold -= DEFENDER_CONFIG[type].buildCost;
     this.path = newPath;
     this.refreshSpawnPaths();
     if (this.waveActive) {
       this.wavePath = this.path.map((pathCell) => ({ ...pathCell }));
       this.repathActiveEnemies();
     }
-    this.towers.push(createBasicTower(this.nextTowerId++, cell, type));
+    const tower = createBasicTower(this.nextTowerId++, cell, type, playerId);
+    this.towers.push(tower);
+    player.ownedTowerIds.push(tower.id);
     this.refreshFormations();
     this.refreshLivingMazeInfluence();
     return "placed";
@@ -233,7 +283,8 @@ export class GameState {
     this.spawnVariantCursors.clear();
     this.toSpawn = this.spawnQueue.length;
     this.spawnTimer = 0;
-    this.waveSpawnInterval = composition.spawnInterval ?? 0.65;
+    const multiplayerScaling = this.playerCountScaling();
+    this.waveSpawnInterval = (composition.spawnInterval ?? 0.65) * multiplayerScaling.spawnPacingMultiplier;
     this.refreshSpawnPaths();
     this.wavePath = this.path.map((cell) => ({ ...cell }));
     this.waveEnemyComposition = countWaveComposition(composition);
@@ -265,7 +316,7 @@ export class GameState {
       activeEnemyCap: MAX_ACTIVE_WAVE_ENEMIES * this.layout.activeSpawns.length,
       enemyTypes: ENEMY_CONFIG,
     });
-    this.waveGoldAtStart = this.gold;
+    this.waveGoldAtStart = this.totalTeamGold();
     this.enemiesKilled = 0;
     this.enemiesLeaked = 0;
     return true;
@@ -299,8 +350,12 @@ export class GameState {
     this.spawnPaths.clear();
     this.refreshSpawnPaths();
     this.refreshLivingMazeInfluence();
-    this.gold = this.map.startingGold;
-    this.lives = BALANCE.startingLives;
+    for (const player of this.players) {
+      player.gold = this.map.multiplayer?.startingGoldPerPlayer ?? this.map.startingGold;
+      player.ownedTowerIds = [];
+    }
+    this.activePlayerId = this.players[0].playerId;
+    this.lives = this.map.multiplayer?.teamStartingLives ?? BALANCE.startingLives;
     this.towers = [];
     this.enemies = [];
     this.attackEvents.length = 0;
@@ -368,18 +423,25 @@ export class GameState {
         const queue = spawnQueue ?? this.spawnQueue;
         const queueCursor = spawnQueue ? (this.spawnQueueCursorsBySpawn.get(spawn.id) ?? 0) : this.spawnQueueCursor;
         const type = queue[queueCursor];
-        if (!type) break;
+        if (!type) continue;
         // Multi-front queues run concurrently. Hold Commander finishers until every other lane is drained.
         if (type === "skeletalCommander" && this.hasPendingNonCommanderSpawns()) continue;
         const isFlying = ENEMY_CONFIG[type].movementType === "flying";
-        const groundRoute = isFlying ? null : this.nextSpawnRoute(spawn.id, spawn.entryCell);
+        const groundRoute = isFlying ? null : this.nextSpawnRoute(spawn);
         if (!isFlying && !groundRoute) continue;
         if (spawnQueue) this.spawnQueueCursorsBySpawn.set(spawn.id, queueCursor + 1);
         else this.spawnQueueCursor += 1;
-        const route = isFlying
-          ? [{ ...spawn.entryCell }, { ...this.exit }]
-          : groundRoute!;
+        const destination = isFlying ? this.selectFlyingGoal(spawn) : this.goalForPath(groundRoute!);
+        const route = isFlying ? [{ ...spawn.entryCell }, { ...destination.approachCell }] : groundRoute!;
         const enemy = createEnemy(this.nextEnemyId++, type, route, this.currentWave);
+        const hpMultiplier = this.playerCountScaling().enemyHpMultiplier;
+        if (hpMultiplier !== 1) {
+          enemy.maxHp = Math.round(enemy.maxHp * hpMultiplier);
+          enemy.hp = enemy.maxHp;
+        }
+        enemy.preferredGoalId = spawn.preferredGoalId ?? this.layout.castle.id;
+        enemy.allowedGoalIds = spawn.allowedGoalIds ? [...spawn.allowedGoalIds] : undefined;
+        enemy.targetGoalId = destination.id;
         this.affixSystem.assign(enemy, this.currentWave);
         this.enemies.push(enemy);
         this.toSpawn -= 1;
@@ -394,12 +456,18 @@ export class GameState {
     for (const enemy of this.enemies) {
       updateEnemyAffixes(enemy, deltaSeconds);
       updateEnemySpecialStatuses(enemy, deltaSeconds);
-      this.factionBonuses.updateLivingMazeExposure(enemy, deltaSeconds);
+      const resonance = this.getVerdantResonanceAt(enemy);
+      const allowsFlying = enemy.movementType === "flying" && resonance.enablesGroundEffectsAgainstFlying;
+      const occupiedCell = this.enemyCurrentCell(enemy);
+      this.factionBonuses.updateLivingMazeExposure(enemy, deltaSeconds, allowsFlying, occupiedCell);
       const routeCell = enemy.path[enemy.currentPathIndex];
-      const treantLevel = this.factionBonuses.getTreantLevelAt(routeCell ?? this.enemyCurrentCell(enemy), this.towers);
-      if (this.factionId === FACTION_BONUS_CONFIG.ancientGroveId) this.ancientGroveStatuses.updateEnemy(enemy, deltaSeconds, treantLevel);
+      const treantLevel = this.factionBonuses.getTreantLevelAt(allowsFlying ? occupiedCell : (routeCell ?? occupiedCell), this.towers, allowsFlying);
+      if (this.players.some((player) => player.factionId === FACTION_BONUS_CONFIG.ancientGroveId)) {
+        this.ancientGroveStatuses.updateEnemy(enemy, deltaSeconds, treantLevel, allowsFlying);
+      }
       this.moveEnemy(enemy, deltaSeconds, getCommanderAuraMultiplier(enemy, this.enemies)
-        * getEnemySpeedMultiplier(enemy) * this.factionBonuses.getLivingMazeSlowMultiplier(enemy));
+        * getEnemySpeedMultiplier(enemy)
+        * this.factionBonuses.getLivingMazeSlowMultiplier(enemy, resonance.slowStrengthMultiplier, allowsFlying));
     }
     this.applyAncientGroveDamage(deltaSeconds);
     this.updateTowers(deltaSeconds);
@@ -417,7 +485,7 @@ export class GameState {
       console.info("GAME OVER - waiting for TRY AGAIN", {
         wave: this.currentWave,
         lives: 0,
-        gold: this.gold,
+        gold: this.totalTeamGold(),
       });
       this.gameOver = true;
       this.autoRun = false;
@@ -463,9 +531,14 @@ export class GameState {
     for (const tower of this.towers) {
       tower.cooldownRemaining = Math.max(0, tower.cooldownRemaining - deltaSeconds);
       if (tower.cooldownRemaining > 0) continue;
+      if (DEFENDER_CONFIG[tower.type].radialAttack) {
+        this.updateRadialTower(tower);
+        continue;
+      }
       const target = this.findTowerTarget(tower);
       if (!target) continue;
-      const profile = getTowerAttackProfile(tower, target, this.factionId);
+      const towerFactionId = this.getTowerFactionId(tower);
+      const profile = getTowerAttackProfile(tower, target, towerFactionId);
       const primaryDamage = profile.damage;
       tower.cooldownRemaining = 1 / profile.fireRate;
       const primaryDamageType = getTowerDamageType(tower, profile.mode);
@@ -486,7 +559,7 @@ export class GameState {
           if (!candidate) break;
           hitIds.add(candidate.id);
           const sourceX = previous.x, sourceY = previous.y;
-          const chainedProfile = getTowerAttackProfile(tower, candidate, this.factionId);
+          const chainedProfile = getTowerAttackProfile(tower, candidate, towerFactionId);
           const chainDamage = Math.round(chainedProfile.damage * chain.damageRatios[index]);
           this.applyTowerDamage(tower, candidate, chainDamage, chainedProfile.mode, false, "chain", getTowerDamageType(tower, chainedProfile.mode), sourceX, sourceY);
           previous = candidate;
@@ -521,12 +594,44 @@ export class GameState {
     }
   }
 
+  /** Bark Titan attacks originate at the tower and hit every valid enemy in its grid-ring range. */
+  private updateRadialTower(tower: Tower): void {
+    const targets = this.enemies.filter((enemy) => enemy.alive && enemy.hp > 0
+      && canTowerTargetEnemy(tower, enemy) && isTowerInRange(tower, enemy));
+    if (targets.length === 0) return;
+    targets.sort((a, b) => this.remainingDistanceToExit(a) - this.remainingDistanceToExit(b) || a.id - b.id);
+    const towerFactionId = this.getTowerFactionId(tower);
+    const firstProfile = getTowerAttackProfile(tower, targets[0], towerFactionId);
+    tower.cooldownRemaining = 1 / firstProfile.fireRate;
+    for (const enemy of targets) {
+      const profile = getTowerAttackProfile(tower, enemy, towerFactionId);
+      this.applyTowerDamage(tower, enemy, profile.damage, profile.mode, true, "radial",
+        getTowerDamageType(tower, profile.mode), tower.cell.x, tower.cell.y, profile.physicalResistancePenetration ?? 0);
+    }
+
+    const specialization = tower.specializationId ? TOWER_SPECIALIZATIONS[tower.specializationId] : undefined;
+    const shockwave = specialization?.shockwave;
+    if (!shockwave) return;
+    tower.specializationAttackCounter += 1;
+    if (tower.specializationAttackCounter % shockwave.everyNthAttack !== 0) return;
+    const shockwaveTargets = this.enemies.filter((enemy) => enemy.alive && enemy.hp > 0
+      && canTowerTargetEnemy(tower, enemy)
+      && isEnemyWithinTowerCellRadius(tower, enemy, shockwave.rangeCells))
+      .sort((a, b) => a.id - b.id);
+    for (const enemy of shockwaveTargets) {
+      const profile = getTowerAttackProfile(tower, enemy, towerFactionId);
+      this.applyTowerDamage(tower, enemy, Math.round(profile.damage * shockwave.damageRatio), profile.mode, true, "shockwave",
+        getTowerDamageType(tower, profile.mode), tower.cell.x, tower.cell.y, profile.physicalResistancePenetration ?? 0);
+    }
+  }
+
   /** Ancient Grove damage-over-time is resolved in simulation, never in the Babylon renderer. */
   private applyAncientGroveDamage(deltaSeconds: number): void {
-    if (this.factionId !== FACTION_BONUS_CONFIG.ancientGroveId || deltaSeconds <= 0) return;
+    if (!this.players.some((player) => player.factionId === FACTION_BONUS_CONFIG.ancientGroveId) || deltaSeconds <= 0) return;
     for (const enemy of this.enemies) {
       if (!enemy.alive || enemy.hp <= 0) continue;
-      const thornDps = getThornRotDamage(enemy, enemy.thornRotSourceLevel);
+      const resonance = this.getVerdantResonanceAt(enemy);
+      const thornDps = getThornRotDamage(enemy, enemy.thornRotSourceLevel) * resonance.dotDamageMultiplier;
       if (thornDps > 0) {
         const accumulated = enemy.thornRotDamageRemainder + thornDps * deltaSeconds;
         const damage = Math.floor(accumulated);
@@ -537,7 +642,7 @@ export class GameState {
         }
       }
       if (!enemy.alive || enemy.hp <= 0) continue;
-      const sunDps = getSunbrandDamage(enemy);
+      const sunDps = getSunbrandDamage(enemy) * resonance.dotDamageMultiplier;
       if (sunDps > 0) {
         const accumulated = enemy.sunbrandDamageRemainder + sunDps * deltaSeconds;
         const damage = Math.floor(accumulated);
@@ -560,14 +665,14 @@ export class GameState {
       enemy.alive = false;
       this.ancientGroveStatuses.clearEnemy(enemy);
       if (sourceTower) sourceTower.combatStats.kills += 1;
-      this.gold += getWaveGoldReward(enemy.reward, this.currentWave);
+      this.distributeReward(getWaveGoldReward(enemy.reward, this.currentWave));
       this.enemiesKilled += 1;
     }
   }
 
   private applyTowerDamage(tower: Tower, enemy: Enemy, damage: number, attackMode: TowerAttackMode, isSplash: boolean, effectKind: TowerAttackEvent["effectKind"], damageType: DamageType, sourceX: number, sourceY: number, resistancePenetration = 0): void {
     let totalDamage = damage;
-    if (tower.type === "seer" && tower.specializationId === "sun-seer" && this.factionId === FACTION_BONUS_CONFIG.ancientGroveId) {
+    if (tower.type === "seer" && tower.specializationId === "sun-seer" && this.getTowerFactionId(tower) === FACTION_BONUS_CONFIG.ancientGroveId) {
       const detonates = this.ancientGroveStatuses.applySunbrandHit(enemy);
       if (detonates) totalDamage += FACTION_BONUS_CONFIG.sunbrand.solarDetonationDamage;
     }
@@ -590,7 +695,7 @@ export class GameState {
     tower.combatStats.kills += 1;
     enemy.alive = false;
     this.ancientGroveStatuses.clearEnemy(enemy);
-    this.gold += getWaveGoldReward(enemy.reward, this.currentWave);
+    this.distributeReward(getWaveGoldReward(enemy.reward, this.currentWave));
     this.enemiesKilled += 1;
   }
 
@@ -627,11 +732,32 @@ export class GameState {
   }
 
   private refreshLivingMazeInfluence(): void {
-    this.factionBonuses.rebuildLivingMazeInfluence(this.towers, [...this.spawnPaths.values()]);
+    const groveTowers = this.towers.filter((tower) => this.getTowerFactionId(tower) === FACTION_BONUS_CONFIG.ancientGroveId);
+    this.factionBonuses.rebuildLivingMazeInfluence(groveTowers, [...this.spawnPaths.values()]);
   }
 
   private distanceToTower(tower: Tower, enemy: Enemy): number {
     return Math.hypot(enemy.x - tower.cell.x, enemy.y - tower.cell.y) * WORLD_UNITS_PER_CELL;
+  }
+
+  /** Strongest overlapping Verdant Resonance value wins per axis; identical auras never stack. */
+  private getVerdantResonanceAt(enemy: Pick<Enemy, "x" | "y">): {
+    dotDamageMultiplier: number;
+    slowStrengthMultiplier: number;
+    enablesGroundEffectsAgainstFlying: boolean;
+  } {
+    let dotDamageMultiplier = 1;
+    let slowStrengthMultiplier = 1;
+    let enablesGroundEffectsAgainstFlying = false;
+    for (const tower of this.towers) {
+      if (tower.type !== "thorn-dancer" || this.getTowerFactionId(tower) !== FACTION_BONUS_CONFIG.ancientGroveId) continue;
+      const profile = getVerdantResonanceProfile(tower.specializationId);
+      if (Math.hypot(enemy.x - tower.cell.x, enemy.y - tower.cell.y) > profile.radiusCells) continue;
+      dotDamageMultiplier = Math.max(dotDamageMultiplier, profile.dotDamageMultiplier);
+      slowStrengthMultiplier = Math.max(slowStrengthMultiplier, profile.slowStrengthMultiplier);
+      enablesGroundEffectsAgainstFlying = true;
+    }
+    return { dotDamageMultiplier, slowStrengthMultiplier, enablesGroundEffectsAgainstFlying };
   }
 
   /** Remaining route distance in grid units, calculated from the enemy's current live path. */
@@ -656,21 +782,27 @@ export class GameState {
   }
 
   /** Follow the current segment to either reachable end, then take the shortest route. */
-  private shortestRouteForEnemy(enemy: Enemy): Cell[] | null {
+  private shortestRouteForEnemy(enemy: Enemy, commitGoal = true): Cell[] | null {
     const current = enemy.path[Math.max(0, enemy.currentPathIndex)];
     const next = enemy.path[enemy.currentPathIndex + 1];
     let best: Cell[] | null = null;
+    let bestGoalId = enemy.targetGoalId;
     let bestDistance = Number.POSITIVE_INFINITY;
+    const allowedGoalIds = new Set(enemy.allowedGoalIds ?? this.goals.map((goal) => goal.id));
+    const allowedGoals = this.goals.filter((goal) => allowedGoalIds.has(goal.id));
     for (const anchor of [current, next]) {
       if (!anchor || this.grid.isBlocked(anchor)) continue;
-      const route = this.groundRoute(anchor);
-      if (!route) continue;
-      const distance = Math.hypot(anchor.x - enemy.x, anchor.y - enemy.y) + route.length - 1;
+      const resolved = findPathToAnyGoal(this.grid, anchor, allowedGoals.map((goal) => ({ id: goal.id, cell: goal.approachCell })),
+        enemy.preferredGoalId, enemy.targetGoalId, MULTIPLAYER_CONFIG.goalSwitchMinimumSavings);
+      if (!resolved) continue;
+      const distance = Math.hypot(anchor.x - enemy.x, anchor.y - enemy.y) + resolved.path.length - 1;
       if (distance < bestDistance) {
-        best = route;
+        best = resolved.path;
+        bestGoalId = resolved.goalId;
         bestDistance = distance;
       }
     }
+    if (commitGoal && bestGoalId) enemy.targetGoalId = bestGoalId;
     return best;
   }
 
@@ -702,15 +834,15 @@ export class GameState {
     this.path = this.spawnPaths.get(this.layout.activeSpawns[0].id) ?? [];
   }
 
-  private nextSpawnRoute(spawnId: string, entryCell: Cell): Cell[] | null {
-    const routes = this.spawnPathVariants.get(spawnId) ?? [];
-    if (routes.length === 0) return this.groundRoute(entryCell);
-    const cursor = this.spawnVariantCursors.get(spawnId) ?? 0;
-    this.spawnVariantCursors.set(spawnId, (cursor + 1) % routes.length);
+  private nextSpawnRoute(spawn: RunLayout["activeSpawns"][number]): Cell[] | null {
+    const routes = this.spawnPathVariants.get(spawn.id) ?? [];
+    if (routes.length === 0) return this.groundRoute(spawn.entryCell, spawn);
+    const cursor = this.spawnVariantCursors.get(spawn.id) ?? 0;
+    this.spawnVariantCursors.set(spawn.id, (cursor + 1) % routes.length);
     return routes[cursor % routes.length];
   }
 
-  private spawnRoutes(spawn: RunSpawn): Cell[][] {
+  private spawnRoutes(spawn: RunLayout["activeSpawns"][number]): Cell[][] {
     if (this.map.id === "three-spawns" && spawn.id === "spawn-north") {
       const left = findPathThrough(this.grid, spawn.entryCell, [
         { x: 9, y: 29 }, { x: 9, y: 41 }, { x: 17, y: 52 }, this.exit,
@@ -720,13 +852,44 @@ export class GameState {
       ]);
       return [left, right].filter((route): route is Cell[] => route !== null);
     }
-    const route = this.groundRoute(spawn.entryCell);
+    const route = this.groundRoute(spawn.entryCell, spawn);
     return route ? [route] : [];
   }
 
-  /** Land mobs always use the shortest open grid path to the castle. */
-  private groundRoute(start: Cell): Cell[] | null {
-    return findPath(this.grid, start, this.exit);
+  /** Land mobs resolve among all allowed goals; a preferred lane wins near-ties. */
+  private groundRoute(start: Cell, spawn?: RunLayout["activeSpawns"][number]): Cell[] | null {
+    const allowedIds = new Set(spawn?.allowedGoalIds ?? this.goals.map((goal) => goal.id));
+    return findPathToAnyGoal(this.grid, start,
+      this.goals.filter((goal) => allowedIds.has(goal.id)).map((goal) => ({ id: goal.id, cell: goal.approachCell })),
+      spawn?.preferredGoalId ?? this.layout.castle.id, undefined, MULTIPLAYER_CONFIG.goalSwitchMinimumSavings)?.path ?? null;
+  }
+
+  /** Public deterministic route query used by tests and future command validation. */
+  routeForSpawn(spawnId: string): { goalId: string; path: Cell[] } | null {
+    const spawn = this.layout.activeSpawns.find((candidate) => candidate.id === spawnId);
+    if (!spawn) return null;
+    const path = this.groundRoute(spawn.entryCell, spawn);
+    return path ? { goalId: this.goalForPath(path).id, path } : null;
+  }
+
+  private goalForPath(path: readonly Cell[]) {
+    const last = path[path.length - 1];
+    return this.goals.find((goal) => sameCell(goal.approachCell, last)) ?? this.layout.castle;
+  }
+
+  private selectFlyingGoal(spawn: RunLayout["activeSpawns"][number]) {
+    const allowedIds = new Set(spawn.allowedGoalIds ?? this.goals.map((goal) => goal.id));
+    const candidates = this.goals.filter((goal) => allowedIds.has(goal.id)).sort((a, b) => {
+      const distanceA = Math.abs(a.approachCell.x - spawn.entryCell.x) + Math.abs(a.approachCell.y - spawn.entryCell.y);
+      const distanceB = Math.abs(b.approachCell.x - spawn.entryCell.x) + Math.abs(b.approachCell.y - spawn.entryCell.y);
+      return distanceA - distanceB || a.id.localeCompare(b.id);
+    });
+    const shortest = candidates[0] ?? this.layout.castle;
+    const preferred = candidates.find((goal) => goal.id === spawn.preferredGoalId);
+    if (!preferred) return shortest;
+    const preferredDistance = Math.abs(preferred.approachCell.x - spawn.entryCell.x) + Math.abs(preferred.approachCell.y - spawn.entryCell.y);
+    const shortestDistance = Math.abs(shortest.approachCell.x - spawn.entryCell.x) + Math.abs(shortest.approachCell.y - spawn.entryCell.y);
+    return preferredDistance - shortestDistance >= MULTIPLAYER_CONFIG.goalSwitchMinimumSavings ? shortest : preferred;
   }
 
   /** Distributes the same mixed wave queue across all active fronts. */
@@ -735,9 +898,15 @@ export class GameState {
     this.spawnQueueCursorsBySpawn.clear();
     const spawns = this.layout.activeSpawns;
     spawns.forEach((spawn) => this.spawnQueuesBySpawn.set(spawn.id, []));
-    this.spawnQueue.forEach((type, index) => {
-      const spawn = spawns[index % spawns.length];
+    const assigned = new Map(spawns.map((spawn) => [spawn.id, 0]));
+    this.spawnQueue.forEach((type) => {
+      const spawn = [...spawns].sort((a, b) => {
+        const aRatio = (assigned.get(a.id) ?? 0) / Math.max(0.0001, a.weight ?? 1);
+        const bRatio = (assigned.get(b.id) ?? 0) / Math.max(0.0001, b.weight ?? 1);
+        return aRatio - bRatio || a.id.localeCompare(b.id);
+      })[0];
       this.spawnQueuesBySpawn.get(spawn.id)?.push(type);
+      assigned.set(spawn.id, (assigned.get(spawn.id) ?? 0) + 1);
     });
   }
 
@@ -752,7 +921,8 @@ export class GameState {
   }
 
   private logLayout(): void {
-    console.log("Run layout", { castle: this.layout.castle.id, activeSpawnCount: this.layout.activeSpawns.length, startingGold: this.gold, activeSpawns: this.layout.activeSpawns.map((spawn) => spawn.id) });
+    console.log("Run layout", { castle: this.layout.castle.id, goalCount: this.goals.length, activeSpawnCount: this.layout.activeSpawns.length,
+      startingGold: this.players.map((player) => ({ playerId: player.playerId, gold: player.gold })), activeSpawns: this.layout.activeSpawns.map((spawn) => spawn.id) });
   }
 
   private copyMapLayout(): RunLayout {
@@ -762,8 +932,12 @@ export class GameState {
         cell: { ...this.map.layout.castle.cell }, gateCell: { ...this.map.layout.castle.gateCell },
         approachCell: { ...this.map.layout.castle.approachCell },
       },
+      goals: (this.map.layout.goals ?? [this.map.layout.castle]).map((goal) => ({
+        ...goal, cell: { ...goal.cell }, gateCell: { ...goal.gateCell }, approachCell: { ...goal.approachCell },
+      })),
       activeSpawns: this.map.layout.activeSpawns.map((spawn) => ({
         ...spawn, cell: { ...spawn.cell }, gateCell: { ...spawn.gateCell }, entryCell: { ...spawn.entryCell },
+        allowedGoalIds: spawn.allowedGoalIds ? [...spawn.allowedGoalIds] : undefined,
       })),
     };
   }
@@ -772,8 +946,8 @@ export class GameState {
     this.waveActive = false;
     const telemetry: WaveTelemetry = {
       wave: this.currentWave, enemies: this.waveEnemyCount, composition: { ...this.waveEnemyComposition },
-      goldEarned: this.gold - this.waveGoldAtStart,
-      goldAvailable: this.gold, lives: this.lives, enemiesKilled: this.enemiesKilled, enemiesLeaked: this.enemiesLeaked,
+      goldEarned: this.totalTeamGold() - this.waveGoldAtStart,
+      goldAvailable: this.totalTeamGold(), lives: this.lives, enemiesKilled: this.enemiesKilled, enemiesLeaked: this.enemiesLeaked,
       towerLevels: this.towers.reduce((counts, tower) => {
         counts[`l${tower.level}` as "l1" | "l2" | "l3"] += 1;
         return counts;
@@ -799,4 +973,21 @@ export class GameState {
   }
 
   towerAt(cell: Cell): Tower | undefined { return this.towers.find((tower) => cellKey(tower.cell) === cellKey(cell)); }
+
+  private totalTeamGold(): number { return this.players.reduce((total, player) => total + player.gold, 0); }
+
+  private playerCountScaling() {
+    return MULTIPLAYER_CONFIG.playerCountScaling[this.players.length]
+      ?? MULTIPLAYER_CONFIG.playerCountScaling[1];
+  }
+
+  private distributeReward(reward: number): void {
+    const scaledReward = Math.max(0, Math.round(reward * this.playerCountScaling().rewardMultiplier));
+    const base = Math.floor(scaledReward / this.players.length);
+    let remainder = scaledReward - base * this.players.length;
+    for (const player of [...this.players].sort((a, b) => a.playerIndex - b.playerIndex)) {
+      player.gold += base + (remainder > 0 ? 1 : 0);
+      remainder = Math.max(0, remainder - 1);
+    }
+  }
 }

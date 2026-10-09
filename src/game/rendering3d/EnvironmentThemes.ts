@@ -9,6 +9,9 @@ export const FOREST_PALETTE = {
   floorHex: "#4f8338",
   foliageTint: new Color3(0.62, 0.72, 0.57),
   dirtPatchColors: ["rgba(92,61,35,0.29)", "rgba(128,86,48,0.22)"],
+  scatteredDirtPatchCount: 92,
+  wornZoneCount: 3,
+  wornZoneSegments: 9,
 } as const;
 
 export interface EnvironmentTheme {

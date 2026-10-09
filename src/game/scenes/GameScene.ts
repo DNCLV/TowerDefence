@@ -150,6 +150,8 @@ export class GameScene extends Phaser.Scene {
       "max-level": "Tower is already max level.",
       "game-over": "Game over.",
       "tower-not-found": "Tower is no longer available.",
+      "not-owner": "Only the tower owner can upgrade it.",
+      "invalid-player": "Unknown player slot.",
     } as const;
     this.statusText.setText(messages[result]);
   }
@@ -176,6 +178,8 @@ export class GameScene extends Phaser.Scene {
       placed: "Tower bygget. Stien er opdateret.",
       "not-enough-gold": "Ikke nok gold.",
       "invalid-cell": "Du kan ikke bygge på dette felt.",
+      "forbidden-zone": "Denne byggezone tilhører den anden spiller.",
+      "invalid-player": "Ukendt spiller.",
       "enemy-occupied": "Kan ikke bygge oven pa en enemy.",
       "blocks-path": "Afvist: enemies skal stadig kunne nå exit.",
       "game-over": "Game over.",

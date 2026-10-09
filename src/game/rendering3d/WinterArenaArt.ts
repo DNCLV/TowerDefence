@@ -219,18 +219,38 @@ export class WinterArenaArt {
       context.fillStyle = gradient;
       context.fillRect(x - radius, y - radius, radius * 2, radius * 2);
     }
-    // Seeded, independent soil clusters avoid implying a route through the
-    // clearing while still breaking the grass into natural worn patches.
-    for (let index = 0; index < 42; index += 1) {
-      const x = random() * width, y = random() * height;
-      const radius = Math.min(width, height) * (0.012 + random() * 0.028);
-      const color = FOREST_PALETTE.dirtPatchColors[index % FOREST_PALETTE.dirtPatchColors.length];
+    const drawDirtPatch = (x: number, y: number, radius: number, color: string): void => {
       const gradient = context.createRadialGradient(x, y, radius * 0.08, x, y, radius);
       gradient.addColorStop(0, color);
       gradient.addColorStop(0.62, color.replace(/0\.\d+\)/, "0.10)"));
       gradient.addColorStop(1, "rgba(0,0,0,0)");
       context.fillStyle = gradient;
       context.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+    };
+    // Seeded independent soil clusters give broad coverage without drawing a
+    // single continuous road or tying decoration to pathfinding data.
+    for (let index = 0; index < FOREST_PALETTE.scatteredDirtPatchCount; index += 1) {
+      const x = random() * width, y = random() * height;
+      const radius = Math.min(width, height) * (0.01 + random() * 0.025);
+      const color = FOREST_PALETTE.dirtPatchColors[index % FOREST_PALETTE.dirtPatchColors.length];
+      drawDirtPatch(x, y, radius, color);
+    }
+    // Add loose, meandering worn-earth zones: each short section is a cluster
+    // of separated patches with grass gaps, not a drawn strip or gameplay path.
+    for (let zone = 0; zone < FOREST_PALETTE.wornZoneCount; zone += 1) {
+      let centerX = width * (0.18 + random() * 0.64);
+      for (let segment = 0; segment < FOREST_PALETTE.wornZoneSegments; segment += 1) {
+        centerX = Math.max(width * 0.08, Math.min(width * 0.92, centerX + (random() - 0.5) * width * 0.16));
+        const centerY = height * ((segment + 0.5) / FOREST_PALETTE.wornZoneSegments);
+        const patches = 2 + Math.floor(random() * 3);
+        for (let patch = 0; patch < patches; patch += 1) {
+          if (random() < 0.24) continue;
+          const x = centerX + (random() - 0.5) * width * 0.13;
+          const y = centerY + (random() - 0.5) * height * 0.075;
+          const radius = Math.min(width, height) * (0.012 + random() * 0.026);
+          drawDirtPatch(x, y, radius, FOREST_PALETTE.dirtPatchColors[(zone + segment + patch) % FOREST_PALETTE.dirtPatchColors.length]);
+        }
+      }
     }
     for (let index = 0; index < Math.floor(width * height / 38); index += 1) {
       const x = random() * width, y = random() * height;

@@ -11,9 +11,11 @@ import type { DamageType } from "../config/EnemyAffixConfig";
 import type { FactionId } from "../config/FactionConfig";
 import { getVeteranAttackSpeedMultiplier, getVeteranDamageMultiplier } from "../FactionBonusSystem";
 import { FACTION_BONUS_CONFIG } from "../config/FactionBonusConfig";
+import type { PlayerId } from "../config/MapConfig";
 
 export interface Tower {
   id: number;
+  ownerPlayerId: PlayerId;
   type: DefenderType;
   cell: Cell;
   rangeMode: DefenderRangeMode;
@@ -49,9 +51,9 @@ export const BASIC_TOWER_LEVELS = DEFENDER_CONFIG["blue-wizard"].levels;
 export type TowerLevelStats = DefenderLevelStats;
 export const getTowerLevelStats = (level: number, type: DefenderType = "blue-wizard"): TowerLevelStats => getDefenderLevelStats(type, level);
 
-export function createBasicTower(id: number, cell: Cell, type: DefenderType = "blue-wizard"): Tower {
+export function createBasicTower(id: number, cell: Cell, type: DefenderType = "blue-wizard", ownerPlayerId: PlayerId = "player-1"): Tower {
   return {
-    id, type, cell, rangeMode: DEFENDER_CONFIG[type].rangeMode,
+    id, ownerPlayerId, type, cell, rangeMode: DEFENDER_CONFIG[type].rangeMode,
     ...getTowerLevelStats(1, type), cooldownRemaining: 0, specializationAttackCounter: 0, moonRampIndex: 0,
     combatStats: { kills: 0, damageDone: 0 },
   };
@@ -101,12 +103,16 @@ const ADJACENT8_HALF_EXTENT_CELLS = 1.5;
 export function isTowerInRange(tower: Tower, enemy: Enemy): boolean {
   if (DEFENDER_CONFIG[tower.type].supportsMapWideTargeting) return true;
   if (tower.rangeMode === "adjacent8") {
-    const dx = Math.abs(enemy.x - tower.cell.x);
-    const dy = Math.abs(enemy.y - tower.cell.y);
-    return Math.max(dx, dy) <= ADJACENT8_HALF_EXTENT_CELLS
-      && (dx > 0.5 || dy > 0.5);
+    return isEnemyWithinTowerCellRadius(tower, enemy, tower.range);
   }
   return Math.hypot(enemy.x - tower.cell.x, enemy.y - tower.cell.y) * WORLD_UNITS_PER_CELL <= tower.range;
+}
+
+/** Grid-ring coverage for adjacent and radial attacks; range 1 matches Holy Knight's eight surrounding cells. */
+export function isEnemyWithinTowerCellRadius(tower: Pick<Tower, "cell">, enemy: Pick<Enemy, "x" | "y">, rangeCells: number): boolean {
+  const dx = Math.abs(enemy.x - tower.cell.x);
+  const dy = Math.abs(enemy.y - tower.cell.y);
+  return Math.max(dx, dy) <= rangeCells + 0.5 && (dx > 0.5 || dy > 0.5);
 }
 
 /** Adjacent-cell check used by the Battlemage's automatic melee mode. */
@@ -118,7 +124,7 @@ export function isTowerAdjacent8(tower: Tower, enemy: Enemy): boolean {
 
 export function getTowerAttackMode(tower: Tower, enemy: Enemy): TowerAttackMode {
   if (tower.type === "sovereign") return getSovereignProfile(tower, enemy).mode;
-  if (tower.type === "holy-knight" || tower.type === "druid") return "melee";
+  if (tower.type === "holy-knight" || tower.type === "druid" || tower.type === "bark-titan") return "melee";
   return tower.type === "battlemage" && enemy.movementType === "ground" && isTowerAdjacent8(tower, enemy)
     ? "melee"
     : "ranged";
@@ -223,8 +229,8 @@ export function getTowerSplashRadiusTiles(tower: Tower): number {
 export function getTowerDamageType(tower: Tower, mode: TowerAttackMode = "ranged"): DamageType {
   if (tower.type === "blue-wizard") return "magic";
   if (tower.type === "holy-knight" || tower.type === "green-archer" || tower.type === "treant"
-    || tower.type === "thorn-owl" || tower.type === "druid") return "physical";
-  if (tower.type === "seer") return "magic";
+    || tower.type === "thorn-owl" || tower.type === "druid" || tower.type === "bark-titan") return "physical";
+  if (tower.type === "seer" || tower.type === "thorn-dancer") return "magic";
   if (tower.type === "battlemage") return mode === "melee" ? "physical" : "magic";
   // Sovereign's anti-air bolts are arcane; its rapid/heavy attacks are physical.
   return mode === "anti-air" ? "magic" : "physical";

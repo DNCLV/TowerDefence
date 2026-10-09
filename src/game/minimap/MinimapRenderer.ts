@@ -42,6 +42,7 @@ export class MinimapRenderer {
     panel.dataset.mapDimensions = `${map.width}x${map.height}`;
     panel.dataset.terrainCells = String(map.terrain.length);
     panel.dataset.spawnCount = String(map.layout.activeSpawns.length);
+    panel.dataset.goalCount = String((map.layout.goals ?? [map.layout.castle]).length);
     panel.dataset.goalCell = `${map.layout.castle.gateCell.x},${map.layout.castle.gateCell.y}`;
 
     this.staticLayer = document.createElement("canvas");
@@ -114,8 +115,8 @@ export class MinimapRenderer {
 
     const minCellSize = Math.min(mapRect.width / this.map.width, mapRect.height / this.map.height);
     const towerRadius = Math.max(1.15, Math.min(2.8, minCellSize * 0.38));
-    this.context.fillStyle = "#55e69b";
     for (const tower of state.towers) {
+      this.context.fillStyle = tower.ownerPlayerId === "player-2" ? "#d890ff" : "#55e69b";
       this.drawDot(this.cellToCanvas(tower.cell, mapRect), towerRadius);
     }
 
@@ -175,7 +176,9 @@ export class MinimapRenderer {
       context.stroke();
     };
     for (const spawn of this.map.layout.activeSpawns) marker(spawn.gateCell, "#55b9ff", Math.min(cellWidth, cellHeight) * 0.72);
-    marker(this.map.layout.castle.gateCell, "#f5d16f", Math.min(cellWidth, cellHeight) * 0.82);
+    for (const goal of this.map.layout.goals ?? [this.map.layout.castle]) {
+      marker(goal.gateCell, "#f5d16f", Math.min(cellWidth, cellHeight) * 0.82);
+    }
 
     context.strokeStyle = "rgba(231, 246, 250, 0.9)";
     context.lineWidth = Math.max(2, cellWidth * 0.14);

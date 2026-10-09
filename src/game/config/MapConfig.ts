@@ -1,7 +1,31 @@
 import type { Cell } from "../../core/types";
 import type { PerimeterSide, RunLayout } from "../map/RunLayout";
 
-export type MapId = "single-spawn" | "two-spawns" | "three-spawns";
+export type MapId = "single-spawn" | "two-spawns" | "three-spawns" | "twin-bastion";
+
+export type PlayerId = `player-${number}`;
+export interface PlayerSlotDefinition {
+  playerId: PlayerId;
+  playerIndex: number;
+  buildZoneIds: string[];
+}
+export interface BuildZoneDefinition {
+  id: string;
+  kind: "private" | "shared";
+  ownerPlayerId?: PlayerId;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+export interface MultiplayerMapConfig {
+  minPlayers: number;
+  maxPlayers: number;
+  playerSlots: PlayerSlotDefinition[];
+  buildZones: BuildZoneDefinition[];
+  startingGoldPerPlayer: number;
+  teamStartingLives: number;
+}
 
 export interface TerrainRegion {
   id: string;
@@ -22,6 +46,7 @@ export interface MapDefinition {
   terrainRegions: TerrainRegion[];
   startingGold: number;
   enemyCountMultiplier: number;
+  multiplayer?: MultiplayerMapConfig;
 }
 
 const endpoint = (id: string, cell: Cell, side: PerimeterSide) => {
@@ -116,6 +141,54 @@ export const MAPS: Record<MapId, MapDefinition> = {
       rectangle("lower-right-plateau", 26, 53, 17, 8),
     ),
     startingGold: 150, enemyCountMultiplier: 2,
+  },
+  "twin-bastion": {
+    id: "twin-bastion", name: "Twin Bastion", subtitle: "2 Players · Shared center", description: "Two defenders hold private fronts and one contested central killzone.",
+    width: 77, height: 80,
+    layout: {
+      castle: castleEndpoint("goal-a", { x: 18, y: 79 }, "south"),
+      goals: [
+        castleEndpoint("goal-a", { x: 18, y: 79 }, "south"),
+        castleEndpoint("goal-b", { x: 58, y: 79 }, "south"),
+      ],
+      activeSpawns: [
+        { ...endpoint("spawn-a", { x: 18, y: 0 }, "north"), preferredGoalId: "goal-a", allowedGoalIds: ["goal-a", "goal-b"], weight: 1 },
+        { ...endpoint("spawn-b", { x: 58, y: 0 }, "north"), preferredGoalId: "goal-b", allowedGoalIds: ["goal-a", "goal-b"], weight: 1 },
+      ],
+    },
+    ...withTerrain(
+      rectangle("left-forest-wall", 0, 5, 4, 68),
+      rectangle("right-forest-wall", 73, 5, 4, 68),
+      rectangle("upper-central-ridge", 35, 0, 7, 31),
+      formation("left-bastion-ridge",
+        rectangle("left-inner-ridge", 25, 19, 6, 18),
+        rectangle("left-cross-ridge", 19, 32, 12, 5),
+      ),
+      formation("right-bastion-ridge",
+        rectangle("right-inner-ridge", 46, 19, 6, 18),
+        rectangle("right-cross-ridge", 46, 32, 12, 5),
+      ),
+      rectangle("shared-center-island", 36, 52, 5, 10),
+      rectangle("lower-left-shoulder", 4, 64, 10, 8),
+      rectangle("lower-right-shoulder", 63, 64, 10, 8),
+    ),
+    startingGold: 80,
+    enemyCountMultiplier: 1.5,
+    multiplayer: {
+      minPlayers: 2,
+      maxPlayers: 2,
+      startingGoldPerPlayer: 80,
+      teamStartingLives: 20,
+      playerSlots: [
+        { playerId: "player-1", playerIndex: 0, buildZoneIds: ["p1-private", "shared-center"] },
+        { playerId: "player-2", playerIndex: 1, buildZoneIds: ["p2-private", "shared-center"] },
+      ],
+      buildZones: [
+        { id: "p1-private", kind: "private", ownerPlayerId: "player-1", x: 4, y: 1, width: 24, height: 78 },
+        { id: "p2-private", kind: "private", ownerPlayerId: "player-2", x: 49, y: 1, width: 24, height: 78 },
+        { id: "shared-center", kind: "shared", x: 27, y: 43, width: 23, height: 36 },
+      ],
+    },
   },
 };
 

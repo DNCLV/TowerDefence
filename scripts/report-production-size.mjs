@@ -11,7 +11,9 @@ const MiB = 1024 * 1024;
 const warningBytes = 75 * MiB;
 const failureBytes = 100 * MiB;
 const format = (bytes) => `${(bytes / MiB).toFixed(2)} MiB`;
-const ancientGrove = new Set(["treant.glb", "thorn-owl.glb", "druid.glb", "seer.glb"]);
+const ancientGrove = new Set([
+  "treant.glb", "thorn-owl.glb", "druid.glb", "seer.glb", "bark-titan.glb", "thorn-dancer.glb",
+]);
 const royalGuard = new Set(["blue-wizard.glb", "holy-knight.glb", "green-archer.glb", "battlemage.glb", "sovereign.glb", "holy-emperor.glb"]);
 const modelExtensions = new Set([".glb", ".gltf", ".bin", ".fbx"]);
 const textureExtensions = new Set([".png", ".jpg", ".jpeg", ".webp", ".ktx", ".ktx2"]);

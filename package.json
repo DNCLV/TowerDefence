@@ -22,7 +22,9 @@
     "test:performance-build": "node scripts/test-performance-build.mjs",
     "audit:assets": "node scripts/audit-runtime-assets.mjs --write scripts/asset-inventory-current.md",
     "test:map-adjustments": "node --import ./scripts/register-ts-loader.mjs scripts/test-map-adjustments.mjs",
-    "test:shortest-routes": "node --import ./scripts/register-ts-loader.mjs scripts/test-shortest-routes.mjs"
+    "test:shortest-routes": "node --import ./scripts/register-ts-loader.mjs scripts/test-shortest-routes.mjs",
+    "test:multiplayer": "node --import ./scripts/register-ts-loader.mjs scripts/test-multiplayer-phase1.mjs",
+    "test:ancient-grove-units": "node --import ./scripts/register-ts-loader.mjs scripts/test-ancient-grove-units.mjs"
   },
   "dependencies": {
     "@babylonjs/core": "^9.27.1",

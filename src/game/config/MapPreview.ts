@@ -14,6 +14,8 @@ export interface MapPreviewGeometry {
   height: number;
   terrain: TerrainPreviewRect[];
   spawns: Array<{ id: string; cell: Cell }>;
+  goals: Array<{ id: string; cell: Cell }>;
+  /** Primary goal alias retained for existing consumers. */
   goal: Cell;
 }
 
@@ -75,6 +77,7 @@ export function getMapPreviewGeometry(map: MapDefinition): MapPreviewGeometry {
     height: map.height,
     terrain: groupTerrainCells(map.terrain),
     spawns: map.layout.activeSpawns.map(({ id, gateCell }) => ({ id, cell: gateCell })),
+    goals: (map.layout.goals ?? [map.layout.castle]).map(({ id, gateCell }) => ({ id, cell: gateCell })),
     goal: map.layout.castle.gateCell,
   };
 }

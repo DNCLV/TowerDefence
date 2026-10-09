@@ -171,6 +171,10 @@ canvas { display: block; width: 100% !important; height: 100% !important; touch-
   .map-choice-copy strong { font-size: 20px; }
   .map-choice-copy > span { font-size: 12px; }
 }
+@media (min-width: 800px) {
+  .map-select-panel:not(.faction-select-panel) { width: min(100%, 820px); }
+  .map-select-panel:not(.faction-select-panel) .map-choice-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
 @media (max-height: 650px) {
   .map-select-panel { gap: 10px; }
   .map-select-eyebrow { margin-bottom: 4px; }
@@ -276,6 +280,11 @@ canvas { display: block; width: 100% !important; height: 100% !important; touch-
   white-space: nowrap;
 }
 .status-heading span { color: #82a6b3; font-size: 7px; letter-spacing: .08em; }
+.player-switch { display: grid; grid-template-columns: 34px 34px minmax(0, 1fr); align-items: center; gap: 4px; margin: 2px 0 5px; pointer-events: auto; }
+.player-switch button { min-height: 27px; border: 1px solid #587887; border-radius: 5px; color: #a9c8d1; background: #142934; font: 900 9px system-ui, sans-serif; cursor: pointer; touch-action: manipulation; }
+.player-switch button[aria-pressed="true"] { border-color: #e5c978; color: #ffe7a5; background: #5a4726; box-shadow: 0 0 8px #e5c97855; }
+.player-switch button:nth-child(2)[aria-pressed="true"] { border-color: #d890ff; color: #efd1ff; background: #4c285f; box-shadow: 0 0 8px #bd70e855; }
+.player-switch span { overflow: hidden; color: #b9cdd2; font-size: 7px; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
 .stat-row {
   display: grid;
   grid-template-columns: 18px 1fr auto;

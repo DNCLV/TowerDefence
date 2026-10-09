@@ -13,7 +13,8 @@ const originalSizes = {
 
 assert.equal(VISUAL_CONFIG.unitVisualScaleMultiplier, 1.5);
 
-for (const [id, map] of Object.entries(MAPS)) {
+for (const id of Object.keys(originalSizes)) {
+  const map = MAPS[id];
   const [originalWidth, originalHeight] = originalSizes[id];
   assert.ok(Math.abs(map.width / originalWidth - 0.6) < 0.02, `${id}: width reduced by about 40%`);
   assert.ok(Math.abs(map.height / originalHeight - 0.6) < 0.02, `${id}: height reduced by about 40%`);

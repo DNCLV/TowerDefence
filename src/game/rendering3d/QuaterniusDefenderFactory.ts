@@ -15,7 +15,7 @@ export interface QuaterniusDefenderVisual {
 }
 
 type ImportedDefenderType = "green-archer" | "battlemage" | "sovereign" | "holy-emperor"
-  | "treant" | "thorn-owl" | "druid" | "seer";
+  | "treant" | "thorn-owl" | "druid" | "seer" | "bark-titan" | "thorn-dancer";
 type DefenderTemplateAudit = { type: ImportedDefenderType; assetPath?: string; optimized: boolean; triangleCount: number; textures: number; materials: number };
 
 /** Loads each imported defender once. Pending loads stay visually quiet; only a small neutral marker is used on failure. */
@@ -29,17 +29,19 @@ export class QuaterniusDefenderFactory {
   private readonly unavailableReported = new Set<DefenderType>();
   private readonly importedTypes: ImportedDefenderType[];
 
-  constructor(private readonly scene: Scene, private readonly shadows: ShadowGenerator, factionId: FactionId) {
+  constructor(private readonly scene: Scene, private readonly shadows: ShadowGenerator, factionSelection: FactionId | readonly FactionId[]) {
     this.neutralFallbackMaterial = this.material("defender-neutral-fallback", new Color3(0.38, 0.5, 0.53), new Color3(0.06, 0.09, 0.1));
-    this.importedTypes = factionId === "ancient-grove"
-      ? ["treant", "thorn-owl", "druid", "seer"]
-      : ["green-archer", "battlemage", "sovereign", "holy-emperor"];
+    const factions = new Set(Array.isArray(factionSelection) ? factionSelection : [factionSelection]);
+    this.importedTypes = [
+      ...(factions.has("arcane-kingdom") ? ["green-archer", "battlemage", "sovereign", "holy-emperor"] as ImportedDefenderType[] : []),
+      ...(factions.has("ancient-grove") ? ["treant", "thorn-owl", "druid", "seer", "bark-titan", "thorn-dancer"] as ImportedDefenderType[] : []),
+    ];
   }
 
   get ready(): boolean { return this.templates.size === this.importedTypes.length; }
   get cachedModelCount(): number { return this.templates.size; }
-  hasTemplate(type: DefenderType): boolean { return this.templates.has(type as ImportedDefenderType); }
-  getLoadedAssetPath(type: DefenderType): string | undefined { return this.loadedPaths.get(type as ImportedDefenderType); }
+  hasTemplate(type: ImportedDefenderType): boolean { return this.templates.has(type); }
+  getLoadedAssetPath(type: ImportedDefenderType): string | undefined { return this.loadedPaths.get(type); }
 
   dispose(): void {
     this.templates.forEach((template) => template.dispose());
@@ -72,11 +74,11 @@ export class QuaterniusDefenderFactory {
   /** Keeps towers visually quiet while loading; failed assets use a small neutral marker, never a large proxy body. */
   create(id: number, type: DefenderType, level: number): QuaterniusDefenderVisual {
     const importedType = type as ImportedDefenderType;
-    const definition = DEFENDER_VISUAL_CONFIG[importedType];
+    const definition = DEFENDER_VISUAL_CONFIG[type];
     const template = this.templates.get(importedType);
     if (!template) {
       return this.loadingComplete
-        ? this.createNeutralFallback(id, importedType, level)
+        ? this.createNeutralFallback(id, type, level)
         : this.createPendingVisual(id, importedType, level);
     }
 
@@ -103,7 +105,8 @@ export class QuaterniusDefenderFactory {
     this.addShadowCasters(meshes);
     const bounds = this.measureWorldBounds(meshes);
     const attackOrigin = new TransformNode(`defender-attack-origin-${id}`, this.scene);
-    if (definition.hoverHeight !== undefined || importedType === "treant" || importedType === "druid" || importedType === "seer") {
+    if (definition.hoverHeight !== undefined || importedType === "treant" || importedType === "druid" || importedType === "seer"
+      || importedType === "bark-titan" || importedType === "thorn-dancer") {
       // Grove GLBs are centered around their source origin. Use grounded model
       // bounds for the attack point, leaving gameplay coordinates untouched.
       attackOrigin.parent = bodyRoot;
@@ -114,8 +117,8 @@ export class QuaterniusDefenderFactory {
       attackOrigin.position.set(0, definition.sourceBounds.height * 0.68, importedType === "green-archer" ? 0.18 : 0.2);
     }
     instance.animationGroups.forEach((animation) => { animation.stop(); animation.dispose(); });
-    this.reportResolution(importedType, this.loadedPaths.get(importedType), false);
-    this.recordInstance(id, importedType, level, this.loadedPaths.get(importedType), bounds, modelRoot.position.y);
+    this.reportResolution(type, this.loadedPaths.get(importedType), false);
+    this.recordInstance(id, type, level, this.loadedPaths.get(importedType), bounds, modelRoot.position.y);
     return {
       root, bodyRoot, attackOrigin, level,
       dispose: () => {

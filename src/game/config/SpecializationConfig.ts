@@ -3,7 +3,8 @@ import { WORLD_UNITS_PER_CELL } from "../../core/GameConstants";
 
 export type TowerSpecializationId = "stormcaller" | "frostweaver" | "royal-champion" | "dawn-paladin" | "spellblade" | "warcaster"
   | "dragon-slayer" | "ranger" | "storm-regent" | "war-sovereign"
-  | "needlewing-owl" | "elderwing" | "dire-wolf" | "elder-bear" | "moon-seer" | "sun-seer";
+  | "needlewing-owl" | "elderwing" | "dire-wolf" | "elder-bear" | "moon-seer" | "sun-seer"
+  | "stonebark-titan" | "heartwood-crusher" | "blight-dancer" | "winterthorn-dancer";
 export interface TowerSpecializationConfig {
   id: TowerSpecializationId;
   defenderType: DefenderType;
@@ -25,6 +26,7 @@ export interface TowerSpecializationConfig {
   splashRatios?: readonly number[];
   splashTargetLimit?: number;
   splashMode?: "melee" | "ranged" | "any";
+  shockwave?: { everyNthAttack: number; damageRatio: number; rangeCells: number };
   visualKey: string;
   visualColor: string;
 }
@@ -126,6 +128,31 @@ export const TOWER_SPECIALIZATIONS: Record<TowerSpecializationId, TowerSpecializ
     level3Stats: { damage: 95, range: 5.5 * WORLD_UNITS_PER_CELL, fireRate: 1.1 },
     splashRatio: 0.6, splashTargetLimit: 1, visualKey: "sun-seer", visualColor: "#f1c867",
   },
+  "stonebark-titan": {
+    id: "stonebark-titan", defenderType: "bark-titan", name: "Stonebark Titan", role: "Expanded heavy AoE",
+    description: "Deals 1,500 damage every 2 seconds to all ground enemies within two surrounding cells.",
+    level3Stats: { damage: 1_500, range: 2, fireRate: 0.5 },
+    visualKey: "stonebark-titan", visualColor: "#9fae78",
+  },
+  "heartwood-crusher": {
+    id: "heartwood-crusher", defenderType: "bark-titan", name: "Heartwood Crusher", role: "Periodic burst AoE",
+    description: "Deals 2,100 damage every 2 seconds in adjacent cells. Every 3rd attack adds a 75% damage shockwave across two surrounding cells.",
+    level3Stats: { damage: 2_100, range: 1, fireRate: 0.5 },
+    shockwave: { everyNthAttack: 3, damageRatio: 0.75, rangeCells: 2 },
+    visualKey: "heartwood-crusher", visualColor: "#d3934c",
+  },
+  "blight-dancer": {
+    id: "blight-dancer", defenderType: "thorn-dancer", name: "Blight Dancer", role: "DoT aura amplifier",
+    description: "Verdant Resonance grants +40% allied Grove DoT damage and +15% slow strength, including ground-only effects against flying enemies inside the aura.",
+    level3Stats: { damage: 280, range: 6 * WORLD_UNITS_PER_CELL, fireRate: 1.2 },
+    visualKey: "blight-dancer", visualColor: "#99c84b",
+  },
+  "winterthorn-dancer": {
+    id: "winterthorn-dancer", defenderType: "thorn-dancer", name: "Winterthorn Dancer", role: "Slow aura amplifier",
+    description: "Verdant Resonance grants +40% allied Grove slow strength and +15% DoT damage, including ground-only effects against flying enemies inside the aura.",
+    level3Stats: { damage: 280, range: 6 * WORLD_UNITS_PER_CELL, fireRate: 1.2 },
+    visualKey: "winterthorn-dancer", visualColor: "#9be2dd",
+  },
 };
 
 export const SPECIALIZATIONS_BY_DEFENDER: Partial<Record<DefenderType, readonly TowerSpecializationId[]>> = {
@@ -137,6 +164,8 @@ export const SPECIALIZATIONS_BY_DEFENDER: Partial<Record<DefenderType, readonly 
   "thorn-owl": ["needlewing-owl", "elderwing"],
   druid: ["dire-wolf", "elder-bear"],
   seer: ["moon-seer", "sun-seer"],
+  "bark-titan": ["stonebark-titan", "heartwood-crusher"],
+  "thorn-dancer": ["blight-dancer", "winterthorn-dancer"],
 };
 
 export function getSpecialization(id: TowerSpecializationId | undefined): TowerSpecializationConfig | undefined {

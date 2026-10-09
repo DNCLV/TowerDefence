@@ -66,10 +66,10 @@ export class BuildCarousel {
     viewport.addEventListener("keydown", (event) => {
       if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
       event.preventDefault();
-      this.choose(this.selectedIndex + (event.key === "ArrowRight" ? 1 : -1));
+      this.chooseOffset(event.key === "ArrowRight" ? 1 : -1);
     }, { signal });
-    previous.addEventListener("click", () => this.choose(this.selectedIndex - 1), { signal });
-    next.addEventListener("click", () => this.choose(this.selectedIndex + 1), { signal });
+    previous.addEventListener("click", () => this.chooseOffset(-1), { signal });
+    next.addEventListener("click", () => this.chooseOffset(1), { signal });
 
     // Native touch panning handles phones. A short mouse drag handles desktop without
     // turning an ordinary click on a neighboring unit into a drag.
@@ -119,8 +119,10 @@ export class BuildCarousel {
 
   setSelected(index: number, animate = true): void {
     this.selectedIndex = Math.max(0, Math.min(this.items.length - 1, index));
-    this.previous.disabled = this.selectedIndex === 0;
-    this.next.disabled = this.selectedIndex === this.items.length - 1;
+    const visible = this.visibleItems();
+    const position = visible.findIndex((entry) => entry.index === this.selectedIndex);
+    this.previous.disabled = position <= 0;
+    this.next.disabled = position < 0 || position === visible.length - 1;
     this.targetIndex = this.selectedIndex;
     this.targetStartedAt = performance.now();
     this.centerSelected(animate);
@@ -135,6 +137,17 @@ export class BuildCarousel {
     if (!item || item.disabled) return;
     this.onSelect(index);
     item.focus({ preventScroll: true });
+  }
+
+  private visibleItems(): Array<{ item: HTMLButtonElement; index: number }> {
+    return this.items.map((item, index) => ({ item, index })).filter(({ item }) => !item.hidden);
+  }
+
+  private chooseOffset(offset: number): void {
+    const visible = this.visibleItems();
+    const position = visible.findIndex(({ index }) => index === this.selectedIndex);
+    const candidate = visible[position + offset];
+    if (candidate) this.choose(candidate.index);
   }
 
   private centerSelected(animate: boolean): void {
@@ -199,9 +212,11 @@ export class BuildCarousel {
       this.targetIndex = undefined;
     }
     const center = this.viewport.scrollLeft + this.viewport.clientWidth / 2;
-    const nearest = this.items.reduce((best, item, index) =>
-      Math.abs(item.offsetLeft + item.offsetWidth / 2 - center)
-        < Math.abs(this.items[best].offsetLeft + this.items[best].offsetWidth / 2 - center) ? index : best, 0);
+    const visible = this.visibleItems();
+    const nearest = visible.reduce((best, candidate) =>
+      Math.abs(candidate.item.offsetLeft + candidate.item.offsetWidth / 2 - center)
+        < Math.abs(this.items[best].offsetLeft + this.items[best].offsetWidth / 2 - center) ? candidate.index : best,
+    visible[0]?.index ?? 0);
     if (nearest !== this.selectedIndex && !this.items[nearest].disabled) this.onSelect(nearest);
     else this.centerSelected(true);
   }
