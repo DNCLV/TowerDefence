@@ -40,19 +40,19 @@ assert.deepEqual([FACTION_BONUS_CONFIG.thornRot.damagePerStackPerSecond, FACTION
 ]);
 assert.deepEqual(DEFENDER_CONFIG["thorn-owl"].levels.map(({ damage, range, fireRate, upgradeCost }) => [
   damage, range / WORLD_UNITS_PER_CELL, fireRate, upgradeCost,
-]), [[40, 6, 1.5, null], [75, 6.7, 1.7, 25], [82, 8, 1.7, 125]]);
+]), [[40, 6, 1.5, null], [90, 6.8, 1.85, 25], [82, 8, 1.7, 125]]);
 assert.deepEqual([
   TOWER_SPECIALIZATIONS["needlewing-owl"].level3Stats,
   TOWER_SPECIALIZATIONS.elderwing.level3Stats,
 ], [
-  { damage: 165, range: 7.5 * WORLD_UNITS_PER_CELL, fireRate: 2.5 },
-  { damage: 125, range: 8 * WORLD_UNITS_PER_CELL, fireRate: 2 },
+  { damage: 210, range: 7.5 * WORLD_UNITS_PER_CELL, fireRate: 2.75 },
+  { damage: 155, range: 8 * WORLD_UNITS_PER_CELL, fireRate: 2.2 },
 ]);
 const needlewing = makeL3(90, "thorn-owl", "needlewing-owl");
 const flyingTank = makeEnemy(90, 6, 5, "flying");
 flyingTank.combatClass = "tank";
 assert.deepEqual(getTowerAttackProfile(needlewing, flyingTank), {
-  mode: "ranged", damage: 206, fireRate: 2.5, physicalResistancePenetration: 0.4,
+  mode: "ranged", damage: 263, fireRate: 2.75, physicalResistancePenetration: 0.4,
 });
 assert.equal(getTowerSplashRatioForTarget(needlewing, "ranged", 0, 0), 0, "Needlewing remains single-target");
 const elderwing = makeL3(91, "thorn-owl", "elderwing");

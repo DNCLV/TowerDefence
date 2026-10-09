@@ -48,7 +48,7 @@ assert.deepEqual(Object.fromEntries(Object.entries(TOWER_SPECIALIZATIONS).map(([
   spellblade: [290, 129.6, 1.1], warcaster: [290, 151.2, 1.1],
   "dragon-slayer": [78, 180, 1.55], ranger: [55, 180, 2.25],
   "storm-regent": [360, 162, 1.8], "war-sovereign": [360, 162, 1.8],
-  "needlewing-owl": [165, 270, 2.5], elderwing: [125, 288, 2],
+  "needlewing-owl": [210, 270, 2.75], elderwing: [155, 288, 2.2],
   "dire-wolf": [95, null, 2.5], "elder-bear": [310, null, 0.8],
   "moon-seer": [260, 198, 1.15], "sun-seer": [95, 198, 1.1],
   "stonebark-titan": [1500, 2, 0.5], "heartwood-crusher": [2100, 1, 0.5],
@@ -89,15 +89,15 @@ assert.deepEqual(FACTIONS["ancient-grove"].units, ["treant", "thorn-owl", "druid
 assert.deepEqual(["treant", "thorn-owl", "druid", "seer"].map((id) => DEFENDER_CONFIG[id].buildCost), [7, 15, 55, 75]);
 assert.deepEqual(["treant", "thorn-owl", "druid", "seer"].map((id) => DEFENDER_CONFIG[id].levels.map(({ damage, fireRate, upgradeCost }) => [damage, fireRate, upgradeCost])), [
   [[12, 0.9, null], [28, 1, 15], [46, 1.1, 25]],
-  [[40, 1.5, null], [75, 1.7, 25], [82, 1.7, 125]],
-  [[60, 1.05, null], [100, 1.15, 70], [310, 0.8, 110]],
-  [[65, 0.85, null], [110, 0.95, 100], [95, 1.1, 150]],
+  [[40, 1.5, null], [90, 1.85, 25], [82, 1.7, 125]],
+  [[60, 1.05, null], [125, 1.25, 70], [310, 0.8, 110]],
+  [[65, 0.85, null], [140, 1.05, 100], [95, 1.1, 150]],
 ]);
 assert.deepEqual(DEFENDER_CONFIG.treant.targetTypes, ["ground"], "Treants remain ground-only");
 assert.deepEqual(DEFENDER_CONFIG["thorn-owl"].targetTypes, ["air"], "Thorn Owl remains air-only");
 assert.deepEqual(DEFENDER_CONFIG["thorn-owl"].levels.map(({ damage, range, fireRate, upgradeCost }) => [
   damage, Number((range / WORLD_UNITS_PER_CELL).toFixed(1)), fireRate, upgradeCost,
-]), [[40, 6, 1.5, null], [75, 6.7, 1.7, 25], [82, 8, 1.7, 125]], "Owl L1/L2 buffs preserve upgrade costs and specialization-driven L3");
+]), [[40, 6, 1.5, null], [90, 6.8, 1.85, 25], [82, 8, 1.7, 125]], "Owl L1/L2 buffs preserve upgrade costs and specialization-driven L3");
 assert.deepEqual(DEFENDER_CONFIG.treant.levels.map(({ damage, fireRate }) => Number((damage * fireRate).toFixed(1))), [10.8, 28, 50.6]);
 const treantEconomy = new GameState("single-spawn", "ancient-grove", 100);
 const treantBuildCell = Array.from({ length: treantEconomy.map.width * treantEconomy.map.height }, (_, index) => ({
@@ -121,7 +121,7 @@ treantEconomy.gold = 25;
 assert.equal(treantEconomy.upgradeBasicTower(purchasedTreant.id), "upgraded");
 assert.equal(getTowerSellRefund(purchasedTreant), 32, "L3 Treant uses the normal 70% refund on 47 invested gold");
 assert.deepEqual(["needlewing-owl", "elderwing", "dire-wolf", "elder-bear", "moon-seer", "sun-seer"].map((id) => TOWER_SPECIALIZATIONS[id].level3Stats), [
-  { damage: 165, range: 270, fireRate: 2.5 }, { damage: 125, range: 288, fireRate: 2 },
+  { damage: 210, range: 270, fireRate: 2.75 }, { damage: 155, range: 288, fireRate: 2.2 },
   { damage: 95, fireRate: 2.5 }, { damage: 310, fireRate: 0.8 },
   { damage: 260, range: 198, fireRate: 1.15 }, { damage: 95, range: 198, fireRate: 1.1 },
 ]);

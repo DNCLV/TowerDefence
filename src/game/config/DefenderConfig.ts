@@ -152,7 +152,7 @@ export const DEFENDER_CONFIG: Record<DefenderType, DefenderDefinition> = {
     roleLabel: "Anti-Air Specialist", specializationLabel: "Air only · Needlewing or Elderwing",
     levels: [
       { level: 1, damage: 40, range: 6 * WORLD_UNITS_PER_CELL, fireRate: 1.5, upgradeCost: null },
-      { level: 2, damage: 75, range: 6.7 * WORLD_UNITS_PER_CELL, fireRate: 1.7, upgradeCost: 25 },
+      { level: 2, damage: 90, range: 6.8 * WORLD_UNITS_PER_CELL, fireRate: 1.85, upgradeCost: 25 },
       { level: 3, damage: 82, range: 8 * WORLD_UNITS_PER_CELL, fireRate: 1.7, upgradeCost: 125 },
     ],
   },
@@ -161,7 +161,7 @@ export const DEFENDER_CONFIG: Record<DefenderType, DefenderDefinition> = {
     roleLabel: "Melee / Grove Hunter", specializationLabel: "Ground only · Dire Wolf or Elder Bear",
     levels: [
       { level: 1, damage: 60, range: 1, fireRate: 1.05, upgradeCost: null },
-      { level: 2, damage: 100, range: 1, fireRate: 1.15, upgradeCost: 70 },
+      { level: 2, damage: 125, range: 1, fireRate: 1.25, upgradeCost: 70 },
       { level: 3, damage: 310, range: 1, fireRate: 0.8, upgradeCost: 110 },
     ],
   },
@@ -170,7 +170,7 @@ export const DEFENDER_CONFIG: Record<DefenderType, DefenderDefinition> = {
     roleLabel: "Arcane / Hybrid", specializationLabel: "Ground + Air · Moon or Sun",
     levels: [
       { level: 1, damage: 65, range: 4.8 * WORLD_UNITS_PER_CELL, fireRate: 0.85, upgradeCost: null },
-      { level: 2, damage: 110, range: 5.2 * WORLD_UNITS_PER_CELL, fireRate: 0.95, upgradeCost: 100 },
+      { level: 2, damage: 140, range: 5.2 * WORLD_UNITS_PER_CELL, fireRate: 1.05, upgradeCost: 100 },
       { level: 3, damage: 95, range: 5.5 * WORLD_UNITS_PER_CELL, fireRate: 1.1, upgradeCost: 150 },
     ],
   },
