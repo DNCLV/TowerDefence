@@ -71,50 +71,135 @@ function renderMapPreview(map: MapDefinition): string {
   </svg>`;
 }
 
+type MapModeId = "single-player" | "multiplayer";
+
+interface MapModeDefinition {
+  id: MapModeId;
+  title: string;
+  subtitle: string;
+  maps: MapDefinition[];
+}
+
+const MAP_MODES: MapModeDefinition[] = [
+  {
+    id: "single-player",
+    title: "Single Player",
+    subtitle: "Play solo",
+    maps: MAP_CHOICES.filter((map) => !map.multiplayer),
+  },
+  {
+    id: "multiplayer",
+    title: "Multiplayer",
+    subtitle: "Play co-op",
+    maps: MAP_CHOICES.filter((map) => Boolean(map.multiplayer)),
+  },
+];
+
 let selectedMap: MapDefinition = MAP_CHOICES[0];
+const selectedMapsByMode = new Map<MapModeId, MapDefinition>();
+MAP_MODES.forEach((mode) => {
+  if (mode.maps[0]) selectedMapsByMode.set(mode.id, mode.maps[0]);
+});
 let selectedFaction: FactionDefinition = FACTION_CHOICES[0];
 let pendingRendererDisposal: Promise<void> = Promise.resolve();
 let factionSelect: HTMLElement | undefined;
+let mapStartButton: HTMLButtonElement | undefined;
 const mapSelect = document.createElement("main");
 mapSelect.className = "map-select-screen";
-mapSelect.innerHTML = `
-  <section class="map-select-panel" aria-labelledby="map-select-title">
-    <header class="map-select-heading">
-      <p class="map-select-eyebrow">WINTERMAUL · FIELD COMMAND</p>
-      <h1 id="map-select-title">CHOOSE MAP</h1>
-      <p class="map-select-tagline">DEFEND <i></i> ADAPT <i></i> SURVIVE</p>
-      <p class="map-select-intro">Choose the battlefield. Every road leads to the keep.</p>
-    </header>
-    <div class="map-choice-grid" role="group" aria-label="Choose a map">
-      ${MAP_CHOICES.map((map) => `<button class="map-choice-card" type="button" data-map-id="${map.id}" aria-pressed="false">
-        <span class="map-preview" aria-hidden="true">${renderMapPreview(map)}</span>
-        <span class="map-choice-copy"><strong>${map.name}</strong><small>${map.subtitle}</small><span>${map.description}</span></span>
-        <span class="map-choice-meta"><span class="map-economy">✦ ${map.startingGold} GOLD</span><span class="map-pressure">${map.enemyCountMultiplier === 1 ? "NORMAL" : map.enemyCountMultiplier < 2 ? "HIGH" : "EXTREME"} PRESSURE</span></span>
-      </button>`).join("")}
-    </div>
-    <footer class="map-select-footer"><span id="map-select-hint">${selectedMap.name} · ${selectedMap.startingGold} Gold</span><button id="start-selected-map" type="button">CONTINUE <span aria-hidden="true">→</span></button></footer>
-  </section>`;
-app.append(mapSelect);
-performance.mark("tower-defence-app-shell-ready");
 
-const mapStartButton = mapSelect.querySelector<HTMLButtonElement>("#start-selected-map")!;
+function mapModeFor(map: MapDefinition): MapModeDefinition {
+  return MAP_MODES.find((mode) => mode.maps.some((choice) => choice.id === map.id)) ?? MAP_MODES[0];
+}
+
+function renderModeSelect(): void {
+  mapStartButton = undefined;
+  mapSelect.innerHTML = `
+    <section class="map-select-panel mode-select-panel map-select-stage" aria-labelledby="map-select-title">
+      <header class="map-select-heading">
+        <p class="map-select-eyebrow">WINTERMAUL · FIELD COMMAND</p>
+        <h1 id="map-select-title">SELECT MODE</h1>
+        <p class="map-select-tagline">DEFEND <i></i> ADAPT <i></i> SURVIVE</p>
+        <p class="map-select-intro">Choose how you will hold the line.</p>
+      </header>
+      <div class="map-mode-grid" role="group" aria-label="Choose a game mode">
+        ${MAP_MODES.map((mode, index) => `<button class="map-mode-card" type="button" data-map-mode="${mode.id}">
+          <span class="map-mode-number" aria-hidden="true">0${index + 1}</span>
+          <span class="map-mode-copy"><strong>${mode.title}</strong><small>${mode.subtitle}</small></span>
+          <span class="map-mode-arrow" aria-hidden="true">→</span>
+        </button>`).join("")}
+      </div>
+    </section>`;
+  mapSelect.querySelectorAll<HTMLButtonElement>("[data-map-mode]").forEach((card) => {
+    card.addEventListener("click", () => {
+      const mode = MAP_MODES.find((candidate) => candidate.id === card.dataset.mapMode);
+      if (mode) renderMapPanel(mode);
+    });
+  });
+}
+
 function selectMap(map: MapDefinition, card: HTMLButtonElement): void {
   selectedMap = map;
+  selectedMapsByMode.set(mapModeFor(map).id, map);
   mapSelect.querySelectorAll<HTMLButtonElement>(".map-choice-card").forEach((candidate) => {
     const isSelected = candidate === card;
     candidate.classList.toggle("is-selected", isSelected);
     candidate.setAttribute("aria-pressed", String(isSelected));
   });
-  mapSelect.querySelector<HTMLElement>("#map-select-hint")!.textContent = `${map.name} · ${map.startingGold} Gold`;
+  const hint = mapSelect.querySelector<HTMLElement>("#map-select-hint");
+  if (hint) hint.textContent = `${map.name} · ${map.startingGold} Gold`;
 }
-mapSelect.querySelectorAll<HTMLButtonElement>("[data-map-id]").forEach((card) => {
-  card.addEventListener("click", () => {
-    const map = MAP_CHOICES.find((choice) => choice.id === card.dataset.mapId);
-    if (!map) return;
-    selectMap(map, card);
+
+function renderMapPanel(mode: MapModeDefinition, preferredMap?: MapDefinition): void {
+  const modeSelection = preferredMap && mode.maps.some((map) => map.id === preferredMap.id)
+    ? preferredMap
+    : selectedMapsByMode.get(mode.id) ?? mode.maps[0];
+  if (!modeSelection) return;
+  selectedMap = modeSelection;
+  mapSelect.innerHTML = `
+    <section class="map-select-panel map-panel map-select-stage" aria-labelledby="map-select-title" data-active-map-mode="${mode.id}">
+      <header class="map-select-heading">
+        <p class="map-select-eyebrow">${mode.title.toUpperCase()} · FIELD COMMAND</p>
+        <h1 id="map-select-title">CHOOSE MAP</h1>
+        <p class="map-select-tagline">SCOUT <i></i> POSITION <i></i> DEFEND</p>
+        <p class="map-select-intro">Choose the battlefield. Every road leads to the keep.</p>
+      </header>
+      <div class="map-choice-grid${mode.maps.length === 1 ? " is-single-map" : ""}" role="group" aria-label="Choose a ${mode.title.toLowerCase()} map">
+        ${mode.maps.map((map) => `<button class="map-choice-card" type="button" data-map-id="${map.id}" aria-pressed="false">
+          <span class="map-preview" aria-hidden="true">${renderMapPreview(map)}</span>
+          <span class="map-choice-copy"><strong>${map.name}</strong><small>${map.subtitle}</small><span>${map.description}</span></span>
+          <span class="map-choice-meta"><span class="map-economy">✦ ${map.startingGold} GOLD</span><span class="map-pressure">${map.enemyCountMultiplier === 1 ? "NORMAL" : map.enemyCountMultiplier < 2 ? "HIGH" : "EXTREME"} PRESSURE</span></span>
+        </button>`).join("")}
+      </div>
+      <footer class="map-select-footer">
+        <span id="map-select-hint">${selectedMap.name} · ${selectedMap.startingGold} Gold</span>
+        <div class="map-select-actions">
+          <button id="back-to-mode-select" type="button" class="setup-back-button">← BACK</button>
+          <button id="start-selected-map" type="button">CONTINUE <span aria-hidden="true">→</span></button>
+        </div>
+      </footer>
+    </section>`;
+  mapSelect.querySelectorAll<HTMLButtonElement>("[data-map-id]").forEach((card) => {
+    card.addEventListener("click", () => {
+      const map = mode.maps.find((choice) => choice.id === card.dataset.mapId);
+      if (map) selectMap(map, card);
+    });
   });
-});
-selectMap(selectedMap, mapSelect.querySelector<HTMLButtonElement>(`[data-map-id="${selectedMap.id}"]`)!);
+  const selectedCard = mapSelect.querySelector<HTMLButtonElement>(`[data-map-id="${selectedMap.id}"]`);
+  if (selectedCard) selectMap(selectedMap, selectedCard);
+  mapSelect.querySelector<HTMLButtonElement>("#back-to-mode-select")?.addEventListener("click", renderModeSelect);
+  mapStartButton = mapSelect.querySelector<HTMLButtonElement>("#start-selected-map")!;
+  mapStartButton.addEventListener("click", () => {
+    if (!mapStartButton || mapStartButton.disabled || mapSelect.classList.contains("is-starting")) return;
+    const mapToStart = selectedMap;
+    mapStartButton.disabled = true;
+    mapSelect.remove();
+    showFactionSelect(mapToStart);
+  });
+}
+
+renderModeSelect();
+app.append(mapSelect);
+performance.mark("tower-defence-app-shell-ready");
 function renderFactionUnits(faction: FactionDefinition): string {
   return faction.units.map((type) => {
     const defender = DEFENDER_CONFIG[type];
@@ -221,19 +306,11 @@ function showFactionSelect(map: MapDefinition, playerIndex = 0, selectedFactions
   screen.querySelector<HTMLButtonElement>("#back-to-map-select")?.addEventListener("click", () => {
     screen.remove();
     factionSelect = undefined;
-    mapStartButton.disabled = false;
+    if (mapStartButton) mapStartButton.disabled = false;
     mapSelect.classList.remove("is-starting");
     app!.append(mapSelect);
   });
 }
-
-mapStartButton.addEventListener("click", () => {
-  if (mapStartButton.disabled || mapSelect.classList.contains("is-starting")) return;
-  const mapToStart = selectedMap;
-  mapStartButton.disabled = true;
-  mapSelect.remove();
-  showFactionSelect(mapToStart);
-});
 
 async function startGame(map: MapDefinition, factionSelection: FactionDefinition | readonly FactionDefinition[]): Promise<void> {
 const factions: readonly FactionDefinition[] = Array.isArray(factionSelection)
@@ -1355,13 +1432,11 @@ function returnToMapSelect(): void {
   delete debugWindow.__towerDefenceInputDebug;
   delete debugWindow.__towerDefenceMinimapDebug;
 
-  const selectedCard = mapSelect.querySelector<HTMLButtonElement>(`[data-map-id="${gameState.map.id}"]`);
-  if (!selectedCard) return;
-  selectMap(gameState.map, selectedCard);
-  mapStartButton.disabled = false;
+  renderMapPanel(mapModeFor(gameState.map), gameState.map);
+  if (mapStartButton) mapStartButton.disabled = false;
   mapSelect.classList.remove("is-starting");
   app!.append(mapSelect);
-  selectedCard.focus({ preventScroll: true });
+  mapSelect.querySelector<HTMLButtonElement>(`[data-map-id="${gameState.map.id}"]`)?.focus({ preventScroll: true });
 }
 
 function renderWaveWarning(state: GameState): void {

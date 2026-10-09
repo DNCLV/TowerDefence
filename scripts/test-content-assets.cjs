@@ -186,11 +186,11 @@ async function main() {
   await command("Emulation.setTouchEmulationEnabled", { enabled: true, configuration: "mobile" });
   await command("Page.navigate", { url: `${appUrl}?waveDebug=1&inputDebug=1&minimapDebug=1&defenderVisualDebug=1&enemyVisualDebug=1&enemyGroundDebug=1&terrainArtDebug=1` });
   for (let attempt = 0; attempt < 100; attempt += 1) {
-    const ready = await evaluate("document.querySelectorAll('.map-choice-card').length === 4");
+    const ready = await evaluate("document.querySelectorAll('.map-mode-card').length === 2 && document.querySelectorAll('.map-choice-card').length === 0");
     if (ready) break;
     if (attempt === 99) {
       const pageState = await evaluate(`({ url: location.href, title: document.title, body: document.body.innerText.slice(0, 800), app: document.querySelector('#app')?.innerHTML.slice(0, 800) })`);
-      throw new Error(`Choose Map screen did not load four map choices: ${JSON.stringify({ pageState, browserErrors })}`);
+      throw new Error(`Mode Select screen did not load two mode choices: ${JSON.stringify({ pageState, browserErrors })}`);
     }
     await delay(100);
   }
@@ -203,6 +203,39 @@ async function main() {
       appShellReadyMs: shell ? Math.round(shell.startTime) : null,
     } : null;
   })()`);
+  const modeLayouts = [];
+  for (const viewport of [{ width: 360, height: 800 }, { width: 390, height: 844 }, { width: 1365, height: 900 }]) {
+    await command("Emulation.setDeviceMetricsOverride", { ...viewport, deviceScaleFactor: 1, mobile: viewport.width < 500 });
+    modeLayouts.push(await evaluate(`(() => {
+      const app = document.querySelector('#app').getBoundingClientRect();
+      const grid = document.querySelector('.map-mode-grid');
+      const cards = [...document.querySelectorAll('.map-mode-card')].map((card) => {
+        const rect = card.getBoundingClientRect();
+        return { width: rect.width, height: rect.height, left: rect.left, right: rect.right, bottom: rect.bottom };
+      });
+      return {
+        viewport: [${viewport.width}, ${viewport.height}],
+        pageWidth: document.documentElement.scrollWidth,
+        viewportWidth: document.documentElement.clientWidth,
+        mapCardCount: document.querySelectorAll('.map-choice-card').length,
+        modeCount: cards.length,
+        columns: getComputedStyle(grid).gridTemplateColumns.split(' ').length,
+        cards,
+        textFits: document.querySelector('#map-select-title').scrollWidth <= document.querySelector('#map-select-title').clientWidth
+          && [...document.querySelectorAll('.map-mode-copy > *')].every((node) => {
+            const text = node.getBoundingClientRect();
+            const card = node.closest('.map-mode-card').getBoundingClientRect();
+            return node.scrollWidth <= node.clientWidth && text.left >= card.left && text.right <= card.right;
+          }),
+        allVisible: cards.every((card) => card.width > 0 && card.height >= 44 && card.left >= app.left && card.right <= app.right && card.bottom <= app.bottom),
+      };
+    })()`));
+  }
+  if (modeLayouts.some((layout) => layout.pageWidth > layout.viewportWidth || layout.mapCardCount !== 0 || layout.modeCount !== 2 || !layout.allVisible || !layout.textFits)
+    || modeLayouts[0].columns !== 1 || modeLayouts[1].columns !== 1 || modeLayouts[2].columns !== 2) {
+    throw new Error(`Mode Select responsive layout failed: ${JSON.stringify(modeLayouts)}`);
+  }
+  await evaluate("document.querySelector('[data-map-mode=\"single-player\"]').click()");
   const responsiveLayouts = [];
   for (const viewport of [{ width: 360, height: 800 }, { width: 390, height: 844 }, { width: 1365, height: 900 }]) {
     await command("Emulation.setDeviceMetricsOverride", { ...viewport, deviceScaleFactor: 1, mobile: viewport.width < 500 });
@@ -239,11 +272,12 @@ async function main() {
         gridFlow: getComputedStyle(grid).gridAutoFlow,
         cardWidth: document.querySelector('.map-choice-card').getBoundingClientRect().width,
         hasHorizontalCarousel: grid.scrollWidth > grid.clientWidth,
+        textFits: [...document.querySelectorAll('.map-choice-copy')].every((node) => node.scrollWidth <= node.clientWidth + 1),
         cardStability: { maxCardShift, cardScrollStable, before: stableBefore, after: stableAfter },
       };
     })()`));
   }
-  if (responsiveLayouts.some((layout) => layout.pageWidth > layout.viewportWidth || !layout.titleVisible || !layout.selectedCardVisible || !layout.startVisible
+  if (responsiveLayouts.some((layout) => layout.pageWidth > layout.viewportWidth || !layout.titleVisible || !layout.selectedCardVisible || !layout.startVisible || !layout.textFits
     || layout.cardStability.maxCardShift > 0.5 || !layout.cardStability.cardScrollStable)
     || responsiveLayouts[0].gridFlow !== "column" || !responsiveLayouts[0].hasHorizontalCarousel || responsiveLayouts[0].cardWidth < 240
     || responsiveLayouts[1].gridFlow !== "column" || !responsiveLayouts[1].hasHorizontalCarousel || responsiveLayouts[1].cardWidth < 240
@@ -298,29 +332,66 @@ async function main() {
       threeSpawnColors: [...document.querySelectorAll('[data-map-id="three-spawns"] .map-preview-spawn')].map((node) => node.style.getPropertyValue('--spawn-color')),
     };
   })()`);
-  if (mapSelection.checks.length !== 4 || mapSelection.checks.some((choice) => !choice.selected || !choice.canStart)
+  if (mapSelection.checks.length !== 3 || mapSelection.checks.some((choice) => !choice.selected || !choice.canStart)
     || mapSelection.defaultMap !== "single-spawn"
     || mapSelection.continueText.replace(/\s+/g, " ").toUpperCase() !== "CONTINUE →"
     || !mapSelection.minimapAbsentBeforeStarting
-    || JSON.stringify(mapSelection.mapNames) !== JSON.stringify(["Open Field", "Split Advance", "Triple Convergence", "Twin Bastion"])
-    || JSON.stringify(mapSelection.startingGolds) !== JSON.stringify([100, 135, 150, 80])
-    || mapSelection.previews.length !== 4
+    || JSON.stringify(mapSelection.mapNames) !== JSON.stringify(["Open Field", "Split Advance", "Triple Convergence"])
+    || JSON.stringify(mapSelection.startingGolds) !== JSON.stringify([100, 135, 150])
+    || mapSelection.previews.length !== 3
     || mapSelection.previews.some((preview) => !preview.visible || preview.width <= 0 || preview.height <= 0
       || preview.terrainCells !== preview.terrainRectCells || preview.terrainRects <= 0
       || preview.spawns.length === 0 || !Number.isFinite(preview.goal.x) || !Number.isFinite(preview.goal.y))
-    || JSON.stringify(mapSelection.previews.map(({ width, height }) => [width, height])) !== JSON.stringify([[17, 32], [23, 41], [43, 66], [77, 80]])
-    || JSON.stringify(mapSelection.previews.map(({ spawns }) => spawns.map(({ x, y }) => [x, y]))) !== JSON.stringify([[[8, 0]], [[6, 0], [17, 0]], [[8, 0], [21, 0], [35, 0]], [[18, 0], [58, 0]]])
-    || JSON.stringify(mapSelection.previews.map(({ goal }) => [goal.x, goal.y])) !== JSON.stringify([[8, 31], [11, 40], [21, 65], [18, 79]])
-    || JSON.stringify(mapSelection.previews.map(({ terrainCells }) => terrainCells)) !== JSON.stringify([220, 357, 1041, 1247])
-    || JSON.stringify(mapSelection.previews.map(({ terrainRects }) => terrainRects)) !== JSON.stringify([2, 5, 9, 12])
+    || JSON.stringify(mapSelection.previews.map(({ width, height }) => [width, height])) !== JSON.stringify([[17, 32], [23, 41], [43, 66]])
+    || JSON.stringify(mapSelection.previews.map(({ spawns }) => spawns.map(({ x, y }) => [x, y]))) !== JSON.stringify([[[8, 0]], [[6, 0], [17, 0]], [[8, 0], [21, 0], [35, 0]]])
+    || JSON.stringify(mapSelection.previews.map(({ goal }) => [goal.x, goal.y])) !== JSON.stringify([[8, 31], [11, 40], [21, 65]])
+    || JSON.stringify(mapSelection.previews.map(({ terrainCells }) => terrainCells)) !== JSON.stringify([220, 357, 1041])
+    || JSON.stringify(mapSelection.previews.map(({ terrainRects }) => terrainRects)) !== JSON.stringify([2, 5, 9])
     || JSON.stringify(mapSelection.threeSpawnColors) !== JSON.stringify(["#ff6b66", "#69c5ff", "#69df9c"])) {
     throw new Error(`Map selection flow failed: ${JSON.stringify(mapSelection)}`);
+  }
+  const modeFlow = await evaluate(`(() => {
+    document.querySelector('#back-to-mode-select').click();
+    const initial = {
+      modes: [...document.querySelectorAll('.map-mode-card')].map((card) => ({ id: card.dataset.mapMode, title: card.querySelector('strong').textContent.trim(), subtitle: card.querySelector('small').textContent.trim() })),
+      maps: document.querySelectorAll('.map-choice-card').length,
+      continueVisible: !!document.querySelector('#start-selected-map'),
+    };
+    document.querySelector('[data-map-mode="multiplayer"]').click();
+    const multiplayer = {
+      activeMode: document.querySelector('[data-active-map-mode]')?.dataset.activeMapMode,
+      maps: [...document.querySelectorAll('.map-choice-card')].map((card) => card.dataset.mapId),
+      selected: document.querySelector('.map-choice-card.is-selected')?.dataset.mapId,
+      continueVisible: !!document.querySelector('#start-selected-map'),
+    };
+    document.querySelector('#back-to-mode-select').click();
+    const back = { modes: document.querySelectorAll('.map-mode-card').length, maps: document.querySelectorAll('.map-choice-card').length };
+    document.querySelector('[data-map-mode="single-player"]').click();
+    return {
+      initial,
+      multiplayer,
+      back,
+      restoredMode: document.querySelector('[data-active-map-mode]')?.dataset.activeMapMode,
+      restoredMaps: [...document.querySelectorAll('.map-choice-card')].map((card) => card.dataset.mapId),
+      restoredSelection: document.querySelector('.map-choice-card.is-selected')?.dataset.mapId,
+    };
+  })()`);
+  if (JSON.stringify(modeFlow.initial.modes) !== JSON.stringify([
+    { id: "single-player", title: "Single Player", subtitle: "Play solo" },
+    { id: "multiplayer", title: "Multiplayer", subtitle: "Play co-op" },
+  ]) || modeFlow.initial.maps !== 0 || modeFlow.initial.continueVisible
+    || modeFlow.multiplayer.activeMode !== "multiplayer" || JSON.stringify(modeFlow.multiplayer.maps) !== JSON.stringify(["twin-bastion"])
+    || modeFlow.multiplayer.selected !== "twin-bastion" || !modeFlow.multiplayer.continueVisible
+    || modeFlow.back.modes !== 2 || modeFlow.back.maps !== 0
+    || modeFlow.restoredMode !== "single-player" || JSON.stringify(modeFlow.restoredMaps) !== JSON.stringify(["single-spawn", "two-spawns", "three-spawns"])
+    || modeFlow.restoredSelection !== "single-spawn") {
+    throw new Error(`Two-step mode flow failed: ${JSON.stringify(modeFlow)}`);
   }
   if (process.env.TD_MULTIPLAYER_ONLY === "1") {
     const reverseFactions = process.env.TD_MULTIPLAYER_REVERSE === "1";
     const playerOneFaction = reverseFactions ? "ancient-grove" : "arcane-kingdom";
     const playerTwoFaction = reverseFactions ? "arcane-kingdom" : "ancient-grove";
-    await evaluate(`document.querySelector('.map-choice-card[data-map-id="twin-bastion"]').click()`);
+    await evaluate(`document.querySelector('#back-to-mode-select').click(); document.querySelector('[data-map-mode="multiplayer"]').click(); document.querySelector('.map-choice-card[data-map-id="twin-bastion"]').click()`);
     await evaluate("document.querySelector('#start-selected-map').click()");
     for (let attempt = 0; attempt < 50 && !(await evaluate("document.querySelector('#faction-select-title')?.textContent.includes('PLAYER 1')")); attempt += 1) await delay(100);
     await evaluate(`document.querySelector('[data-faction-id="${playerOneFaction}"]').click(); document.querySelector('#start-battlefield').click()`);
@@ -780,7 +851,7 @@ async function main() {
     || !initialDefenderLoadGate.startWaveDisabled || !initialDefenderLoadGate.hint?.toLowerCase().includes("loading"))) {
     throw new Error(`Gameplay controls became interactive before defender preload completed: ${JSON.stringify(initialDefenderLoadGate)}`);
   }
-  console.log("Choose Map and Faction browser flow passed", JSON.stringify({ responsiveLayouts, mapSelection, factionSelection, initialRunReady }));
+  console.log("Choose Map and Faction browser flow passed", JSON.stringify({ modeLayouts, responsiveLayouts, modeFlow, mapSelection, factionSelection, initialRunReady }));
   console.log("Startup timing sample (headless browser; use as a relative smoke metric)", JSON.stringify({ bootTiming, battlefieldStartupTiming }));
   if (process.env.SAVE_CASTLE_ART_SCREENSHOTS === "1") {
     const screenshotDirectory = path.resolve(process.env.TD_VISUAL_REVIEW_DIR ?? path.resolve(__dirname, "../artifacts/castle-art-review"));
@@ -809,7 +880,11 @@ async function main() {
       await command("Page.navigate", { url: reviewUrl.toString() });
       let mapSelectReady = false;
       for (let attempt = 0; attempt < 80; attempt += 1) {
-        mapSelectReady = await evaluate("document.querySelectorAll('.map-choice-card').length === 4");
+        mapSelectReady = await evaluate(`(() => {
+          const mode = document.querySelector('[data-map-mode="single-player"]');
+          if (mode) mode.click();
+          return document.querySelectorAll('.map-choice-card').length === 3;
+        })()`);
         if (mapSelectReady) break;
         await delay(100);
       }
@@ -856,7 +931,11 @@ async function main() {
     await command("Page.navigate", { url: initialDebugUrl.toString() });
     let initialMapSelectReady = false;
     for (let attempt = 0; attempt < 80; attempt += 1) {
-      initialMapSelectReady = await evaluate("document.querySelectorAll('.map-choice-card').length === 4");
+      initialMapSelectReady = await evaluate(`(() => {
+        const mode = document.querySelector('[data-map-mode="single-player"]');
+        if (mode) mode.click();
+        return document.querySelectorAll('.map-choice-card').length === 3;
+      })()`);
       if (initialMapSelectReady) break;
       await delay(100);
     }
