@@ -48,7 +48,7 @@ assert.deepEqual(Object.fromEntries(Object.entries(TOWER_SPECIALIZATIONS).map(([
   spellblade: [290, 129.6, 1.1], warcaster: [290, 151.2, 1.1],
   "dragon-slayer": [78, 180, 1.55], ranger: [55, 180, 2.25],
   "storm-regent": [360, 162, 1.8], "war-sovereign": [360, 162, 1.8],
-  "needlewing-owl": [105, 270, 2.25], elderwing: [82, 288, 1.7],
+  "needlewing-owl": [165, 270, 2.5], elderwing: [125, 288, 2],
   "dire-wolf": [95, null, 2.5], "elder-bear": [310, null, 0.8],
   "moon-seer": [260, 198, 1.15], "sun-seer": [95, 198, 1.1],
   "stonebark-titan": [1500, 2, 0.5], "heartwood-crusher": [2100, 1, 0.5],
@@ -88,8 +88,8 @@ for (const [type, choices] of Object.entries({
 assert.deepEqual(FACTIONS["ancient-grove"].units, ["treant", "thorn-owl", "druid", "seer", "bark-titan", "thorn-dancer"]);
 assert.deepEqual(["treant", "thorn-owl", "druid", "seer"].map((id) => DEFENDER_CONFIG[id].buildCost), [7, 15, 55, 75]);
 assert.deepEqual(["treant", "thorn-owl", "druid", "seer"].map((id) => DEFENDER_CONFIG[id].levels.map(({ damage, fireRate, upgradeCost }) => [damage, fireRate, upgradeCost])), [
-  [[15, 0.95, null], [32, 1.05, 15], [52, 1.15, 25]],
-  [[28, 1.4, null], [52, 1.55, 25], [82, 1.7, 125]],
+  [[12, 0.9, null], [28, 1, 15], [46, 1.1, 25]],
+  [[40, 1.5, null], [75, 1.7, 25], [82, 1.7, 125]],
   [[60, 1.05, null], [100, 1.15, 70], [310, 0.8, 110]],
   [[65, 0.85, null], [110, 0.95, 100], [95, 1.1, 150]],
 ]);
@@ -97,8 +97,8 @@ assert.deepEqual(DEFENDER_CONFIG.treant.targetTypes, ["ground"], "Treants remain
 assert.deepEqual(DEFENDER_CONFIG["thorn-owl"].targetTypes, ["air"], "Thorn Owl remains air-only");
 assert.deepEqual(DEFENDER_CONFIG["thorn-owl"].levels.map(({ damage, range, fireRate, upgradeCost }) => [
   damage, Number((range / WORLD_UNITS_PER_CELL).toFixed(1)), fireRate, upgradeCost,
-]), [[28, 6, 1.4, null], [52, 6.6, 1.55, 25], [82, 8, 1.7, 125]], "Owl L1/L2 buffs preserve upgrade costs and L3");
-assert.deepEqual(DEFENDER_CONFIG.treant.levels.map(({ damage, fireRate }) => Number((damage * fireRate).toFixed(1))), [14.3, 33.6, 59.8]);
+]), [[40, 6, 1.5, null], [75, 6.7, 1.7, 25], [82, 8, 1.7, 125]], "Owl L1/L2 buffs preserve upgrade costs and specialization-driven L3");
+assert.deepEqual(DEFENDER_CONFIG.treant.levels.map(({ damage, fireRate }) => Number((damage * fireRate).toFixed(1))), [10.8, 28, 50.6]);
 const treantEconomy = new GameState("single-spawn", "ancient-grove", 100);
 const treantBuildCell = Array.from({ length: treantEconomy.map.width * treantEconomy.map.height }, (_, index) => ({
   x: index % treantEconomy.map.width, y: Math.floor(index / treantEconomy.map.width),
@@ -121,7 +121,7 @@ treantEconomy.gold = 25;
 assert.equal(treantEconomy.upgradeBasicTower(purchasedTreant.id), "upgraded");
 assert.equal(getTowerSellRefund(purchasedTreant), 32, "L3 Treant uses the normal 70% refund on 47 invested gold");
 assert.deepEqual(["needlewing-owl", "elderwing", "dire-wolf", "elder-bear", "moon-seer", "sun-seer"].map((id) => TOWER_SPECIALIZATIONS[id].level3Stats), [
-  { damage: 105, range: 270, fireRate: 2.25 }, { damage: 82, range: 288, fireRate: 1.7 },
+  { damage: 165, range: 270, fireRate: 2.5 }, { damage: 125, range: 288, fireRate: 2 },
   { damage: 95, fireRate: 2.5 }, { damage: 310, fireRate: 0.8 },
   { damage: 260, range: 198, fireRate: 1.15 }, { damage: 95, range: 198, fireRate: 1.1 },
 ]);
@@ -149,9 +149,9 @@ assert.equal(rotEnemy.thornRotStacks, 0, "all stacks expire together after four 
 const flyingRot = makeEnemy(702, "goblinRider");
 groveStatuses.updateEnemy(flyingRot, 2, 3);
 assert.equal(flyingRot.thornRotStacks, 0, "flying enemies are immune to Thorn Rot");
-assert.deepEqual([1, 2, 3].map((level) => FACTION_BONUS_CONFIG.thornRot.damagePerStackPerSecond[level]), [5, 9, 13]);
+assert.deepEqual([1, 2, 3].map((level) => FACTION_BONUS_CONFIG.thornRot.damagePerStackPerSecond[level]), [4, 8, 11]);
 assert.deepEqual([1, 2, 3].map((level) => FACTION_BONUS_CONFIG.thornRot.maxStacks[level]), [5, 5, 6]);
-assert.deepEqual([1, 2, 3].map((level) => getThornRotDamage({ thornRotStacks: FACTION_BONUS_CONFIG.thornRot.maxStacks[level] }, level)), [25, 45, 78]);
+assert.deepEqual([1, 2, 3].map((level) => getThornRotDamage({ thornRotStacks: FACTION_BONUS_CONFIG.thornRot.maxStacks[level] }, level)), [20, 40, 66]);
 
 // Sunbrand: per-hit stacks, four-second grace, one stack/sec decay, refresh and fixed priority.
 const brandEnemy = makeEnemy(703);
@@ -230,7 +230,7 @@ rotState.factionBonuses.rebuildLivingMazeInfluence(rotState.towers, [rotState.pa
 rotState.waveActive = true; rotState.toSpawn = 1; rotState.enemies = [rotTarget];
 rotState.update(1);
 assert.equal(rotTarget.thornRotStacks, 1, "four overlapping Treants still add one Thorn Rot stack/sec");
-assert.equal(rotTarget.hp, 9995, "one L1 Thorn Rot stack deals 5 DPS through GameState");
+assert.equal(rotTarget.hp, 9996, "one L1 Thorn Rot stack deals 4 DPS through GameState");
 
 const sunDotEnemy = makeEnemy(722);
 sunDotEnemy.sunbrandStacks = 4; sunDotEnemy.sunbrandGraceSecondsRemaining = 4; sunDotEnemy.speed = 0;

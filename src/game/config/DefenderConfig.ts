@@ -142,17 +142,17 @@ export const DEFENDER_CONFIG: Record<DefenderType, DefenderDefinition> = {
     id: "treant", name: "Treant", rangeMode: "circular", targetTypes: ["ground"], buildCost: 7,
     roleLabel: "Ground Control / Thorn Rot", specializationLabel: "Thorn Rot · Ground only",
     levels: [
-      { level: 1, damage: 15, range: 2.5 * WORLD_UNITS_PER_CELL, fireRate: 0.95, upgradeCost: null },
-      { level: 2, damage: 32, range: 2.5 * WORLD_UNITS_PER_CELL, fireRate: 1.05, upgradeCost: 15 },
-      { level: 3, damage: 52, range: 2.5 * WORLD_UNITS_PER_CELL, fireRate: 1.15, upgradeCost: 25 },
+      { level: 1, damage: 12, range: 2.5 * WORLD_UNITS_PER_CELL, fireRate: 0.9, upgradeCost: null },
+      { level: 2, damage: 28, range: 2.5 * WORLD_UNITS_PER_CELL, fireRate: 1, upgradeCost: 15 },
+      { level: 3, damage: 46, range: 2.5 * WORLD_UNITS_PER_CELL, fireRate: 1.1, upgradeCost: 25 },
     ],
   },
   "thorn-owl": {
     id: "thorn-owl", name: "Thorn Owl", rangeMode: "circular", targetTypes: ["air"], buildCost: 15,
     roleLabel: "Anti-Air Specialist", specializationLabel: "Air only · Needlewing or Elderwing",
     levels: [
-      { level: 1, damage: 28, range: 6 * WORLD_UNITS_PER_CELL, fireRate: 1.4, upgradeCost: null },
-      { level: 2, damage: 52, range: 6.6 * WORLD_UNITS_PER_CELL, fireRate: 1.55, upgradeCost: 25 },
+      { level: 1, damage: 40, range: 6 * WORLD_UNITS_PER_CELL, fireRate: 1.5, upgradeCost: null },
+      { level: 2, damage: 75, range: 6.7 * WORLD_UNITS_PER_CELL, fireRate: 1.7, upgradeCost: 25 },
       { level: 3, damage: 82, range: 8 * WORLD_UNITS_PER_CELL, fireRate: 1.7, upgradeCost: 125 },
     ],
   },

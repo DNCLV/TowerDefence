@@ -9,7 +9,7 @@ import { FACTIONS } from "../src/game/config/FactionConfig.ts";
 import { SPECIALIZATIONS_BY_DEFENDER, TOWER_SPECIALIZATIONS } from "../src/game/config/SpecializationConfig.ts";
 import { getVerdantResonanceProfile } from "../src/game/config/AncientGroveUnitConfig.ts";
 import { createEnemy } from "../src/game/enemies/Enemy.ts";
-import { createBasicTower, isTowerInRange, upgradeTower } from "../src/game/towers/Tower.ts";
+import { createBasicTower, getTowerAttackProfile, getTowerSplashRatioForTarget, getTowerSplashTargetLimit, isTowerInRange, upgradeTower } from "../src/game/towers/Tower.ts";
 
 const route = Array.from({ length: 20 }, (_, index) => ({ x: 5 + index, y: 5 }));
 const makeEnemy = (id, x, y, movementType = "ground", hp = 50_000) => {
@@ -34,13 +34,30 @@ const makeL3 = (id, type, specializationId) => {
 };
 
 assert.deepEqual(FACTIONS["ancient-grove"].units.slice(-2), ["bark-titan", "thorn-dancer"]);
-assert.deepEqual(DEFENDER_CONFIG.treant.levels.map(({ damage, fireRate }) => [damage, fireRate]), [[15, 0.95], [32, 1.05], [52, 1.15]]);
+assert.deepEqual(DEFENDER_CONFIG.treant.levels.map(({ damage, fireRate }) => [damage, fireRate]), [[12, 0.9], [28, 1], [46, 1.1]]);
 assert.deepEqual([FACTION_BONUS_CONFIG.thornRot.damagePerStackPerSecond, FACTION_BONUS_CONFIG.thornRot.maxStacks], [
-  { 1: 5, 2: 9, 3: 13 }, { 1: 5, 2: 5, 3: 6 },
+  { 1: 4, 2: 8, 3: 11 }, { 1: 5, 2: 5, 3: 6 },
 ]);
 assert.deepEqual(DEFENDER_CONFIG["thorn-owl"].levels.map(({ damage, range, fireRate, upgradeCost }) => [
   damage, range / WORLD_UNITS_PER_CELL, fireRate, upgradeCost,
-]), [[28, 6, 1.4, null], [52, 6.6, 1.55, 25], [82, 8, 1.7, 125]]);
+]), [[40, 6, 1.5, null], [75, 6.7, 1.7, 25], [82, 8, 1.7, 125]]);
+assert.deepEqual([
+  TOWER_SPECIALIZATIONS["needlewing-owl"].level3Stats,
+  TOWER_SPECIALIZATIONS.elderwing.level3Stats,
+], [
+  { damage: 165, range: 7.5 * WORLD_UNITS_PER_CELL, fireRate: 2.5 },
+  { damage: 125, range: 8 * WORLD_UNITS_PER_CELL, fireRate: 2 },
+]);
+const needlewing = makeL3(90, "thorn-owl", "needlewing-owl");
+const flyingTank = makeEnemy(90, 6, 5, "flying");
+flyingTank.combatClass = "tank";
+assert.deepEqual(getTowerAttackProfile(needlewing, flyingTank), {
+  mode: "ranged", damage: 206, fireRate: 2.5, physicalResistancePenetration: 0.4,
+});
+assert.equal(getTowerSplashRatioForTarget(needlewing, "ranged", 0, 0), 0, "Needlewing remains single-target");
+const elderwing = makeL3(91, "thorn-owl", "elderwing");
+assert.deepEqual([0, 1, 2].map((index) => getTowerSplashRatioForTarget(elderwing, "ranged", index, 0)), [0.7, 0.45, 0]);
+assert.equal(getTowerSplashTargetLimit(elderwing), 2);
 assert.deepEqual([DEFENDER_CONFIG.treant.buildCost, DEFENDER_CONFIG["thorn-owl"].buildCost, DEFENDER_CONFIG["thorn-owl"].targetTypes], [7, 15, ["air"]]);
 assert.equal(DEFENDER_CONFIG["bark-titan"].buildCost, 150);
 assert.deepEqual(DEFENDER_CONFIG["bark-titan"].levels.map(({ range, fireRate }) => [range, fireRate]), [[1, 0.5], [1, 0.5], [1, 0.5]]);
@@ -107,7 +124,8 @@ const auraFlyer = makeEnemy(10, 6, 6, "flying", 1_000);
 const auraState = combatState([treant, dancer], [auraFlyer]);
 auraState.update(1);
 assert.equal(auraFlyer.thornRotStacks, 1);
-assert.equal(auraFlyer.hp, 994, "base Verdant Resonance increases 5 Thorn Rot DPS to 6");
+assert.equal(auraFlyer.hp, 996, "fractional Verdant Resonance damage is carried into the next status tick");
+assert.ok(Math.abs(auraFlyer.thornRotDamageRemainder - 0.8) < 1e-9);
 auraFlyer.x = 20;
 auraFlyer.y = 20;
 auraState.update(0.01);

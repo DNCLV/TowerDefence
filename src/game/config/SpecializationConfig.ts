@@ -94,14 +94,14 @@ export const TOWER_SPECIALIZATIONS: Record<TowerSpecializationId, TowerSpecializ
   },
   "needlewing-owl": {
     id: "needlewing-owl", defenderType: "thorn-owl", name: "Needlewing Owl", role: "Flying tank / boss killer",
-    description: "90 damage at 2.10 attacks/sec, 7.5 tiles. Ignores 40% of physical resistance and deals 25% extra damage to flying tanks and bosses.",
-    level3Stats: { damage: 105, range: 7.5 * WORLD_UNITS_PER_CELL, fireRate: 2.25 },
+    description: "165 damage at 2.50 attacks/sec, 7.5 tiles. Ignores 40% of physical resistance and deals 25% extra damage to flying tanks and bosses.",
+    level3Stats: { damage: 165, range: 7.5 * WORLD_UNITS_PER_CELL, fireRate: 2.5 },
     bonusDamageClasses: ["tank", "boss"], bonusDamageMultiplier: 1.25, visualKey: "needlewing-owl", visualColor: "#a9d875",
   },
   elderwing: {
     id: "elderwing", defenderType: "thorn-owl", name: "Elderwing", role: "Flying swarm",
-    description: "70 damage at 1.50 attacks/sec, 8 tiles. Thorn Volley hits up to two additional flying enemies for 70% and 45% damage.",
-    level3Stats: { damage: 82, range: 8 * WORLD_UNITS_PER_CELL, fireRate: 1.7 },
+    description: "125 damage at 2.00 attacks/sec, 8 tiles. Thorn Volley hits up to two additional flying enemies for 70% and 45% damage.",
+    level3Stats: { damage: 125, range: 8 * WORLD_UNITS_PER_CELL, fireRate: 2 },
     splashRatios: [0.7, 0.45], splashTargetLimit: 2, visualKey: "elderwing", visualColor: "#7fc99c",
   },
   "dire-wolf": {
