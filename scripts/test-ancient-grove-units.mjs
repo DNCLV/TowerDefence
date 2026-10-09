@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
+import { WORLD_UNITS_PER_CELL } from "../src/core/GameConstants.ts";
 import { GameState } from "../src/game/GameState.ts";
 import { AncientGroveStatusSystem } from "../src/game/AncientGroveStatusSystem.ts";
 import { FactionBonusSystem } from "../src/game/FactionBonusSystem.ts";
 import { DEFENDER_CONFIG } from "../src/game/config/DefenderConfig.ts";
+import { FACTION_BONUS_CONFIG } from "../src/game/config/FactionBonusConfig.ts";
 import { FACTIONS } from "../src/game/config/FactionConfig.ts";
 import { SPECIALIZATIONS_BY_DEFENDER, TOWER_SPECIALIZATIONS } from "../src/game/config/SpecializationConfig.ts";
 import { getVerdantResonanceProfile } from "../src/game/config/AncientGroveUnitConfig.ts";
@@ -32,6 +34,14 @@ const makeL3 = (id, type, specializationId) => {
 };
 
 assert.deepEqual(FACTIONS["ancient-grove"].units.slice(-2), ["bark-titan", "thorn-dancer"]);
+assert.deepEqual(DEFENDER_CONFIG.treant.levels.map(({ damage, fireRate }) => [damage, fireRate]), [[15, 0.95], [32, 1.05], [52, 1.15]]);
+assert.deepEqual([FACTION_BONUS_CONFIG.thornRot.damagePerStackPerSecond, FACTION_BONUS_CONFIG.thornRot.maxStacks], [
+  { 1: 5, 2: 9, 3: 13 }, { 1: 5, 2: 5, 3: 6 },
+]);
+assert.deepEqual(DEFENDER_CONFIG["thorn-owl"].levels.map(({ damage, range, fireRate, upgradeCost }) => [
+  damage, range / WORLD_UNITS_PER_CELL, fireRate, upgradeCost,
+]), [[28, 6, 1.4, null], [52, 6.6, 1.55, 25], [82, 8, 1.7, 125]]);
+assert.deepEqual([DEFENDER_CONFIG.treant.buildCost, DEFENDER_CONFIG["thorn-owl"].buildCost, DEFENDER_CONFIG["thorn-owl"].targetTypes], [7, 15, ["air"]]);
 assert.equal(DEFENDER_CONFIG["bark-titan"].buildCost, 150);
 assert.deepEqual(DEFENDER_CONFIG["bark-titan"].levels.map(({ range, fireRate }) => [range, fireRate]), [[1, 0.5], [1, 0.5], [1, 0.5]]);
 assert.equal(DEFENDER_CONFIG["thorn-dancer"].buildCost, 300);
@@ -97,7 +107,7 @@ const auraFlyer = makeEnemy(10, 6, 6, "flying", 1_000);
 const auraState = combatState([treant, dancer], [auraFlyer]);
 auraState.update(1);
 assert.equal(auraFlyer.thornRotStacks, 1);
-assert.equal(auraFlyer.hp, 993, "base Verdant Resonance increases 6 Thorn Rot DPS to 7.2, with deterministic remainder");
+assert.equal(auraFlyer.hp, 994, "base Verdant Resonance increases 5 Thorn Rot DPS to 6");
 auraFlyer.x = 20;
 auraFlyer.y = 20;
 auraState.update(0.01);
