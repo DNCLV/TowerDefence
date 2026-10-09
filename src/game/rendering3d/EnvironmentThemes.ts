@@ -4,11 +4,17 @@ import type { EnvironmentAssetKey } from "./EnvironmentAssetLibrary";
 
 /** Shared Forest presentation palette: dark border foliage, readable clearing, earthy scatter. */
 export const FOREST_PALETTE = {
-  playableGround: new Color3(0.31, 0.52, 0.22),
-  outskirtsGround: new Color3(0.15, 0.31, 0.13),
-  floorHex: "#4f8338",
-  foliageTint: new Color3(0.62, 0.72, 0.57),
-  dirtPatchColors: ["rgba(92,61,35,0.29)", "rgba(128,86,48,0.22)"],
+  playableGround: new Color3(0.27, 0.45, 0.20),
+  outskirtsGround: new Color3(0.12, 0.25, 0.11),
+  floorHex: "#456f34",
+  foliageTint: new Color3(0.50, 0.61, 0.45),
+  /** Multiplied into foliage instances; three restrained values preserve hardware instancing. */
+  foliageVariations: [
+    new Color3(0.86, 0.94, 0.84),
+    new Color3(0.96, 0.91, 0.79),
+    new Color3(0.80, 0.89, 0.88),
+  ],
+  dirtPatchColors: ["rgba(86,55,32,0.34)", "rgba(125,82,45,0.27)", "rgba(72,48,31,0.22)"],
   scatteredDirtPatchCount: 92,
   wornZoneCount: 3,
   wornZoneSegments: 9,

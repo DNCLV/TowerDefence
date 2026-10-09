@@ -3,6 +3,7 @@ import {
   AbstractMesh,
   AssetContainer,
   Color3,
+  Color4,
   Mesh,
   PBRMaterial,
   Quaternion,
@@ -33,6 +34,7 @@ interface EnvironmentMeshSource {
   position: Vector3;
   rotation: Quaternion;
   scaling: Vector3;
+  isFoliage: boolean;
 }
 
 interface EnvironmentInstanceTemplate {
@@ -115,6 +117,7 @@ export class EnvironmentAssetLibrary {
     scale = 1,
     castsShadows = true,
     limits?: EnvironmentSizeLimits,
+    foliageColor?: Color3,
   ): TransformNode | undefined {
     const template = this.templates.get(key);
     if (!template) return undefined;
@@ -132,6 +135,7 @@ export class EnvironmentAssetLibrary {
       mesh.position.copyFrom(source.position);
       mesh.rotationQuaternion = source.rotation.clone();
       mesh.scaling.copyFrom(source.scaling);
+      if (source.isFoliage && foliageColor) mesh.instancedBuffers.color = new Color4(foliageColor.r, foliageColor.g, foliageColor.b, 1);
       mesh.isVisible = true;
       mesh.visibility = 1;
     }
@@ -227,7 +231,16 @@ export class EnvironmentAssetLibrary {
         mesh.isVisible = false;
         mesh.isPickable = false;
         mesh.receiveShadows = false;
-        return { mesh, position, rotation, scaling };
+        const material = mesh.material;
+        const isFoliage = key === "forest-tree" || key === "forest-tree-high"
+          ? /leaf|foliage|plant|tree/i.test(`${mesh.name} ${material?.name ?? ""}`)
+          : false;
+        if (isFoliage) {
+          mesh.registerInstancedBuffer("color", 4);
+          mesh.instancedBuffers.color = new Color4(1, 1, 1, 1);
+          mesh.useVertexColors = true;
+        }
+        return { mesh, position, rotation, scaling, isFoliage };
       });
     entries.animationGroups.forEach((group) => { group.stop(); group.dispose(); });
 

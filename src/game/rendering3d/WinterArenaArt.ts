@@ -206,8 +206,8 @@ export class WinterArenaArt {
       return state / 0x100000000;
     };
     const palette = [
-      "rgba(67,125,49,0.20)", "rgba(144,181,87,0.18)", "rgba(85,145,54,0.13)",
-      "rgba(143,108,61,0.16)", "rgba(102,76,43,0.10)",
+      "rgba(52,103,43,0.24)", "rgba(126,153,79,0.15)", "rgba(70,119,52,0.18)",
+      "rgba(139,101,57,0.21)", "rgba(91,65,40,0.17)", "rgba(157,125,72,0.12)",
     ];
     for (let index = 0; index < 88; index += 1) {
       const x = random() * width, y = random() * height;
@@ -522,7 +522,8 @@ export class WinterArenaArt {
           const scale = 1.28 + (hash % 9) * 0.055 + row * 0.10;
           const root = this.assets.instantiate(key, `forest-border-${sideIndex}-${row}-${index}`,
             new Vector3(x, 0, z), (hash % 24) * Math.PI / 12, scale, row === 0 && index % 9 === 0,
-            { maxWidth: 2.2, maxHeight: 4.3, maxDepth: 2.2 });
+            { maxWidth: 2.2, maxHeight: 4.3, maxDepth: 2.2 },
+            FOREST_PALETTE.foliageVariations[hash % FOREST_PALETTE.foliageVariations.length]);
           if (!root) continue;
           root.getChildMeshes().forEach((mesh) => { mesh.isPickable = false; mesh.receiveShadows = false; });
           root.freezeWorldMatrix();
@@ -775,9 +776,12 @@ export class WinterArenaArt {
     const roots: TransformNode[] = [];
     this.forestClusterStats = { trees: 0, rocks: 0, vegetation: 0 };
     const place = (key: EnvironmentAssetKey, name: string, x: number, z: number, rotation: number, scale: number,
-      category: keyof typeof this.forestClusterStats, allowInsideBlockedTerrain = false, elevation = 0): void => {
+      category: keyof typeof this.forestClusterStats, allowInsideBlockedTerrain = false, elevation = 0,
+      variationSeed = 0): void => {
       const root = this.assets.instantiate(key, name, new Vector3(x, elevation, z), rotation, scale, false,
-        { maxWidth: 2.6, maxHeight: 5.2, maxDepth: 2.6 });
+        { maxWidth: 2.6, maxHeight: 5.2, maxDepth: 2.6 }, category === "trees"
+          ? FOREST_PALETTE.foliageVariations[Math.abs(variationSeed) % FOREST_PALETTE.foliageVariations.length]
+          : undefined);
       if (!root) return;
       const bounds = root.getHierarchyBoundingVectors(true);
       if (category === "trees" && !allowInsideBlockedTerrain && bounds.max.x > -0.12 && bounds.min.x < this.width + 0.12
@@ -810,7 +814,7 @@ export class WinterArenaArt {
           const z = side.side === "north" ? -distance : side.side === "south" ? this.depth + distance : along;
           const tree = theme.treeAssets[hash % theme.treeAssets.length];
           place(tree, `forest-depth-tree-${sideIndex}-${row}-${index}`, x, z,
-            (hash % 32) * Math.PI / 16, 1.40 + (hash % 11) * 0.055 + row * 0.12, "trees");
+            (hash % 32) * Math.PI / 16, 1.40 + (hash % 11) * 0.055 + row * 0.12, "trees", false, 0, hash);
           if (index % 3 === 0) {
             const tangent = ((hash >> 3) % 9 - 4) * 0.08;
             const prop = index % 6 === 0 ? "forest-rocks-low" : "forest-plant";
@@ -848,7 +852,7 @@ export class WinterArenaArt {
         place(key, `forest-blocked-woodland-${regionIndex}-${index}`,
           cell.x + 0.5 + ((hash % 9) - 4) * 0.025,
           cell.y + 0.5 + (((hash >> 4) % 9) - 4) * 0.025,
-          (hash % 24) * Math.PI / 12, 1.12 + (hash % 8) * 0.055, "trees", true, 0.72);
+          (hash % 24) * Math.PI / 12, 1.12 + (hash % 8) * 0.055, "trees", true, 0.72, hash);
         if (hash % 7 === 0) {
           place("forest-plant", `forest-blocked-understory-${regionIndex}-${index}`,
             cell.x + 0.22, cell.y + 0.70, (hash % 12) * Math.PI / 6, 0.58, "vegetation", true, 0.72);
