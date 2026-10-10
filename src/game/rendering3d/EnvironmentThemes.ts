@@ -4,20 +4,28 @@ import type { EnvironmentAssetKey } from "./EnvironmentAssetLibrary";
 
 /** Shared Forest presentation palette: bright clearing, varied foliage, earthy scatter. */
 export const FOREST_PALETTE = {
-  playableGround: new Color3(0.82, 0.94, 0.76),
-  outskirtsGround: new Color3(0.31, 0.48, 0.25),
-  floorHex: "#86b85e",
-  foliageTint: new Color3(0.78, 0.88, 0.68),
+  playableGround: new Color3(0.94, 0.96, 0.88),
+  outskirtsGround: new Color3(0.25, 0.34, 0.21),
+  floorHex: "#849c67",
+  foliageTint: new Color3(0.76, 0.82, 0.64),
   /** Clearly distinct but cohesive per-instance tones; hardware instancing stays intact. */
   foliageVariations: [
-    new Color3(0.58, 0.76, 0.52),
-    new Color3(0.76, 0.92, 0.62),
-    new Color3(0.96, 1.00, 0.72),
-    new Color3(0.68, 0.82, 0.72),
+    new Color3(0.48, 0.64, 0.41),
+    new Color3(0.65, 0.77, 0.50),
+    new Color3(0.78, 0.84, 0.55),
+    new Color3(0.55, 0.70, 0.57),
   ],
-  dirtPatchColors: ["rgba(112,72,39,0.40)", "rgba(151,103,54,0.34)", "rgba(88,61,39,0.29)", "rgba(178,132,72,0.26)"],
-  scatteredDirtPatchCount: 92,
+  dirtPatchColors: ["rgba(103,66,37,0.48)", "rgba(143,94,48,0.43)", "rgba(82,57,38,0.35)", "rgba(174,126,67,0.34)"],
+  scatteredDirtPatchCount: 104,
 } as const;
+
+/** Curated low-cost Nature Kit additions used by the Forest composer and future scenic variants. */
+export const FOREST_SCENIC_ASSETS = {
+  alternateTrees: ["forest-quaternius-common-tree", "forest-quaternius-pine"],
+  shrubs: ["forest-quaternius-bush", "forest-quaternius-flower-bush"],
+  boulders: ["forest-quaternius-rock-1", "forest-quaternius-rock-2", "forest-quaternius-rock-3"],
+  terrainHelpers: ["forest-rocks-ramp", "forest-stones", "forest-patch-dirt"],
+} as const satisfies Record<string, readonly EnvironmentAssetKey[]>;
 
 export interface EnvironmentTheme {
   id: string;
@@ -57,11 +65,11 @@ export const ENVIRONMENT_THEMES: readonly EnvironmentTheme[] = [
     id: "ancient-grove-forest", label: "Ancient Grove Forest",
     style: "forest",
     playableGround: FOREST_PALETTE.playableGround, outskirtsGround: FOREST_PALETTE.outskirtsGround,
-    fogColor: new Color3(0.70, 0.82, 0.68), ambientTint: new Color3(0.90, 0.98, 0.82),
+    fogColor: new Color3(0.63, 0.72, 0.66), ambientTint: new Color3(0.95, 0.93, 0.82),
     spawnAccent: new Color3(0.80, 0.24, 0.14), exitAccent: new Color3(0.92, 0.73, 0.26),
-    treeAssets: ["forest-tree", "forest-tree-high"],
-    rockAssets: ["forest-rocks-low", "forest-rocks-high", "forest-stones"],
-    propAssets: ["forest-plant", "forest-patch-grass", "forest-patch-dirt"],
+    treeAssets: ["forest-tree", "forest-tree-high", ...FOREST_SCENIC_ASSETS.alternateTrees],
+    rockAssets: ["forest-rocks-low", "forest-rocks-high", "forest-stones", ...FOREST_SCENIC_ASSETS.boulders],
+    propAssets: ["forest-plant", "forest-patch-grass", "forest-patch-dirt", ...FOREST_SCENIC_ASSETS.shrubs],
     treeCount: 360, rockCount: 96, propCount: 120,
     clusters: ["forest", "rocks", "forest", "forest", "rocks", "forest"],
   },

@@ -21,6 +21,16 @@ const expectedDedicatedGrovePortraits = {
   "bark-titan": "/assets/ui/defenders/bark-titan.png",
   "thorn-dancer": "/assets/ui/defenders/thorn-dancer.png",
 };
+const expectedMapPreviews = {
+  "single-spawn": "/assets/ui/map-previews/open-field.png",
+  "two-spawns": "/assets/ui/map-previews/split-advance.png",
+  "three-spawns": "/assets/ui/map-previews/triple-convergence.png",
+};
+const expectedQuaterniusNatureAssets = [
+  "forest-quaternius-common-tree", "forest-quaternius-pine",
+  "forest-quaternius-bush", "forest-quaternius-flower-bush",
+  "forest-quaternius-rock-1", "forest-quaternius-rock-2", "forest-quaternius-rock-3",
+];
 const groveImportedTypes = ["treant", "thorn-owl", "druid", "seer", "bark-titan", "thorn-dancer"];
 const groveRosterTypes = ["treant", "thorn-owl", "druid", "seer", "bark-titan", "thorn-dancer"];
 const royalImportedTypes = ["green-archer", "battlemage", "sovereign", "holy-emperor"];
@@ -144,6 +154,12 @@ async function main() {
     const relative = portraitPath.replace(/^\//, "");
     if (!uiManifest.has(relative) || !fs.existsSync(path.join(repoRoot, "public", relative))) {
       throw new Error(`${type} dedicated portrait is missing from the UI manifest or public assets: ${portraitPath}`);
+    }
+  }
+  for (const [mapId, previewPath] of Object.entries(expectedMapPreviews)) {
+    const relative = previewPath.replace(/^\//, "");
+    if (!uiManifest.has(relative) || !fs.existsSync(path.join(repoRoot, "public", relative))) {
+      throw new Error(`${mapId} preview is missing from the UI manifest or public assets: ${previewPath}`);
     }
   }
   const runtimeSources = [
@@ -316,24 +332,21 @@ async function main() {
       continueText: continueButton.textContent.trim(),
       mapNames: [...document.querySelectorAll('.map-choice-card .map-choice-copy strong')].map((node) => node.textContent.trim()),
       startingGolds: [...document.querySelectorAll('.map-choice-card .map-economy')].map((node) => Number(node.textContent.trim().split(' ').find((part) => Number.isFinite(Number(part))))),
-      previews: [...document.querySelectorAll('.map-preview svg')].map((svg) => ({
-        width: Number(svg.dataset.gridWidth),
-        height: Number(svg.dataset.gridHeight),
-        terrainCells: Number(svg.dataset.terrainCells),
-        terrainRectCells: [...svg.querySelectorAll('.map-preview-terrain')].reduce((sum, node) => sum + Number(node.getAttribute('width')) * Number(node.getAttribute('height')), 0),
-        terrainRects: svg.querySelectorAll('.map-preview-terrain').length,
-        spawns: [...svg.querySelectorAll('.map-preview-spawn')].map((node) => ({ x: Number(node.dataset.cellX), y: Number(node.dataset.cellY), color: node.style.getPropertyValue('--spawn-color') })),
-        goal: { x: Number(svg.querySelector('.map-preview-goal').dataset.cellX), y: Number(svg.querySelector('.map-preview-goal').dataset.cellY) },
-        polishLayers: ['defs', 'clipPath', '.map-preview-light', '.map-preview-grid', '.map-preview-field-accent',
-          '.map-preview-terrain-shape', '.map-preview-terrain-contour', '.map-preview-map-frame', '.map-preview-marker-halo']
-          .every((selector) => svg.querySelector(selector)),
-        visible: (() => {
-          const rect = svg.getBoundingClientRect();
-          const style = getComputedStyle(svg);
-          return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
-        })(),
-      })),
-      threeSpawnColors: [...document.querySelectorAll('[data-map-id="three-spawns"] .map-preview-spawn')].map((node) => node.style.getPropertyValue('--spawn-color')),
+      previews: [...document.querySelectorAll('.map-preview')].map((preview) => {
+        const image = preview.querySelector('.map-preview-artwork');
+        return {
+          mapId: preview.dataset.previewMap,
+          type: preview.dataset.previewType,
+          source: image?.getAttribute('src'),
+          loaded: Boolean(image?.complete && image.naturalWidth === 432 && image.naturalHeight === 576),
+          hasSchematic: preview.querySelector('svg') !== null,
+          visible: image ? (() => {
+            const rect = image.getBoundingClientRect();
+            const style = getComputedStyle(image);
+            return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+          })() : false,
+        };
+      }),
     };
   })()`);
   if (mapSelection.checks.length !== 3 || mapSelection.checks.some((choice) => !choice.selected || !choice.canStart)
@@ -344,15 +357,9 @@ async function main() {
     || JSON.stringify(mapSelection.mapNames) !== JSON.stringify(["Open Field", "Split Advance", "Triple Convergence"])
     || JSON.stringify(mapSelection.startingGolds) !== JSON.stringify([100, 135, 150])
     || mapSelection.previews.length !== 3
-    || mapSelection.previews.some((preview) => !preview.visible || !preview.polishLayers || preview.width <= 0 || preview.height <= 0
-      || preview.terrainCells !== preview.terrainRectCells || preview.terrainRects <= 0
-      || preview.spawns.length === 0 || !Number.isFinite(preview.goal.x) || !Number.isFinite(preview.goal.y))
-    || JSON.stringify(mapSelection.previews.map(({ width, height }) => [width, height])) !== JSON.stringify([[17, 32], [23, 41], [43, 66]])
-    || JSON.stringify(mapSelection.previews.map(({ spawns }) => spawns.map(({ x, y }) => [x, y]))) !== JSON.stringify([[[8, 0]], [[6, 0], [17, 0]], [[8, 0], [21, 0], [35, 0]]])
-    || JSON.stringify(mapSelection.previews.map(({ goal }) => [goal.x, goal.y])) !== JSON.stringify([[8, 31], [11, 40], [21, 65]])
-    || JSON.stringify(mapSelection.previews.map(({ terrainCells }) => terrainCells)) !== JSON.stringify([220, 357, 1041])
-    || JSON.stringify(mapSelection.previews.map(({ terrainRects }) => terrainRects)) !== JSON.stringify([2, 5, 9])
-    || JSON.stringify(mapSelection.threeSpawnColors) !== JSON.stringify(["#ff6b66", "#69c5ff", "#69df9c"])) {
+    || mapSelection.previews.some((preview) => !preview.visible || !preview.loaded || preview.type !== "static" || preview.hasSchematic)
+    || JSON.stringify(mapSelection.previews.map(({ mapId }) => mapId)) !== JSON.stringify(Object.keys(expectedMapPreviews))
+    || mapSelection.previews.some((preview) => !preview.source?.endsWith(expectedMapPreviews[preview.mapId]))) {
     throw new Error(`Map selection flow failed: ${JSON.stringify(mapSelection)}`);
   }
   const modeFlow = await evaluate(`(() => {
@@ -604,10 +611,11 @@ async function main() {
     || groveEnvironment?.endpointDecorationMeshCount !== 0
     || groveEnvironment?.environmentComposition?.trees < 150
     || groveEnvironment?.environmentComposition?.rocks < groveEnvironment?.terrainRegionCount
-    // The manifest contains nine forest source files, but templateAssets counts
-    // only GLBs that this map actually instantiates. The remaining preloaded
-    // variants stay as AssetContainers and intentionally do not create meshes.
-    || groveEnvironment?.environmentRendering?.templateAssets < 7
+    || groveEnvironment?.environmentComposition?.importedModels < 16
+    // Every curated Quaternius template must be represented by a real hardware instance;
+    // preloading alone is not enough to count as a visual overhaul.
+    || expectedQuaterniusNatureAssets.some((key) => !(groveEnvironment?.environmentRendering?.byAsset?.[key] > 0))
+    || groveEnvironment?.environmentRendering?.templateAssets < 14
     || groveEnvironment?.environmentRendering?.instances < (
       groveEnvironment?.environmentComposition?.trees
       + groveEnvironment?.environmentComposition?.rocks

@@ -54,6 +54,12 @@ function defenderPortraitMarkup(type: DefenderType, fallbackClassName: string): 
     : `<span class="${fallbackClassName}" aria-label="Portrait unavailable">✦</span>`;
 }
 
+const STATIC_MAP_PREVIEW_ASSETS: Readonly<Partial<Record<MapDefinition["id"], string>>> = {
+  "single-spawn": resolveAssetUrl("assets/ui/map-previews/open-field.png"),
+  "two-spawns": resolveAssetUrl("assets/ui/map-previews/split-advance.png"),
+  "three-spawns": resolveAssetUrl("assets/ui/map-previews/triple-convergence.png"),
+};
+
 /** Deterministic presentation-only silhouette around an exact preview rectangle. */
 function organicPreviewRectPath(x: number, y: number, width: number, height: number, seed: number): string {
   const right = x + width;
@@ -75,7 +81,7 @@ function organicPreviewRectPath(x: number, y: number, width: number, height: num
   ].join(" ");
 }
 
-function renderMapPreview(map: MapDefinition): string {
+function renderDynamicMapPreview(map: MapDefinition): string {
   const geometry = getMapPreviewGeometry(map);
   const previewId = `map-preview-${map.id.replace(/[^a-z0-9-]/gi, "-")}`;
   const markerRadius = Math.max(0.5, Math.min(1.05, Math.max(geometry.width, geometry.height) * 0.016));
@@ -139,6 +145,14 @@ function renderMapPreview(map: MapDefinition): string {
     <g class="map-preview-spawns">${spawns}</g>
     <g class="map-preview-goals">${goals}</g>
   </svg>`;
+}
+
+function renderMapPreview(map: MapDefinition): string {
+  const artwork = STATIC_MAP_PREVIEW_ASSETS[map.id];
+  if (artwork) {
+    return `<img class="map-preview-artwork" src="${artwork}" alt="" width="432" height="576" decoding="async" draggable="false">`;
+  }
+  return renderDynamicMapPreview(map);
 }
 
 type MapModeId = "single-player" | "multiplayer";
@@ -235,7 +249,7 @@ function renderMapPanel(mode: MapModeDefinition, preferredMap?: MapDefinition): 
       </header>
       <div class="map-choice-grid${mode.maps.length === 1 ? " is-single-map" : ""}" role="group" aria-label="Choose a ${mode.title.toLowerCase()} map">
         ${mode.maps.map((map) => `<button class="map-choice-card" type="button" data-map-id="${map.id}" aria-pressed="false">
-          <span class="map-preview" data-preview-map="${map.id}" aria-hidden="true">${renderMapPreview(map)}</span>
+          <span class="map-preview" data-preview-map="${map.id}" data-preview-type="${STATIC_MAP_PREVIEW_ASSETS[map.id] ? "static" : "dynamic"}" aria-hidden="true">${renderMapPreview(map)}</span>
           <span class="map-choice-copy"><strong>${map.name}</strong><small>${map.subtitle}</small><span>${map.description}</span></span>
           <span class="map-choice-meta"><span class="map-economy">✦ ${map.startingGold} GOLD</span><span class="map-pressure">${map.enemyCountMultiplier === 1 ? "NORMAL" : map.enemyCountMultiplier < 2 ? "HIGH" : "EXTREME"} PRESSURE</span></span>
         </button>`).join("")}

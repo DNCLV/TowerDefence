@@ -1,7 +1,7 @@
 import { Color3, DynamicTexture, MeshBuilder, PBRMaterial, PointLight, Scene, ShadowGenerator, StandardMaterial, Texture, TransformNode, Vector3 } from "@babylonjs/core";
 import { EnvironmentAssetKey, EnvironmentAssetLibrary } from "./EnvironmentAssetLibrary";
 import { EnvironmentTheme } from "./EnvironmentThemes";
-import { FOREST_PALETTE } from "./EnvironmentThemes";
+import { FOREST_PALETTE, FOREST_SCENIC_ASSETS } from "./EnvironmentThemes";
 import { VISUAL_CONFIG } from "./VisualConfig";
 import type { TerrainRegion } from "../config/MapConfig";
 
@@ -206,8 +206,8 @@ export class WinterArenaArt {
       return state / 0x100000000;
     };
     const palette = [
-      "rgba(104,153,70,0.20)", "rgba(181,205,111,0.16)", "rgba(126,172,78,0.18)",
-      "rgba(164,118,63,0.24)", "rgba(105,73,44,0.20)", "rgba(196,149,79,0.21)",
+      "rgba(83,125,63,0.18)", "rgba(173,190,112,0.13)", "rgba(116,145,76,0.15)",
+      "rgba(158,111,59,0.31)", "rgba(101,70,43,0.27)", "rgba(190,143,77,0.28)",
     ];
     for (let index = 0; index < 88; index += 1) {
       const x = random() * width, y = random() * height;
@@ -219,25 +219,36 @@ export class WinterArenaArt {
       context.fillStyle = gradient;
       context.fillRect(x - radius, y - radius, radius * 2, radius * 2);
     }
-    const drawDirtPatch = (x: number, y: number, radius: number, color: string): void => {
-      const gradient = context.createRadialGradient(x, y, radius * 0.08, x, y, radius);
+    const drawDirtPatch = (x: number, y: number, radius: number, color: string, stretch: number, rotation: number): void => {
+      context.save();
+      context.translate(x, y);
+      context.rotate(rotation);
+      context.scale(stretch, 1);
+      const gradient = context.createRadialGradient(0, 0, radius * 0.08, 0, 0, radius);
       gradient.addColorStop(0, color);
-      gradient.addColorStop(0.62, color.replace(/0\.\d+\)/, "0.10)"));
+      gradient.addColorStop(0.58, color.replace(/0\.\d+\)/, "0.14)"));
       gradient.addColorStop(1, "rgba(0,0,0,0)");
       context.fillStyle = gradient;
-      context.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+      context.fillRect(-radius, -radius, radius * 2, radius * 2);
+      context.restore();
     };
     // Seeded independent soil clusters give broad coverage without drawing a
     // single continuous road or tying decoration to pathfinding data.
     for (let index = 0; index < FOREST_PALETTE.scatteredDirtPatchCount; index += 1) {
       const x = random() * width, y = random() * height;
-      const radius = Math.min(width, height) * (0.014 + random() * 0.032);
+      const radius = Math.min(width, height) * (0.012 + random() * 0.030);
       const color = FOREST_PALETTE.dirtPatchColors[index % FOREST_PALETTE.dirtPatchColors.length];
-      drawDirtPatch(x, y, radius, color);
+      const stretch = 1.12 + random() * 1.15;
+      const rotation = random() * Math.PI;
+      drawDirtPatch(x, y, radius, color, stretch, rotation);
+      if (index % 4 === 0) {
+        drawDirtPatch(x + Math.cos(rotation) * radius * 0.72, y + Math.sin(rotation) * radius * 0.72,
+          radius * 0.62, color.replace(/0\.\d+\)/, "0.27)"), 1.25, rotation + 0.42);
+      }
     }
     for (let index = 0; index < Math.floor(width * height / 38); index += 1) {
       const x = random() * width, y = random() * height;
-      context.strokeStyle = index % 4 === 0 ? "rgba(207,223,133,0.15)" : "rgba(43,91,37,0.10)";
+      context.strokeStyle = index % 4 === 0 ? "rgba(218,198,128,0.14)" : "rgba(50,82,40,0.09)";
       context.lineWidth = 0.7;
       context.beginPath(); context.moveTo(x, y); context.lineTo(x + random() * 2 - 1, y - 1.5 - random() * 2.5); context.stroke();
     }
@@ -280,13 +291,16 @@ export class WinterArenaArt {
       return state / 0x100000000;
     };
     const isOutskirts = name.startsWith("outskirts");
-    const palette = isOutskirts
+    const isForestOutskirts = name.includes("ancient-grove-forest");
+    const palette = isForestOutskirts
+      ? ["rgba(170,181,104,0.12)", "rgba(67,91,49,0.12)", "rgba(139,96,53,0.17)", "rgba(92,63,41,0.13)"]
+      : isOutskirts
       ? ["rgba(190,204,123,0.14)", "rgba(77,119,57,0.085)", "rgba(163,145,91,0.065)"]
       : ["rgba(146,150,105,0.12)", "rgba(48,60,39,0.13)", "rgba(137,116,80,0.09)"];
     for (let i = 0; i < (isOutskirts ? 58 : 46); i += 1) {
       const x = random() * size;
       const y = random() * size;
-      const radius = isOutskirts ? 26 + random() * 54 : 32 + random() * 64;
+      const radius = isForestOutskirts ? 34 + random() * 72 : isOutskirts ? 26 + random() * 54 : 32 + random() * 64;
       const color = palette[i % palette.length];
       for (const ox of [-size, 0, size]) for (const oy of [-size, 0, size]) {
         const gx = x + ox, gy = y + oy;
@@ -300,14 +314,18 @@ export class WinterArenaArt {
     }
     for (let i = 0; i < 1800; i += 1) {
       const x = Math.floor(random() * size), y = Math.floor(random() * size);
-      ctx.fillStyle = isOutskirts
+      ctx.fillStyle = isForestOutskirts
+        ? i % 4 === 0 ? "rgba(201,184,119,0.065)" : i % 3 === 0 ? "rgba(115,78,47,0.075)" : "rgba(37,61,34,0.035)"
+        : isOutskirts
         ? i % 3 === 0 ? "rgba(235,235,179,0.065)" : "rgba(46,76,39,0.032)"
         : i % 3 === 0 ? "rgba(220,218,174,0.055)" : "rgba(27,40,24,0.065)";
       ctx.fillRect(x, y, 1 + (i % 3), 1);
     }
     for (let i = 0; i < 230; i += 1) {
       const x = random() * size, y = random() * size;
-      ctx.strokeStyle = isOutskirts
+      ctx.strokeStyle = isForestOutskirts
+        ? i % 2 === 0 ? "rgba(183,165,102,0.075)" : "rgba(48,72,38,0.055)"
+        : isOutskirts
         ? i % 2 === 0 ? "rgba(205,199,137,0.075)" : "rgba(55,86,42,0.045)"
         : i % 2 === 0 ? "rgba(202,198,145,0.08)" : "rgba(35,51,30,0.09)";
       ctx.lineWidth = 1;
@@ -782,8 +800,9 @@ export class WinterArenaArt {
     const place = (key: EnvironmentAssetKey, name: string, x: number, z: number, rotation: number, scale: number,
       category: keyof typeof this.forestClusterStats, allowInsideBlockedTerrain = false, elevation = 0,
       variationSeed = 0): void => {
+      const usesFoliageTint = category === "trees" || key === "forest-quaternius-bush" || key === "forest-quaternius-flower-bush";
       const root = this.assets.instantiate(key, name, new Vector3(x, elevation, z), rotation, scale, false,
-        { maxWidth: 2.6, maxHeight: 5.2, maxDepth: 2.6 }, category === "trees"
+        { maxWidth: 2.6, maxHeight: 5.2, maxDepth: 2.6 }, usesFoliageTint
           ? FOREST_PALETTE.foliageVariations[Math.abs(variationSeed) % FOREST_PALETTE.foliageVariations.length]
           : undefined);
       if (!root) return;
@@ -819,18 +838,42 @@ export class WinterArenaArt {
           const tree = theme.treeAssets[hash % theme.treeAssets.length];
           place(tree, `forest-depth-tree-${sideIndex}-${row}-${index}`, x, z,
             (hash % 32) * Math.PI / 16, 1.40 + (hash % 11) * 0.055 + row * 0.12, "trees", false, 0, hash);
-          if (index % 3 === 0) {
+          if (index % 2 === 0) {
             const tangent = ((hash >> 3) % 9 - 4) * 0.08;
-            const prop = index % 6 === 0 ? "forest-rocks-low" : "forest-plant";
+            const prop: EnvironmentAssetKey = index % 8 === 0
+              ? FOREST_SCENIC_ASSETS.boulders[hash % FOREST_SCENIC_ASSETS.boulders.length]
+              : index % 4 === 0 ? "forest-quaternius-bush" : "forest-plant";
             const px = side.side === "west" || side.side === "east" ? x + tangent : x + 0.48;
             const pz = side.side === "north" || side.side === "south" ? z + tangent : z + 0.48;
             place(prop, `forest-depth-detail-${sideIndex}-${row}-${index}`, px, pz,
-              (hash % 20) * Math.PI / 10, prop === "forest-plant" ? 0.82 : 0.62,
-              prop === "forest-plant" ? "vegetation" : "rocks");
+              (hash % 20) * Math.PI / 10, prop === "forest-plant" ? 0.82 : prop === "forest-quaternius-bush" ? 0.92 : 0.72,
+              prop === "forest-plant" || prop === "forest-quaternius-bush" ? "vegetation" : "rocks", false, 0, hash);
           }
         }
       }
     }
+    // Purpose-built scenic pockets break the outer tree rows into readable layered compositions.
+    // Every anchor is outside the playable rectangle and reuses the same hardware-instanced templates.
+    const scenicAnchors: Array<[number, number]> = [
+      [-3.8, this.depth * 0.22], [-4.2, this.depth * 0.72],
+      [this.width + 3.8, this.depth * 0.28], [this.width + 4.2, this.depth * 0.78],
+      [this.width * 0.22, -3.9], [this.width * 0.76, -4.2],
+      [this.width * 0.28, this.depth + 3.9], [this.width * 0.74, this.depth + 4.2],
+    ];
+    scenicAnchors.forEach(([x, z], index) => {
+      if (this.protectedGateZones.some((gate) => Math.hypot(x - gate.x, z - gate.z) < 4.1)) return;
+      const hash = Math.abs(seed + index * 31337);
+      const boulder = FOREST_SCENIC_ASSETS.boulders[index % FOREST_SCENIC_ASSETS.boulders.length];
+      place("forest-patch-dirt", `forest-scenic-earth-${index}`, x, z, hash * 0.01, 2.1, "vegetation");
+      place(boulder, `forest-scenic-boulder-${index}`, x - 0.38, z + 0.16,
+        (hash % 18) * Math.PI / 9, 1.08, "rocks");
+      place("forest-quaternius-bush", `forest-scenic-shrub-${index}`, x + 0.62, z + 0.38,
+        (hash % 16) * Math.PI / 8, 1.05, "vegetation", false, 0, hash);
+      place("forest-quaternius-flower-bush", `forest-scenic-flowers-${index}`, x + 0.28, z - 0.64,
+        ((hash >> 3) % 16) * Math.PI / 8, 0.74, "vegetation", false, 0, hash + 1);
+      place(index % 2 === 0 ? "forest-stones" : "forest-rocks-low", `forest-scenic-stones-${index}`,
+        x - 0.76, z - 0.54, -hash * 0.007, 0.58, "rocks");
+    });
     // Every blocked region keeps its exact GameState footprint; small real boulders sit inside boundary cells only.
     for (const [regionIndex, region] of terrainRegions.entries()) {
       const occupied = new Set(region.cells.map(({ x, y }) => `${x},${y}`));
@@ -840,9 +883,15 @@ export class WinterArenaArt {
       for (let index = 0; index < boundary.length; index += stride) {
         const cell = boundary[index];
         const hash = Math.abs(seed + regionIndex * 65537 + cell.x * 7919 + cell.y * 1049);
-        const rock = hash % 4 === 0 ? "forest-rocks-high" : hash % 3 === 0 ? "forest-stones" : "forest-rocks-low";
+        const rock: EnvironmentAssetKey = hash % 5 === 0
+          ? FOREST_SCENIC_ASSETS.boulders[hash % FOREST_SCENIC_ASSETS.boulders.length]
+          : hash % 4 === 0 ? "forest-rocks-high" : hash % 3 === 0 ? "forest-stones" : "forest-rocks-low";
         place(rock, `forest-terrain-rock-${regionIndex}-${index}`, cell.x + 0.5, cell.y + 0.5,
           (hash % 16) * Math.PI / 8, rock === "forest-rocks-high" ? 0.82 : 0.72, "rocks", true, 0.72);
+        if (index % (stride * 3) === 0) {
+          place("forest-patch-dirt", `forest-terrain-earth-${regionIndex}-${index}`,
+            cell.x + 0.5, cell.y + 0.5, (hash % 12) * Math.PI / 6, 0.86, "vegetation", true, 0.735);
+        }
       }
       // Edge-connected blocked masses visually continue the surrounding woodland.
       // Trees stay at least one full blocked cell away from a walkable cell, so their crowns never hide placement lanes.
@@ -858,8 +907,10 @@ export class WinterArenaArt {
           cell.y + 0.5 + (((hash >> 4) % 9) - 4) * 0.025,
           (hash % 24) * Math.PI / 12, 1.12 + (hash % 8) * 0.055, "trees", true, 0.72, hash);
         if (hash % 7 === 0) {
-          place("forest-plant", `forest-blocked-understory-${regionIndex}-${index}`,
-            cell.x + 0.22, cell.y + 0.70, (hash % 12) * Math.PI / 6, 0.58, "vegetation", true, 0.72);
+          const understory: EnvironmentAssetKey = hash % 14 === 0 ? "forest-quaternius-bush" : "forest-plant";
+          place(understory, `forest-blocked-understory-${regionIndex}-${index}`,
+            cell.x + 0.22, cell.y + 0.70, (hash % 12) * Math.PI / 6,
+            understory === "forest-quaternius-bush" ? 0.72 : 0.58, "vegetation", true, 0.72, hash);
         }
       }
     }

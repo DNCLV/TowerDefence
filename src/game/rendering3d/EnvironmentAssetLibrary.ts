@@ -22,11 +22,16 @@ export type EnvironmentAssetKey =
   | "castle-flag" | "castle-tree" | "castle-tree-large" | "castle-rock" | "castle-rock-large"
   | "castle-ground-hills" | "castle-fence" | "castle-ballista" | "medieval-wagon" | "medieval-crate"
   | "forest-tree" | "forest-tree-high" | "forest-rocks-low" | "forest-rocks-high" | "forest-rocks-ramp"
-  | "forest-stones" | "forest-plant" | "forest-patch-grass" | "forest-patch-dirt";
+  | "forest-stones" | "forest-plant" | "forest-patch-grass" | "forest-patch-dirt"
+  | "forest-quaternius-common-tree" | "forest-quaternius-pine"
+  | "forest-quaternius-bush" | "forest-quaternius-flower-bush"
+  | "forest-quaternius-rock-1" | "forest-quaternius-rock-2" | "forest-quaternius-rock-3";
 
 interface AssetSource {
   rootUrl: string;
   fileName: string;
+  /** Normalizes source-pack units before composition-specific scaling. */
+  baseScale?: number;
 }
 
 interface EnvironmentMeshSource {
@@ -73,7 +78,24 @@ const ASSETS: Record<EnvironmentAssetKey, AssetSource> = {
   "forest-plant": { rootUrl: "/assets/environment/forest/", fileName: "plant.glb" },
   "forest-patch-grass": { rootUrl: "/assets/environment/forest/", fileName: "patch-grass.glb" },
   "forest-patch-dirt": { rootUrl: "/assets/environment/forest/", fileName: "patch-dirt.glb" },
+  "forest-quaternius-common-tree": { rootUrl: "/assets/environment/quaternius-nature/", fileName: "common-tree.gltf", baseScale: 0.26 },
+  "forest-quaternius-pine": { rootUrl: "/assets/environment/quaternius-nature/", fileName: "pine.gltf", baseScale: 0.22 },
+  "forest-quaternius-bush": { rootUrl: "/assets/environment/quaternius-nature/", fileName: "bush.gltf", baseScale: 0.70 },
+  "forest-quaternius-flower-bush": { rootUrl: "/assets/environment/quaternius-nature/", fileName: "flower-bush.gltf", baseScale: 0.70 },
+  "forest-quaternius-rock-1": { rootUrl: "/assets/environment/quaternius-nature/", fileName: "rock-1.gltf", baseScale: 0.45 },
+  "forest-quaternius-rock-2": { rootUrl: "/assets/environment/quaternius-nature/", fileName: "rock-2.gltf", baseScale: 0.45 },
+  "forest-quaternius-rock-3": { rootUrl: "/assets/environment/quaternius-nature/", fileName: "rock-3.gltf", baseScale: 0.45 },
 };
+
+const FOREST_FOLIAGE_ASSETS = new Set<EnvironmentAssetKey>([
+  "forest-tree", "forest-tree-high", "forest-quaternius-common-tree", "forest-quaternius-pine",
+  "forest-quaternius-bush", "forest-quaternius-flower-bush",
+]);
+
+function isFoliageMaterial(key: EnvironmentAssetKey, meshName: string, materialName: string): boolean {
+  if (key === "forest-tree" || key === "forest-tree-high") return /leaf|foliage|plant|tree/i.test(`${meshName} ${materialName}`);
+  return FOREST_FOLIAGE_ASSETS.has(key) && /leaf|foliage|plant/i.test(materialName);
+}
 
 // Only the environment pieces already verified in the original arena cast shadows.
 // Nature Kit foliage contains large/double-sided surfaces whose shadow silhouettes
@@ -141,7 +163,7 @@ export class EnvironmentAssetLibrary {
     }
     root.position.copyFrom(position);
     root.rotation.y = rotationY;
-    root.scaling.setAll(scale);
+    root.scaling.setAll(scale * (ASSETS[key].baseScale ?? 1));
     this.placeOnGround(root, position.y);
     const dimensions = this.worldDimensions(root);
     const debugInfo = {
@@ -212,10 +234,10 @@ export class EnvironmentAssetLibrary {
     entries.rootNodes.forEach((node) => { node.parent = root; });
     root.computeWorldMatrix(true);
 
-    if (key === "forest-tree" || key === "forest-tree-high") {
+    if (FOREST_FOLIAGE_ASSETS.has(key)) {
       root.getChildMeshes().forEach((mesh) => {
         const material = mesh.material;
-        if (material instanceof PBRMaterial && /leaf|foliage|plant|tree/i.test(`${mesh.name} ${material.name}`)) {
+        if (material instanceof PBRMaterial && isFoliageMaterial(key, mesh.name, material.name)) {
           material.albedoColor.multiplyInPlace(FOREST_PALETTE.foliageTint);
         }
       });
@@ -232,9 +254,7 @@ export class EnvironmentAssetLibrary {
         mesh.isPickable = false;
         mesh.receiveShadows = false;
         const material = mesh.material;
-        const isFoliage = key === "forest-tree" || key === "forest-tree-high"
-          ? /leaf|foliage|plant|tree/i.test(`${mesh.name} ${material?.name ?? ""}`)
-          : false;
+        const isFoliage = isFoliageMaterial(key, mesh.name, material?.name ?? "");
         if (isFoliage) {
           mesh.registerInstancedBuffer("color", 4);
           mesh.instancedBuffers.color = new Color4(1, 1, 1, 1);
@@ -249,12 +269,15 @@ export class EnvironmentAssetLibrary {
     return result;
   }
 
-  renderingStats(): { templateAssets: number; templateMeshes: number; instances: number } {
+  renderingStats(): { templateAssets: number; templateMeshes: number; instances: number; byAsset: Partial<Record<EnvironmentAssetKey, number>> } {
     const sources = [...this.instanceTemplates.values()].flatMap((template) => template.meshes.map(({ mesh }) => mesh));
     return {
       templateAssets: this.instanceTemplates.size,
       templateMeshes: sources.length,
       instances: sources.reduce((sum, source) => sum + source.instances.length, 0),
+      byAsset: Object.fromEntries([...this.instanceTemplates.entries()].map(([key, template]) => [
+        key, template.meshes.reduce((sum, { mesh }) => sum + mesh.instances.length, 0),
+      ])),
     };
   }
 

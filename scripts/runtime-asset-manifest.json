@@ -56,7 +56,14 @@
       "assets/environment/forest/stones.glb",
       "assets/environment/forest/plant.glb",
       "assets/environment/forest/patch-grass.glb",
-      "assets/environment/forest/patch-dirt.glb"
+      "assets/environment/forest/patch-dirt.glb",
+      "assets/environment/quaternius-nature/common-tree.gltf",
+      "assets/environment/quaternius-nature/pine.gltf",
+      "assets/environment/quaternius-nature/bush.gltf",
+      "assets/environment/quaternius-nature/flower-bush.gltf",
+      "assets/environment/quaternius-nature/rock-1.gltf",
+      "assets/environment/quaternius-nature/rock-2.gltf",
+      "assets/environment/quaternius-nature/rock-3.gltf"
     ],
     "ui": [
       "assets/ui/defenders/wizard.png",
@@ -70,7 +77,10 @@
       "assets/ui/defenders/druid.png",
       "assets/ui/defenders/seer.png",
       "assets/ui/defenders/bark-titan.png",
-      "assets/ui/defenders/thorn-dancer.png"
+      "assets/ui/defenders/thorn-dancer.png",
+      "assets/ui/map-previews/open-field.png",
+      "assets/ui/map-previews/split-advance.png",
+      "assets/ui/map-previews/triple-convergence.png"
     ]
   },
   "developmentOnly": [

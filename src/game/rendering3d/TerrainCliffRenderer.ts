@@ -60,11 +60,11 @@ export class TerrainCliffRenderer {
     this.topMaterial.roughness = 0.97;
     this.lipMaterial = new PBRMaterial(style === "forest" ? "forest-rock-earth-edge" : "royal-cliff-earth-edge", scene);
     // A pale cut-stone coping makes the raised lawn read as a landscaped rampart.
-    this.lipMaterial.albedoColor = style === "forest" ? new Color3(0.30, 0.29, 0.20) : new Color3(0.76, 0.70, 0.58);
+    this.lipMaterial.albedoColor = style === "forest" ? new Color3(0.46, 0.32, 0.19) : new Color3(0.76, 0.70, 0.58);
     this.lipMaterial.roughness = 0.97;
     this.lipMaterial.metallic = 0;
     this.faceMaterial = new PBRMaterial(style === "forest" ? "forest-natural-boulder-face" : "royal-cliff-natural-rock-face", scene);
-    this.faceMaterial.albedoColor = style === "forest" ? new Color3(0.72, 0.76, 0.66) : VISUAL_CONFIG.royalCliffTint;
+    this.faceMaterial.albedoColor = style === "forest" ? new Color3(0.68, 0.71, 0.62) : VISUAL_CONFIG.royalCliffTint;
     this.faceMaterial.albedoTexture = this.rockAlbedo;
     this.faceMaterial.metallic = 0;
     this.faceMaterial.roughness = 0.98;
@@ -298,7 +298,7 @@ export class TerrainCliffRenderer {
   private createForestRockTexture(): DynamicTexture {
     const texture = new DynamicTexture("forest-natural-rock", { width: 256, height: 256 }, this.scene, true);
     const ctx = texture.getContext();
-    ctx.fillStyle = "#696f63";
+    ctx.fillStyle = "#62685e";
     ctx.fillRect(0, 0, 256, 256);
     let seed = 0x71f03;
     const random = () => {
@@ -309,7 +309,8 @@ export class TerrainCliffRenderer {
       const x = random() * 256, y = random() * 256;
       const radius = 8 + random() * 34;
       const gradient = ctx.createRadialGradient(x, y, 1, x, y, radius);
-      gradient.addColorStop(0, index % 3 === 0 ? "rgba(91,126,66,0.30)" : "rgba(190,190,169,0.18)");
+      gradient.addColorStop(0, index % 4 === 0 ? "rgba(113,77,45,0.28)"
+        : index % 3 === 0 ? "rgba(91,126,66,0.25)" : "rgba(190,190,169,0.18)");
       gradient.addColorStop(1, "rgba(0,0,0,0)");
       ctx.fillStyle = gradient;
       ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
@@ -329,9 +330,14 @@ export class TerrainCliffRenderer {
     const ctx = texture.getContext();
     // The base tone establishes green as the dominant top-surface color;
     // restrained earth and exposed-stone patches provide the remaining variation.
-    ctx.fillStyle = "#a8cc78";
+    ctx.fillStyle = this.style === "forest" ? "#879d68" : "#a8cc78";
     ctx.fillRect(0, 0, 512, 512);
-    const patches = [
+    const patches = this.style === "forest" ? [
+      "rgba(75,116,55,0.12)",
+      "rgba(171,188,111,0.13)",
+      "rgba(128,86,48,0.24)",
+      "rgba(191,146,79,0.18)",
+    ] : [
       "rgba(82,145,58,0.11)",
       "rgba(188,213,132,0.15)",
       "rgba(72,125,48,0.06)",
@@ -354,7 +360,12 @@ export class TerrainCliffRenderer {
       seed = (seed * 1664525 + 1013904223) >>> 0;
       return seed / 0x100000000;
     };
-    const mossPalette = [
+    const mossPalette = this.style === "forest" ? [
+      "rgba(91,132,64,0.15)",
+      "rgba(133,162,81,0.14)",
+      "rgba(171,180,102,0.12)",
+      "rgba(102,75,46,0.12)",
+    ] : [
       "rgba(119,166,74,0.16)",
       "rgba(151,190,91,0.16)",
       "rgba(181,204,112,0.14)",
