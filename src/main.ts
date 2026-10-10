@@ -56,16 +56,44 @@ function defenderPortraitMarkup(type: DefenderType, fallbackClassName: string): 
 
 function renderMapPreview(map: MapDefinition): string {
   const geometry = getMapPreviewGeometry(map);
+  const previewId = `map-preview-${map.id.replace(/[^a-z0-9-]/gi, "-")}`;
+  const markerRadius = Math.max(0.5, Math.min(1.05, Math.max(geometry.width, geometry.height) * 0.016));
+  const terrainRadius = Math.max(0.22, Math.min(0.7, Math.min(geometry.width, geometry.height) * 0.012));
   const terrain = geometry.terrain.map(({ x, y, width, height }) =>
-    `<rect class="map-preview-terrain" data-terrain-rect="${x},${y},${width},${height}" x="${x}" y="${y}" width="${width}" height="${height}"/>`).join("");
+    `<rect class="map-preview-terrain" data-terrain-rect="${x},${y},${width},${height}" x="${x}" y="${y}" width="${width}" height="${height}" rx="${terrainRadius}"/>`).join("");
   const spawnColors = ["#ff6b66", "#69c5ff", "#69df9c"];
   const spawns = geometry.spawns.map(({ id, cell }, index) =>
-    `<circle class="map-preview-spawn" data-spawn-id="${id}" data-cell-x="${cell.x}" data-cell-y="${cell.y}" style="--spawn-color:${spawnColors[index % spawnColors.length]}" cx="${cell.x + 0.5}" cy="${cell.y + 0.5}" r="0.36"/>`).join("");
+    `<g class="map-preview-marker map-preview-spawn-marker" style="--spawn-color:${spawnColors[index % spawnColors.length]}">
+      <circle class="map-preview-marker-halo" cx="${cell.x + 0.5}" cy="${cell.y + 0.5}" r="${markerRadius * 1.75}"/>
+      <circle class="map-preview-spawn" data-spawn-id="${id}" data-cell-x="${cell.x}" data-cell-y="${cell.y}" style="--spawn-color:${spawnColors[index % spawnColors.length]}" cx="${cell.x + 0.5}" cy="${cell.y + 0.5}" r="${markerRadius}"/>
+      <circle class="map-preview-marker-core" cx="${cell.x + 0.5}" cy="${cell.y + 0.5}" r="${markerRadius * 0.28}"/>
+    </g>`).join("");
   const goals = geometry.goals.map(({ id, cell }) =>
-    `<circle class="map-preview-goal" data-goal-id="${id}" data-cell-x="${cell.x}" data-cell-y="${cell.y}" cx="${cell.x + 0.5}" cy="${cell.y + 0.5}" r="0.42"/>`).join("");
+    `<g class="map-preview-marker map-preview-goal-marker">
+      <circle class="map-preview-goal-halo" cx="${cell.x + 0.5}" cy="${cell.y + 0.5}" r="${markerRadius * 1.9}"/>
+      <circle class="map-preview-goal" data-goal-id="${id}" data-cell-x="${cell.x}" data-cell-y="${cell.y}" cx="${cell.x + 0.5}" cy="${cell.y + 0.5}" r="${markerRadius * 1.08}"/>
+      <rect class="map-preview-goal-core" x="${cell.x + 0.5 - markerRadius * 0.3}" y="${cell.y + 0.5 - markerRadius * 0.3}" width="${markerRadius * 0.6}" height="${markerRadius * 0.6}" transform="rotate(45 ${cell.x + 0.5} ${cell.y + 0.5})"/>
+    </g>`).join("");
   return `<svg viewBox="0 0 ${geometry.width} ${geometry.height}" preserveAspectRatio="xMidYMid meet" focusable="false" data-grid-width="${geometry.width}" data-grid-height="${geometry.height}" data-terrain-cells="${map.terrain.length}">
-    <rect class="map-preview-field" x="0" y="0" width="${geometry.width}" height="${geometry.height}"/>
-    <g class="map-preview-terrain-regions">${terrain}</g>
+    <defs>
+      <linearGradient id="${previewId}-field" x1="0" y1="0" x2="1" y2="1">
+        <stop class="map-preview-field-start" offset="0"/><stop class="map-preview-field-end" offset="1"/>
+      </linearGradient>
+      <linearGradient id="${previewId}-terrain" x1="0" y1="0" x2="0.8" y2="1">
+        <stop class="map-preview-terrain-start" offset="0"/><stop class="map-preview-terrain-end" offset="1"/>
+      </linearGradient>
+      <radialGradient id="${previewId}-light" cx="50%" cy="12%" r="82%">
+        <stop class="map-preview-light-start" offset="0"/><stop class="map-preview-light-end" offset="1"/>
+      </radialGradient>
+      <pattern id="${previewId}-grid" width="1" height="1" patternUnits="userSpaceOnUse">
+        <path class="map-preview-grid-line" d="M 1 0 L 0 0 0 1"/>
+      </pattern>
+    </defs>
+    <rect class="map-preview-field" x="0" y="0" width="${geometry.width}" height="${geometry.height}" rx="0.8" fill="url(#${previewId}-field)"/>
+    <rect class="map-preview-light" x="0" y="0" width="${geometry.width}" height="${geometry.height}" rx="0.8" fill="url(#${previewId}-light)"/>
+    <rect class="map-preview-grid" x="0" y="0" width="${geometry.width}" height="${geometry.height}" rx="0.8" fill="url(#${previewId}-grid)"/>
+    <g class="map-preview-terrain-regions" fill="url(#${previewId}-terrain)">${terrain}</g>
+    <rect class="map-preview-map-frame" x="0.3" y="0.3" width="${geometry.width - 0.6}" height="${geometry.height - 0.6}" rx="0.65"/>
     <g class="map-preview-spawns">${spawns}</g>
     <g class="map-preview-goals">${goals}</g>
   </svg>`;
@@ -116,7 +144,7 @@ function renderModeSelect(): void {
   mapSelect.innerHTML = `
     <section class="map-select-panel mode-select-panel map-select-stage" aria-labelledby="map-select-title">
       <header class="map-select-heading">
-        <p class="map-select-eyebrow">WINTERMAUL · FIELD COMMAND</p>
+        <p class="map-select-eyebrow">TOWER DEFENCE · FIELD COMMAND</p>
         <h1 id="map-select-title">SELECT MODE</h1>
         <p class="map-select-tagline">DEFEND <i></i> ADAPT <i></i> SURVIVE</p>
         <p class="map-select-intro">Choose how you will hold the line.</p>
@@ -158,14 +186,14 @@ function renderMapPanel(mode: MapModeDefinition, preferredMap?: MapDefinition): 
   mapSelect.innerHTML = `
     <section class="map-select-panel map-panel map-select-stage" aria-labelledby="map-select-title" data-active-map-mode="${mode.id}">
       <header class="map-select-heading">
-        <p class="map-select-eyebrow">${mode.title.toUpperCase()} · FIELD COMMAND</p>
+        <p class="map-select-eyebrow">TOWER DEFENCE · ${mode.title.toUpperCase()}</p>
         <h1 id="map-select-title">CHOOSE MAP</h1>
         <p class="map-select-tagline">SCOUT <i></i> POSITION <i></i> DEFEND</p>
         <p class="map-select-intro">Choose the battlefield. Every road leads to the keep.</p>
       </header>
       <div class="map-choice-grid${mode.maps.length === 1 ? " is-single-map" : ""}" role="group" aria-label="Choose a ${mode.title.toLowerCase()} map">
         ${mode.maps.map((map) => `<button class="map-choice-card" type="button" data-map-id="${map.id}" aria-pressed="false">
-          <span class="map-preview" aria-hidden="true">${renderMapPreview(map)}</span>
+          <span class="map-preview" data-preview-map="${map.id}" aria-hidden="true">${renderMapPreview(map)}</span>
           <span class="map-choice-copy"><strong>${map.name}</strong><small>${map.subtitle}</small><span>${map.description}</span></span>
           <span class="map-choice-meta"><span class="map-economy">✦ ${map.startingGold} GOLD</span><span class="map-pressure">${map.enemyCountMultiplier === 1 ? "NORMAL" : map.enemyCountMultiplier < 2 ? "HIGH" : "EXTREME"} PRESSURE</span></span>
         </button>`).join("")}
@@ -225,7 +253,7 @@ function showFactionSelect(map: MapDefinition, playerIndex = 0, selectedFactions
   factionSelect.innerHTML = `
     <section class="map-select-panel faction-select-panel" aria-labelledby="faction-select-title">
       <header class="map-select-heading">
-        <p class="map-select-eyebrow">${map.name.toUpperCase()} · COMMAND ALIGNMENT</p>
+        <p class="map-select-eyebrow">TOWER DEFENCE · ${map.name.toUpperCase()}</p>
         <h1 id="faction-select-title">${map.multiplayer ? `PLAYER ${playerIndex + 1} FACTION` : "CHOOSE FACTION"}</h1>
         <p class="map-select-tagline">CHOOSE YOUR BANNER <i></i> SHAPE YOUR DEFENSE</p>
         <p class="map-select-intro">Every faction brings a different answer to the enemy threat.</p>

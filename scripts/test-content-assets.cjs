@@ -311,6 +311,7 @@ async function main() {
     return {
       checks,
       minimapAbsentBeforeStarting,
+      eyebrow: document.querySelector('.map-select-eyebrow')?.textContent.trim(),
       defaultMap: first.dataset.mapId,
       continueText: continueButton.textContent.trim(),
       mapNames: [...document.querySelectorAll('.map-choice-card .map-choice-copy strong')].map((node) => node.textContent.trim()),
@@ -323,6 +324,8 @@ async function main() {
         terrainRects: svg.querySelectorAll('.map-preview-terrain').length,
         spawns: [...svg.querySelectorAll('.map-preview-spawn')].map((node) => ({ x: Number(node.dataset.cellX), y: Number(node.dataset.cellY), color: node.style.getPropertyValue('--spawn-color') })),
         goal: { x: Number(svg.querySelector('.map-preview-goal').dataset.cellX), y: Number(svg.querySelector('.map-preview-goal').dataset.cellY) },
+        polishLayers: ['defs', '.map-preview-light', '.map-preview-grid', '.map-preview-map-frame', '.map-preview-marker-halo']
+          .every((selector) => svg.querySelector(selector)),
         visible: (() => {
           const rect = svg.getBoundingClientRect();
           const style = getComputedStyle(svg);
@@ -333,13 +336,14 @@ async function main() {
     };
   })()`);
   if (mapSelection.checks.length !== 3 || mapSelection.checks.some((choice) => !choice.selected || !choice.canStart)
+    || !mapSelection.eyebrow?.startsWith("TOWER DEFENCE ·")
     || mapSelection.defaultMap !== "single-spawn"
     || mapSelection.continueText.replace(/\s+/g, " ").toUpperCase() !== "CONTINUE →"
     || !mapSelection.minimapAbsentBeforeStarting
     || JSON.stringify(mapSelection.mapNames) !== JSON.stringify(["Open Field", "Split Advance", "Triple Convergence"])
     || JSON.stringify(mapSelection.startingGolds) !== JSON.stringify([100, 135, 150])
     || mapSelection.previews.length !== 3
-    || mapSelection.previews.some((preview) => !preview.visible || preview.width <= 0 || preview.height <= 0
+    || mapSelection.previews.some((preview) => !preview.visible || !preview.polishLayers || preview.width <= 0 || preview.height <= 0
       || preview.terrainCells !== preview.terrainRectCells || preview.terrainRects <= 0
       || preview.spawns.length === 0 || !Number.isFinite(preview.goal.x) || !Number.isFinite(preview.goal.y))
     || JSON.stringify(mapSelection.previews.map(({ width, height }) => [width, height])) !== JSON.stringify([[17, 32], [23, 41], [43, 66]])
@@ -353,6 +357,7 @@ async function main() {
   const modeFlow = await evaluate(`(() => {
     document.querySelector('#back-to-mode-select').click();
     const initial = {
+      eyebrow: document.querySelector('.map-select-eyebrow')?.textContent.trim(),
       modes: [...document.querySelectorAll('.map-mode-card')].map((card) => ({ id: card.dataset.mapMode, title: card.querySelector('strong').textContent.trim(), subtitle: card.querySelector('small').textContent.trim() })),
       maps: document.querySelectorAll('.map-choice-card').length,
       continueVisible: !!document.querySelector('#start-selected-map'),
@@ -363,6 +368,7 @@ async function main() {
       maps: [...document.querySelectorAll('.map-choice-card')].map((card) => card.dataset.mapId),
       selected: document.querySelector('.map-choice-card.is-selected')?.dataset.mapId,
       continueVisible: !!document.querySelector('#start-selected-map'),
+      polishedPreview: document.querySelector('[data-preview-map="twin-bastion"] .map-preview-map-frame') !== null,
     };
     document.querySelector('#back-to-mode-select').click();
     const back = { modes: document.querySelectorAll('.map-mode-card').length, maps: document.querySelectorAll('.map-choice-card').length };
@@ -379,9 +385,9 @@ async function main() {
   if (JSON.stringify(modeFlow.initial.modes) !== JSON.stringify([
     { id: "single-player", title: "Single Player", subtitle: "Play solo" },
     { id: "multiplayer", title: "Multiplayer", subtitle: "Play co-op" },
-  ]) || modeFlow.initial.maps !== 0 || modeFlow.initial.continueVisible
+  ]) || modeFlow.initial.eyebrow !== "TOWER DEFENCE · FIELD COMMAND" || modeFlow.initial.maps !== 0 || modeFlow.initial.continueVisible
     || modeFlow.multiplayer.activeMode !== "multiplayer" || JSON.stringify(modeFlow.multiplayer.maps) !== JSON.stringify(["twin-bastion"])
-    || modeFlow.multiplayer.selected !== "twin-bastion" || !modeFlow.multiplayer.continueVisible
+    || modeFlow.multiplayer.selected !== "twin-bastion" || !modeFlow.multiplayer.continueVisible || !modeFlow.multiplayer.polishedPreview
     || modeFlow.back.modes !== 2 || modeFlow.back.maps !== 0
     || modeFlow.restoredMode !== "single-player" || JSON.stringify(modeFlow.restoredMaps) !== JSON.stringify(["single-spawn", "two-spawns", "three-spawns"])
     || modeFlow.restoredSelection !== "single-spawn") {
@@ -513,6 +519,7 @@ async function main() {
   }
   const factionSelection = await evaluate(`(() => ({
     title: document.querySelector('#faction-select-title')?.textContent.trim(),
+    eyebrow: document.querySelector('.faction-select-screen .map-select-eyebrow')?.textContent.trim(),
     names: [...document.querySelectorAll('.faction-choice-copy strong')].map((node) => node.textContent.trim().toUpperCase()),
     selectedCount: document.querySelectorAll('.faction-choice-card[aria-checked="true"]').length,
     expandedCount: [...document.querySelectorAll('.faction-card-details')].filter((node) => !node.hidden).length,
@@ -523,6 +530,7 @@ async function main() {
     minimapAbsentBeforeGameplay: !document.querySelector('#minimap-panel') && !document.querySelector('#game-minimap'),
   }))()`);
   if (!factionSelectReady || factionSelection.title !== "CHOOSE FACTION"
+    || !factionSelection.eyebrow?.startsWith("TOWER DEFENCE ·")
     || !factionSelection.names.includes("ROYAL GUARD")
     || factionSelection.selectedCount !== 1 || factionSelection.expandedCount !== 1
     || factionSelection.unitsVisible !== 6 || factionSelection.actionCount !== 1

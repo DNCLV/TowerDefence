@@ -2,22 +2,21 @@ import { Color3 } from "@babylonjs/core";
 import type { FactionId } from "../config/FactionConfig";
 import type { EnvironmentAssetKey } from "./EnvironmentAssetLibrary";
 
-/** Shared Forest presentation palette: dark border foliage, readable clearing, earthy scatter. */
+/** Shared Forest presentation palette: bright clearing, varied foliage, earthy scatter. */
 export const FOREST_PALETTE = {
-  playableGround: new Color3(0.27, 0.45, 0.20),
-  outskirtsGround: new Color3(0.12, 0.25, 0.11),
-  floorHex: "#456f34",
-  foliageTint: new Color3(0.50, 0.61, 0.45),
-  /** Multiplied into foliage instances; three restrained values preserve hardware instancing. */
+  playableGround: new Color3(0.82, 0.94, 0.76),
+  outskirtsGround: new Color3(0.31, 0.48, 0.25),
+  floorHex: "#86b85e",
+  foliageTint: new Color3(0.78, 0.88, 0.68),
+  /** Clearly distinct but cohesive per-instance tones; hardware instancing stays intact. */
   foliageVariations: [
-    new Color3(0.86, 0.94, 0.84),
-    new Color3(0.96, 0.91, 0.79),
-    new Color3(0.80, 0.89, 0.88),
+    new Color3(0.58, 0.76, 0.52),
+    new Color3(0.76, 0.92, 0.62),
+    new Color3(0.96, 1.00, 0.72),
+    new Color3(0.68, 0.82, 0.72),
   ],
-  dirtPatchColors: ["rgba(86,55,32,0.34)", "rgba(125,82,45,0.27)", "rgba(72,48,31,0.22)"],
+  dirtPatchColors: ["rgba(119,82,47,0.25)", "rgba(153,111,62,0.21)", "rgba(96,70,45,0.18)"],
   scatteredDirtPatchCount: 92,
-  wornZoneCount: 3,
-  wornZoneSegments: 9,
 } as const;
 
 export interface EnvironmentTheme {
@@ -58,7 +57,7 @@ export const ENVIRONMENT_THEMES: readonly EnvironmentTheme[] = [
     id: "ancient-grove-forest", label: "Ancient Grove Forest",
     style: "forest",
     playableGround: FOREST_PALETTE.playableGround, outskirtsGround: FOREST_PALETTE.outskirtsGround,
-    fogColor: new Color3(0.58, 0.70, 0.57), ambientTint: new Color3(0.78, 0.90, 0.70),
+    fogColor: new Color3(0.70, 0.82, 0.68), ambientTint: new Color3(0.90, 0.98, 0.82),
     spawnAccent: new Color3(0.80, 0.24, 0.14), exitAccent: new Color3(0.92, 0.73, 0.26),
     treeAssets: ["forest-tree", "forest-tree-high"],
     rockAssets: ["forest-rocks-low", "forest-rocks-high", "forest-stones"],

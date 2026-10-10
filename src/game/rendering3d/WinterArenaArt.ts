@@ -206,8 +206,8 @@ export class WinterArenaArt {
       return state / 0x100000000;
     };
     const palette = [
-      "rgba(52,103,43,0.24)", "rgba(126,153,79,0.15)", "rgba(70,119,52,0.18)",
-      "rgba(139,101,57,0.21)", "rgba(91,65,40,0.17)", "rgba(157,125,72,0.12)",
+      "rgba(104,153,70,0.20)", "rgba(181,205,111,0.16)", "rgba(126,172,78,0.18)",
+      "rgba(173,132,72,0.14)", "rgba(112,84,53,0.10)", "rgba(203,170,99,0.12)",
     ];
     for (let index = 0; index < 88; index += 1) {
       const x = random() * width, y = random() * height;
@@ -234,23 +234,6 @@ export class WinterArenaArt {
       const radius = Math.min(width, height) * (0.01 + random() * 0.025);
       const color = FOREST_PALETTE.dirtPatchColors[index % FOREST_PALETTE.dirtPatchColors.length];
       drawDirtPatch(x, y, radius, color);
-    }
-    // Add loose, meandering worn-earth zones: each short section is a cluster
-    // of separated patches with grass gaps, not a drawn strip or gameplay path.
-    for (let zone = 0; zone < FOREST_PALETTE.wornZoneCount; zone += 1) {
-      let centerX = width * (0.18 + random() * 0.64);
-      for (let segment = 0; segment < FOREST_PALETTE.wornZoneSegments; segment += 1) {
-        centerX = Math.max(width * 0.08, Math.min(width * 0.92, centerX + (random() - 0.5) * width * 0.16));
-        const centerY = height * ((segment + 0.5) / FOREST_PALETTE.wornZoneSegments);
-        const patches = 2 + Math.floor(random() * 3);
-        for (let patch = 0; patch < patches; patch += 1) {
-          if (random() < 0.24) continue;
-          const x = centerX + (random() - 0.5) * width * 0.13;
-          const y = centerY + (random() - 0.5) * height * 0.075;
-          const radius = Math.min(width, height) * (0.012 + random() * 0.026);
-          drawDirtPatch(x, y, radius, FOREST_PALETTE.dirtPatchColors[(zone + segment + patch) % FOREST_PALETTE.dirtPatchColors.length]);
-        }
-      }
     }
     for (let index = 0; index < Math.floor(width * height / 38); index += 1) {
       const x = random() * width, y = random() * height;
@@ -684,9 +667,11 @@ export class WinterArenaArt {
     const rocks = [["rockLarge", -0.1, 0], ["rock", -1.15, 0.58], ["rock", 1.1, 0.7],
       ["rock", 0.2, -1.25], ["rock", 1.7, -1.05], ["tree", -1.55, 1.25], ["fence", 0.05, 1.7]] as const;
     const camp = [["ballista", -0.45, 0], ["flag", 0.95, -0.45], ["fence", 0.75, 1.2],
-      ["tree", -1.35, -1.2], ["rock", 1.7, 1.2], ["rock", -1.8, 0.9]] as const;
+      ["tree", -1.35, -1.2], ["rock", 1.7, 1.2], ["rock", -1.8, 0.9],
+      ["crate", -1.45, 0.15], ["fence", 1.65, -1.1]] as const;
     const storage = [["wagon", 0.1, 0], ["crate", -1.4, 0.45], ["crate", 1.25, 0.9],
-      ["fence", -0.25, 1.6], ["rock", 1.65, -1.25], ["tree", -1.65, -1.4]] as const;
+      ["fence", -0.25, 1.6], ["rock", 1.65, -1.25], ["tree", -1.65, -1.4],
+      ["crate", 1.55, -0.15], ["fence", -1.75, 1.15]] as const;
     const sceneKinds = theme.clusters.slice(0, anchors.length);
     sceneKinds.forEach((kind, index) => {
       const [cx, cz] = anchors[index];
@@ -695,8 +680,25 @@ export class WinterArenaArt {
       if (kind === "village" || kind === "outpost") {
         if (this.protectedGateZones.some((gate) => Math.hypot(cx - gate.x, cz - gate.z) < 5.6)) return;
         const rotation = (index % 4) * Math.PI / 2;
-        const cottage = this.createVillageCottage(index, cx, cz, rotation);
-        roots.push(cottage);
+        const keepCottage = (cottage: TransformNode): void => {
+          const bounds = cottage.getHierarchyBoundingVectors(true);
+          if (bounds.max.x > 0 && bounds.min.x < this.width && bounds.max.z > 0 && bounds.min.z < this.depth) {
+            cottage.dispose(false, false);
+            return;
+          }
+          roots.push(cottage);
+        };
+        keepCottage(this.createVillageCottage(`${index}-main`, cx, cz, rotation));
+        // A smaller neighbouring home turns each isolated post into a settlement pocket.
+        // It is shifted farther away from the arena and tangentially along the wall.
+        const outwardX = cx < 0 ? -1 : cx > this.width ? 1 : 0;
+        const outwardZ = cz < 0 ? -1 : cz > this.depth ? 1 : 0;
+        const tangentX = outwardZ;
+        const tangentZ = -outwardX;
+        const tangentDirection = index % 2 === 0 ? 1 : -1;
+        const annexX = cx + outwardX * 1.55 + tangentX * tangentDirection * 1.9;
+        const annexZ = cz + outwardZ * 1.55 + tangentZ * tangentDirection * 1.9;
+        keepCottage(this.createVillageCottage(`${index}-annex`, annexX, annexZ, rotation, true));
         const place = (key: EnvironmentAssetKey, label: string, offsetX: number, offsetZ: number,
           itemRotation: number, scale: number): void => {
           const cos = Math.cos(rotation), sin = Math.sin(rotation);
@@ -713,6 +715,7 @@ export class WinterArenaArt {
           place("castle-fence", "yard-fence-b", 0.1, 2.15, Math.PI / 2, 0.58);
           place("castle-tree", "yard-tree", -2.25, -1.55, 0.3, 0.78);
           place("castle-rock", "yard-stones", 1.9, -1.55, -0.2, 0.72);
+          place("medieval-crate", "produce-crate", -1.45, -1.35, -0.15, 0.46);
         } else {
           // A compact watch post pairs a ballista with heraldry and a fenced apron.
           place("castle-ballista", "guard-ballista", 2.0, 0.25, -Math.PI / 2, 0.54);
@@ -721,6 +724,7 @@ export class WinterArenaArt {
           place("castle-fence", "guard-fence-b", 0.05, 2.1, Math.PI / 2, 0.6);
           place("medieval-crate", "guard-supplies", 2.0, 1.45, 0.35, 0.5);
           place("castle-rock-large", "guard-stones", -2.2, -1.55, 0.4, 0.7);
+          place("medieval-wagon", "guard-cart", 1.55, -1.45, Math.PI / 2, 0.46);
         }
       } else {
         const composition = kind === "forest" ? forest : kind === "rocks" ? rocks : kind === "storage" ? storage : camp;
@@ -877,21 +881,26 @@ export class WinterArenaArt {
   }
 
   /** Small Kenney watch posts extend the castle silhouette beyond the playable grid. */
-  private createVillageCottage(index: number, x: number, z: number, rotation: number): TransformNode {
-    const cottage = new TransformNode(`royal-outskirts-cottage-${index}`, this.scene);
+  private createVillageCottage(id: string, x: number, z: number, rotation: number, compact = false): TransformNode {
+    const cottage = new TransformNode(`royal-outskirts-cottage-${id}`, this.scene);
     cottage.position.set(x, 0, z);
     cottage.rotation.y = rotation;
-    const plinth = this.box(`cottage-${index}-stone-plinth`, 0, 0.09, 0, 2.65, 0.18, 2.65, this.safeStone, cottage);
-    plinth.receiveShadows = true;
+    const plinth = compact ? undefined
+      : this.box(`cottage-${id}-stone-plinth`, 0, 0.09, 0, 2.65, 0.18, 2.65, this.safeStone, cottage);
+    if (plinth) plinth.receiveShadows = true;
 
-    this.fittedAsset("castle-tower-base", `cottage-${index}-stone-base`, 0, 0,
-      2.1, 2.4, 2.1, 0, undefined, true, 0, cottage);
-    this.fittedAsset("castle-tower-roof", `cottage-${index}-blue-roof`, 0, 0,
-      2.55, 1.7, 2.55, 0, undefined, true, 2.35, cottage);
-    this.fittedAsset("castle-flag", `cottage-${index}-heraldry`, 0, -1.16,
-      0.56, 1.35, 0.35, 0, undefined, false, 1.1, cottage);
-    plinth.computeWorldMatrix(true);
-    plinth.freezeWorldMatrix();
+    this.fittedAsset("castle-tower-base", `cottage-${id}-stone-base`, 0, 0,
+      compact ? 1.62 : 2.1, compact ? 1.9 : 2.4, compact ? 1.62 : 2.1,
+      0, undefined, !compact, 0, cottage);
+    this.fittedAsset("castle-tower-roof", `cottage-${id}-blue-roof`, 0, 0,
+      compact ? 2.02 : 2.55, compact ? 1.35 : 1.7, compact ? 2.02 : 2.55,
+      0, undefined, !compact, compact ? 1.86 : 2.35, cottage);
+    if (!compact) {
+      this.fittedAsset("castle-flag", `cottage-${id}-heraldry`, 0, -1.16,
+        0.56, 1.35, 0.35, 0, undefined, false, 1.1, cottage);
+    }
+    plinth?.computeWorldMatrix(true);
+    plinth?.freezeWorldMatrix();
     cottage.computeWorldMatrix(true);
     cottage.freezeWorldMatrix();
     return cottage;

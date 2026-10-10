@@ -281,7 +281,9 @@ export class BabylonGameRenderer {
     this.camera = new ArcRotateCamera("rtsCamera", VISUAL_CONFIG.defaultCameraAlpha, VISUAL_CONFIG.defaultCameraBeta, VISUAL_CONFIG.defaultCameraRadius, center, this.scene);
     this.camera.lowerAlphaLimit = VISUAL_CONFIG.defaultCameraAlpha; this.camera.upperAlphaLimit = VISUAL_CONFIG.defaultCameraAlpha;
     this.camera.lowerBetaLimit = VISUAL_CONFIG.defaultCameraBeta; this.camera.upperBetaLimit = VISUAL_CONFIG.defaultCameraBeta;
-    this.camera.lowerRadiusLimit = VISUAL_CONFIG.minCameraRadius; this.camera.upperRadiusLimit = VISUAL_CONFIG.maxCameraRadius;
+    this.camera.lowerRadiusLimit = VISUAL_CONFIG.minCameraRadius;
+    this.camera.upperRadiusLimit = this.currentTheme.style === "castle"
+      ? VISUAL_CONFIG.royalMaxCameraRadius : VISUAL_CONFIG.maxCameraRadius;
     // Do not attach Babylon's ArcRotate controls: its defaults orbit/pan unpredictably across pointer types.
     this.camera.computeWorldMatrix();
     this.lastValidCameraState = this.captureCameraState();
@@ -1842,7 +1844,8 @@ export class BabylonGameRenderer {
         const nextDistance = this.pointerDistance();
         const distanceChange = this.pinchDistance > 0 && nextDistance > 0 ? Math.abs(nextDistance - this.pinchDistance) : 0;
         if (this.pinchDistance > 0 && nextDistance > 0) {
-          this.camera.radius = this.clamp(this.camera.radius * this.pinchDistance / nextDistance, VISUAL_CONFIG.minCameraRadius, VISUAL_CONFIG.maxCameraRadius);
+          this.camera.radius = this.clamp(this.camera.radius * this.pinchDistance / nextDistance,
+            VISUAL_CONFIG.minCameraRadius, this.camera.upperRadiusLimit ?? VISUAL_CONFIG.maxCameraRadius);
         }
         this.pinchDistance = nextDistance;
         this.lastCameraGestureAt = performance.now();
@@ -1912,7 +1915,8 @@ export class BabylonGameRenderer {
     window.addEventListener("lostpointercapture", (event) => finishGesture(event, true), { signal: this.inputAbortController.signal });
     this.canvas.addEventListener("wheel", (event) => {
       event.preventDefault();
-      this.camera.radius = this.clamp(this.camera.radius * Math.exp(event.deltaY * 0.001), VISUAL_CONFIG.minCameraRadius, VISUAL_CONFIG.maxCameraRadius);
+      this.camera.radius = this.clamp(this.camera.radius * Math.exp(event.deltaY * 0.001),
+        VISUAL_CONFIG.minCameraRadius, this.camera.upperRadiusLimit ?? VISUAL_CONFIG.maxCameraRadius);
     }, { passive: false, signal: this.inputAbortController.signal });
   }
 

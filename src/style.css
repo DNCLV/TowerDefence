@@ -159,13 +159,40 @@ canvas { display: block; width: 100% !important; height: 100% !important; touch-
   box-shadow: inset 0 1px #fff4d549, inset 0 0 0 5px #b8944e19, 0 0 0 1px #dfc17a6e, 0 0 27px #edc86a43, 0 15px 28px #000a;
 }
 .map-choice-card.is-selected::before { border-color: #f1d78e; background: #d8b767; box-shadow: 0 0 12px #f6d77e; }
-.map-preview { position: relative; display: grid; flex: 0 0 45%; place-items: center; width: 100%; min-height: 0; overflow: hidden; border: 1px solid #9fc5d138; border-radius: 5px; background: #a9c5cb; box-shadow: inset 0 0 22px #d7faff2b; }
-.map-preview::before { content: ""; position: absolute; inset: 7px; border: 1px solid #e3f4ec57; pointer-events: none; }
-.map-preview svg { position: relative; z-index: 1; display: block; width: min(100%, 108px); height: 100%; max-height: 170px; overflow: visible; filter: drop-shadow(0 1px 2px #1232); }
-.map-preview-field { fill: #a9c5cb; }
-.map-preview-terrain { fill: #354b59; stroke: #536c79; stroke-width: .12; }
-.map-preview-spawn { fill: var(--spawn-color); stroke: #fff; stroke-width: .16; filter: drop-shadow(0 0 .16px var(--spawn-color)); }
-.map-preview-goal { fill: #76e2f3; stroke: #eaffff; stroke-width: .18; filter: drop-shadow(0 0 .18px #69e8ff); }
+.map-preview {
+  --preview-field-start: #acd59a;
+  --preview-field-end: #679e78;
+  --preview-terrain-start: #496779;
+  --preview-terrain-end: #263f50;
+  --preview-terrain-edge: #89a6ad;
+  --preview-grid: #eff8df;
+  position: relative; display: grid; flex: 0 0 45%; place-items: center; width: 100%; min-height: 0; overflow: hidden;
+  border: 1px solid #a8d3ce73; border-radius: 7px;
+  background: radial-gradient(circle at 50% 18%, #bfe4d63d, transparent 52%), linear-gradient(145deg, #173342, #0b202d);
+  box-shadow: inset 0 1px #eafff08c, inset 0 -16px 28px #06141d7a, 0 5px 14px #020a116b;
+}
+.map-preview[data-preview-map="two-spawns"] { --preview-field-start: #a9d7b0; --preview-field-end: #5d9a82; --preview-terrain-start: #526d86; --preview-terrain-end: #293f59; }
+.map-preview[data-preview-map="three-spawns"] { --preview-field-start: #b9d3a0; --preview-field-end: #6f9877; --preview-terrain-start: #5b6882; --preview-terrain-end: #343d59; }
+.map-preview[data-preview-map="twin-bastion"] { --preview-field-start: #c8d7a2; --preview-field-end: #78947a; --preview-terrain-start: #6c687a; --preview-terrain-end: #3d4059; --preview-terrain-edge: #aaa3af; }
+.map-preview::before { content: ""; position: absolute; z-index: 2; inset: 7px; border: 1px solid #e5f7e565; border-radius: 3px; box-shadow: inset 0 0 16px #c7f4d11a; pointer-events: none; }
+.map-preview::after { content: ""; position: absolute; z-index: 0; inset: 0; opacity: .26; background: linear-gradient(115deg, transparent 20%, #d8fff52b 42%, transparent 63%); pointer-events: none; }
+.map-preview svg { position: relative; z-index: 1; display: block; width: min(100%, 118px); height: calc(100% - 16px); max-height: 176px; overflow: visible; filter: drop-shadow(0 3px 5px #0410187a); }
+.map-preview-field-start { stop-color: var(--preview-field-start); }
+.map-preview-field-end { stop-color: var(--preview-field-end); }
+.map-preview-terrain-start { stop-color: var(--preview-terrain-start); }
+.map-preview-terrain-end { stop-color: var(--preview-terrain-end); }
+.map-preview-light-start { stop-color: #fff8c9; stop-opacity: .23; }
+.map-preview-light-end { stop-color: #0c2632; stop-opacity: .16; }
+.map-preview-grid-line { fill: none; stroke: var(--preview-grid); stroke-width: .045; opacity: .23; }
+.map-preview-terrain { stroke: var(--preview-terrain-edge); stroke-width: 1px; vector-effect: non-scaling-stroke; paint-order: stroke fill; }
+.map-preview-map-frame { fill: none; stroke: #edf9df99; stroke-width: 1px; vector-effect: non-scaling-stroke; }
+.map-preview-marker-halo { fill: var(--spawn-color); opacity: .24; }
+.map-preview-spawn { fill: var(--spawn-color); stroke: #fffbed; stroke-width: 1.25px; vector-effect: non-scaling-stroke; }
+.map-preview-marker-core { fill: #fffdf1; }
+.map-preview-goal-halo { fill: #65eff1; opacity: .25; }
+.map-preview-goal { fill: #55d6df; stroke: #efffff; stroke-width: 1.25px; vector-effect: non-scaling-stroke; }
+.map-preview-goal-core { fill: #f4ffff; }
+.map-choice-card.is-selected .map-preview { border-color: #edcf88c9; box-shadow: inset 0 1px #fffce0ad, inset 0 -16px 28px #2b231b52, 0 0 0 1px #e3bf6870, 0 7px 18px #0008; }
 .map-choice-copy { display: grid; flex: 1 1 auto; align-content: start; gap: 5px; min-width: 0; padding: 12px 5px 4px; text-align: center; }
 .map-choice-copy strong { color: #c7e5eb; font: 700 clamp(20px, 5vw, 24px)/1.05 Georgia, "Times New Roman", serif; text-shadow: 0 2px 8px #0008; }
 .map-choice-card.is-selected .map-choice-copy strong { color: #f3d994; text-shadow: 0 0 12px #f0ca7260; }
@@ -206,7 +233,7 @@ canvas { display: block; width: 100% !important; height: 100% !important; touch-
   .map-choice-grid.is-single-map { grid-template-columns: minmax(0, 260px); justify-content: center; }
   .map-choice-card { height: clamp(360px, 48vh, 420px); padding: 9px; }
   .map-preview { flex-basis: 47%; }
-  .map-preview svg { width: min(100%, 96px); }
+  .map-preview svg { width: min(100%, 108px); }
   .map-choice-copy strong { font-size: 20px; }
   .map-choice-copy > span { font-size: 12px; }
 }
