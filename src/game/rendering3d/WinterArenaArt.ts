@@ -11,6 +11,9 @@ export interface EnvironmentCompositionStats {
   rocks: number;
   vegetation: number;
   importedModels: number;
+  waterFeatures: number;
+  bridges: number;
+  transitionDetails: number;
 }
 
 /** Static presentation only: shared materials, bounded props, no gameplay cells. */
@@ -19,6 +22,7 @@ export class WinterArenaArt {
   private readonly soil: StandardMaterial;
   private readonly safeStone: StandardMaterial;
   private readonly contactSoilMaterial: StandardMaterial;
+  private forestWaterMaterial?: StandardMaterial;
   private readonly outskirtsTextures = new Map<string, DynamicTexture>();
   private readonly playableTextures = new Map<EnvironmentTheme["style"], DynamicTexture>();
   private readonly playableNormals = new Map<EnvironmentTheme["style"], Texture>();
@@ -28,6 +32,9 @@ export class WinterArenaArt {
   private forestBorderTreeCount = 0;
   private forestBorderRockCount = 0;
   private forestBorderVegetationCount = 0;
+  private forestWaterFeatureCount = 0;
+  private forestBridgeCount = 0;
+  private forestTransitionDetailCount = 0;
   private forestClusterStats = { trees: 0, rocks: 0, vegetation: 0 };
   constructor(private readonly scene: Scene, private readonly assets: EnvironmentAssetLibrary,
     private readonly shadows: ShadowGenerator, private readonly width: number, private readonly depth: number) {
@@ -47,7 +54,8 @@ export class WinterArenaArt {
   requiredAssetKeys(theme: EnvironmentTheme): EnvironmentAssetKey[] {
     if (theme.style === "forest") {
       return [...new Set<EnvironmentAssetKey>([
-        ...theme.treeAssets, ...theme.rockAssets, ...theme.propAssets, "forest-rocks-ramp",
+        ...theme.treeAssets, ...theme.rockAssets, ...theme.propAssets,
+        ...FOREST_SCENIC_ASSETS.terrainHelpers, ...FOREST_SCENIC_ASSETS.entryStructures,
       ])];
     }
     return [...new Set<EnvironmentAssetKey>([
@@ -206,12 +214,12 @@ export class WinterArenaArt {
       return state / 0x100000000;
     };
     const palette = [
-      "rgba(83,125,63,0.18)", "rgba(173,190,112,0.13)", "rgba(116,145,76,0.15)",
-      "rgba(158,111,59,0.31)", "rgba(101,70,43,0.27)", "rgba(190,143,77,0.28)",
+      "rgba(73,111,57,0.12)", "rgba(206,210,139,0.16)", "rgba(126,151,82,0.11)",
+      "rgba(163,119,68,0.20)", "rgba(112,78,49,0.17)", "rgba(201,158,92,0.20)",
     ];
-    for (let index = 0; index < 88; index += 1) {
+    for (let index = 0; index < 72; index += 1) {
       const x = random() * width, y = random() * height;
-      const radius = Math.min(width, height) * (0.025 + random() * 0.075);
+      const radius = Math.min(width, height) * (0.032 + random() * 0.082);
       const gradient = context.createRadialGradient(x, y, radius * 0.08, x, y, radius);
       gradient.addColorStop(0, palette[index % palette.length]);
       gradient.addColorStop(0.72, palette[index % palette.length].replace(/0\.\d+\)/, "0.045)"));
@@ -224,9 +232,16 @@ export class WinterArenaArt {
       context.translate(x, y);
       context.rotate(rotation);
       context.scale(stretch, 1);
+      // A faint matte center and offset lobes keep patches readable as soil rather
+      // than soft-focus circular stains. Everything is baked once into this texture.
+      context.fillStyle = color.replace(/0\.\d+\)/, "0.12)");
+      context.beginPath();
+      context.arc(0, 0, radius * 0.62, 0, Math.PI * 2);
+      context.arc(radius * 0.36, -radius * 0.12, radius * 0.34, 0, Math.PI * 2);
+      context.fill();
       const gradient = context.createRadialGradient(0, 0, radius * 0.08, 0, 0, radius);
       gradient.addColorStop(0, color);
-      gradient.addColorStop(0.58, color.replace(/0\.\d+\)/, "0.14)"));
+      gradient.addColorStop(0.58, color.replace(/0\.\d+\)/, "0.10)"));
       gradient.addColorStop(1, "rgba(0,0,0,0)");
       context.fillStyle = gradient;
       context.fillRect(-radius, -radius, radius * 2, radius * 2);
@@ -238,13 +253,20 @@ export class WinterArenaArt {
       const x = random() * width, y = random() * height;
       const radius = Math.min(width, height) * (0.012 + random() * 0.030);
       const color = FOREST_PALETTE.dirtPatchColors[index % FOREST_PALETTE.dirtPatchColors.length];
-      const stretch = 1.12 + random() * 1.15;
+      const stretch = 1.18 + random() * 1.05;
       const rotation = random() * Math.PI;
       drawDirtPatch(x, y, radius, color, stretch, rotation);
       if (index % 4 === 0) {
         drawDirtPatch(x + Math.cos(rotation) * radius * 0.72, y + Math.sin(rotation) * radius * 0.72,
           radius * 0.62, color.replace(/0\.\d+\)/, "0.27)"), 1.25, rotation + 0.42);
       }
+    }
+    // Small dry-grass flecks visually bind the grass and dirt regions without
+    // creating a painted lane or competing with the gameplay grid.
+    for (let index = 0; index < Math.floor(width * height / 240); index += 1) {
+      const x = random() * width, y = random() * height;
+      context.fillStyle = index % 3 === 0 ? "rgba(105,75,43,0.15)" : "rgba(225,213,148,0.13)";
+      context.fillRect(x, y, 1.2 + random() * 2.1, 0.8 + random() * 1.3);
     }
     for (let index = 0; index < Math.floor(width * height / 38); index += 1) {
       const x = random() * width, y = random() * height;
@@ -276,6 +298,38 @@ export class WinterArenaArt {
     material.alpha = 0.9;
     material.disableDepthWrite = true;
     material.specularColor = Color3.Black();
+    material.backFaceCulling = false;
+    return material;
+  }
+
+  /** Shared, static creek surface used only outside the gameplay rectangle. */
+  private createForestWaterMaterial(): StandardMaterial {
+    const texture = new DynamicTexture("forest-still-water-albedo", { width: 128, height: 128 }, this.scene, true);
+    const context = texture.getContext();
+    const gradient = context.createLinearGradient(0, 0, 128, 128);
+    gradient.addColorStop(0, "#3c7477");
+    gradient.addColorStop(0.48, "#51898a");
+    gradient.addColorStop(1, "#315e67");
+    context.fillStyle = gradient;
+    context.fillRect(0, 0, 128, 128);
+    context.lineWidth = 1.2;
+    for (let index = 0; index < 12; index += 1) {
+      const y = 7 + index * 10.5;
+      context.strokeStyle = index % 3 === 0 ? "rgba(210,232,207,0.20)" : "rgba(190,222,209,0.11)";
+      context.beginPath();
+      context.moveTo(-8, y);
+      for (let x = -8; x <= 136; x += 8) context.lineTo(x, y + Math.sin((x + index * 11) * 0.08) * 2.2);
+      context.stroke();
+    }
+    texture.wrapU = texture.wrapV = Texture.WRAP_ADDRESSMODE;
+    texture.update(false);
+    const material = new StandardMaterial("forest-still-water-material", this.scene);
+    material.diffuseTexture = texture;
+    material.diffuseColor = new Color3(0.78, 0.92, 0.88);
+    material.emissiveColor = new Color3(0.035, 0.09, 0.085);
+    material.specularColor = new Color3(0.28, 0.44, 0.42);
+    material.specularPower = 42;
+    material.alpha = 0.94;
     material.backFaceCulling = false;
     return material;
   }
@@ -498,6 +552,9 @@ export class WinterArenaArt {
     this.forestBorderTreeCount = 0;
     this.forestBorderRockCount = 0;
     this.forestBorderVegetationCount = 0;
+    this.forestWaterFeatureCount = 0;
+    this.forestBridgeCount = 0;
+    this.forestTransitionDetailCount = 0;
     const sides = [
       { side: "north" as const, length: this.width, fixed: -0.95 },
       { side: "south" as const, length: this.width, fixed: this.depth + 0.95 },
@@ -531,23 +588,84 @@ export class WinterArenaArt {
           this.forestBorderTreeCount += 1;
         }
       }
+      // A low rock-and-understory seam softens the hard map rectangle before
+      // the taller tree wall begins. It remains outside all playable cells.
+      const transitionSpacing = 1.42;
+      const transitionCount = Math.ceil((boundary.length + 1.4) / transitionSpacing);
+      for (let index = 0; index <= transitionCount; index += 1) {
+        const hash = Math.abs((sideIndex + 3) * 92821 + index * 3253);
+        const along = -0.7 + index * transitionSpacing + ((hash % 13) - 6) * 0.025;
+        if (sideGates.some((gate) => Math.abs(along - gateCoordinate(gate)) < 2.25)) continue;
+        const outward = 0.46 + ((hash >> 4) % 7) * 0.035;
+        const x = boundary.side === "west" ? -outward : boundary.side === "east" ? this.width + outward : along;
+        const z = boundary.side === "north" ? -outward : boundary.side === "south" ? this.depth + outward : along;
+        const key: EnvironmentAssetKey = index % 4 === 0
+          ? FOREST_SCENIC_ASSETS.boulders[hash % FOREST_SCENIC_ASSETS.boulders.length]
+          : index % 3 === 0 ? "forest-quaternius-flower-bush"
+            : index % 2 === 0 ? "forest-quaternius-bush" : "forest-plant";
+        const isRock = FOREST_SCENIC_ASSETS.boulders.includes(key as typeof FOREST_SCENIC_ASSETS.boulders[number]);
+        const root = this.assets.instantiate(key, `forest-transition-${sideIndex}-${index}`,
+          new Vector3(x, 0, z), (hash % 20) * Math.PI / 10, isRock ? 0.48 : 0.58, false,
+          { maxWidth: 1.45, maxHeight: 1.55, maxDepth: 1.45 }, isRock ? undefined
+            : FOREST_PALETTE.foliageVariations[hash % FOREST_PALETTE.foliageVariations.length]);
+        if (!root) continue;
+        root.freezeWorldMatrix();
+        if (isRock) this.forestBorderRockCount += 1;
+        else this.forestBorderVegetationCount += 1;
+        this.forestTransitionDetailCount += 1;
+      }
     }
-    // Ground patches and low stones frame entrances without occupying a playable cell.
+    // Each functional opening gets a scenic woodland threshold: a real Kenney
+    // log bridge over a static creek pocket, with earth and planted stone banks.
     gates.forEach((gate, gateIndex) => {
       const horizontal = gate.side === "north" || gate.side === "south";
       const outwardX = gate.side === "west" ? -1 : gate.side === "east" ? 1 : 0;
       const outwardZ = gate.side === "north" ? -1 : gate.side === "south" ? 1 : 0;
       const centerX = horizontal ? gate.x + 0.5 : gate.side === "west" ? -0.8 : this.width + 0.8;
       const centerZ = horizontal ? gate.side === "north" ? -0.8 : this.depth + 0.8 : gate.z + 0.5;
+      const creekX = centerX + outwardX * 1.05;
+      const creekZ = centerZ + outwardZ * 1.05;
+      const bank = MeshBuilder.CreateDisc(`forest-entry-bank-${gateIndex}`, { radius: 1, tessellation: 28 }, this.scene);
+      bank.rotation.x = Math.PI / 2;
+      bank.scaling.set(horizontal ? 3.65 : 1.02, horizontal ? 1.02 : 3.65, 1);
+      bank.position.set(creekX, -0.026, creekZ);
+      bank.material = this.contactSoilMaterial;
+      bank.isPickable = false;
+      bank.receiveShadows = false;
+      bank.freezeWorldMatrix();
+      const water = MeshBuilder.CreateDisc(`forest-entry-water-${gateIndex}`, { radius: 1, tessellation: 28 }, this.scene);
+      water.rotation.x = Math.PI / 2;
+      water.scaling.set(horizontal ? 3.35 : 0.82, horizontal ? 0.82 : 3.35, 1);
+      water.position.set(creekX, -0.017, creekZ);
+      // Create the small shared texture only when the Forest composition is used;
+      // Castle scenes should not pay even this minor allocation cost.
+      this.forestWaterMaterial ??= this.createForestWaterMaterial();
+      water.material = this.forestWaterMaterial;
+      water.isPickable = false;
+      water.receiveShadows = false;
+      water.freezeWorldMatrix();
+      this.forestWaterFeatureCount += 1;
+      const bridge = this.assets.instantiate("forest-bridge", `forest-entry-bridge-${gateIndex}`,
+        new Vector3(creekX, 0.005, creekZ), horizontal ? Math.PI / 2 : 0, 2.45, false,
+        { maxWidth: 3.1, maxHeight: 1.35, maxDepth: 3.1 });
+      if (bridge) {
+        bridge.freezeWorldMatrix();
+        this.forestBridgeCount += 1;
+      }
       this.assets.instantiate("forest-patch-dirt", `forest-entry-trail-${gateIndex}`,
-        new Vector3(centerX + outwardX * 1.4, -0.01, centerZ + outwardZ * 1.4), horizontal ? 0 : Math.PI / 2, 2.1, false);
+        new Vector3(centerX + outwardX * 2.8, -0.01, centerZ + outwardZ * 2.8), horizontal ? 0 : Math.PI / 2, 2.25, false);
       this.forestBorderVegetationCount += 1;
       for (const direction of [-1, 1]) {
         const tangentX = horizontal ? direction : 0, tangentZ = horizontal ? 0 : direction;
         this.assets.instantiate("forest-stones", `forest-entry-stones-${gateIndex}-${direction}`,
-          new Vector3(centerX + tangentX * 1.72 + outwardX * 0.55, 0, centerZ + tangentZ * 1.72 + outwardZ * 0.55),
-          direction * 0.42, 0.72, false);
+          new Vector3(creekX + tangentX * 2.05, 0, creekZ + tangentZ * 2.05), direction * 0.42, 0.78, false);
+        this.assets.instantiate(direction < 0 ? "forest-quaternius-bush" : "forest-quaternius-flower-bush",
+          `forest-entry-shrub-${gateIndex}-${direction}`,
+          new Vector3(creekX + tangentX * 2.55 + outwardX * 0.18, 0, creekZ + tangentZ * 2.55 + outwardZ * 0.18),
+          direction * 0.7, 0.72, false, { maxWidth: 1.7, maxHeight: 1.7, maxDepth: 1.7 },
+          FOREST_PALETTE.foliageVariations[(gateIndex * 2 + (direction > 0 ? 1 : 0)) % FOREST_PALETTE.foliageVariations.length]);
         this.forestBorderRockCount += 1;
+        this.forestBorderVegetationCount += 1;
       }
     });
   }
@@ -799,11 +917,11 @@ export class WinterArenaArt {
     this.forestClusterStats = { trees: 0, rocks: 0, vegetation: 0 };
     const place = (key: EnvironmentAssetKey, name: string, x: number, z: number, rotation: number, scale: number,
       category: keyof typeof this.forestClusterStats, allowInsideBlockedTerrain = false, elevation = 0,
-      variationSeed = 0): void => {
+      variationSeed = 0, foliagePalette: readonly Color3[] = FOREST_PALETTE.foliageVariations): void => {
       const usesFoliageTint = category === "trees" || key === "forest-quaternius-bush" || key === "forest-quaternius-flower-bush";
       const root = this.assets.instantiate(key, name, new Vector3(x, elevation, z), rotation, scale, false,
         { maxWidth: 2.6, maxHeight: 5.2, maxDepth: 2.6 }, usesFoliageTint
-          ? FOREST_PALETTE.foliageVariations[Math.abs(variationSeed) % FOREST_PALETTE.foliageVariations.length]
+          ? foliagePalette[Math.abs(variationSeed) % foliagePalette.length]
           : undefined);
       if (!root) return;
       const bounds = root.getHierarchyBoundingVectors(true);
@@ -825,8 +943,10 @@ export class WinterArenaArt {
       { side: "west" as const, length: this.depth }, { side: "east" as const, length: this.depth },
     ];
     for (const [sideIndex, side] of sides.entries()) {
-      for (let row = 0; row < 2; row += 1) {
-        const spacing = 1.30 + row * 0.22;
+      for (let row = 0; row < 3; row += 1) {
+        // The third row is deliberately sparse: it provides a darker silhouette
+        // behind the detailed border without multiplying dense foreground geometry.
+        const spacing = row === 2 ? 2.55 : 1.30 + row * 0.22;
         const count = Math.ceil((side.length + 5) / spacing);
         for (let index = 0; index <= count; index += 1) {
           const hash = Math.abs(seed + sideIndex * 104729 + row * 1543 + index * 7919);
@@ -837,8 +957,9 @@ export class WinterArenaArt {
           const z = side.side === "north" ? -distance : side.side === "south" ? this.depth + distance : along;
           const tree = theme.treeAssets[hash % theme.treeAssets.length];
           place(tree, `forest-depth-tree-${sideIndex}-${row}-${index}`, x, z,
-            (hash % 32) * Math.PI / 16, 1.40 + (hash % 11) * 0.055 + row * 0.12, "trees", false, 0, hash);
-          if (index % 2 === 0) {
+            (hash % 32) * Math.PI / 16, 1.40 + (hash % 11) * 0.055 + row * 0.14, "trees", false, 0,
+            hash, row === 0 ? FOREST_PALETTE.foliageVariations : FOREST_PALETTE.depthFoliageVariations);
+          if (index % (row === 2 ? 3 : 2) === 0) {
             const tangent = ((hash >> 3) % 9 - 4) * 0.08;
             const prop: EnvironmentAssetKey = index % 8 === 0
               ? FOREST_SCENIC_ASSETS.boulders[hash % FOREST_SCENIC_ASSETS.boulders.length]
@@ -883,14 +1004,24 @@ export class WinterArenaArt {
       for (let index = 0; index < boundary.length; index += stride) {
         const cell = boundary[index];
         const hash = Math.abs(seed + regionIndex * 65537 + cell.x * 7919 + cell.y * 1049);
-        const rock: EnvironmentAssetKey = hash % 5 === 0
+        const rock: EnvironmentAssetKey = hash % 7 === 0 ? "forest-rocks-ramp" : hash % 5 === 0
           ? FOREST_SCENIC_ASSETS.boulders[hash % FOREST_SCENIC_ASSETS.boulders.length]
           : hash % 4 === 0 ? "forest-rocks-high" : hash % 3 === 0 ? "forest-stones" : "forest-rocks-low";
         place(rock, `forest-terrain-rock-${regionIndex}-${index}`, cell.x + 0.5, cell.y + 0.5,
-          (hash % 16) * Math.PI / 8, rock === "forest-rocks-high" ? 0.82 : 0.72, "rocks", true, 0.72);
+          (hash % 16) * Math.PI / 8, rock === "forest-rocks-ramp" ? 0.90 : rock === "forest-rocks-high" ? 0.82 : 0.72,
+          "rocks", true, 0.72);
         if (index % (stride * 3) === 0) {
-          place("forest-patch-dirt", `forest-terrain-earth-${regionIndex}-${index}`,
-            cell.x + 0.5, cell.y + 0.5, (hash % 12) * Math.PI / 6, 0.86, "vegetation", true, 0.735);
+          const groundAccent: EnvironmentAssetKey = hash % 2 === 0 ? "forest-patch-dirt" : "forest-patch-grass";
+          place(groundAccent, `forest-terrain-earth-${regionIndex}-${index}`,
+            cell.x + 0.5, cell.y + 0.5, (hash % 12) * Math.PI / 6, 0.92, "vegetation", true, 0.735);
+        }
+        if (index % (stride * 2) === 0) {
+          const edgePlant: EnvironmentAssetKey = hash % 4 === 0
+            ? "forest-quaternius-flower-bush" : hash % 3 === 0 ? "forest-quaternius-bush" : "forest-plant";
+          place(edgePlant, `forest-terrain-edge-plant-${regionIndex}-${index}`,
+            cell.x + 0.30 + ((hash >> 3) % 5) * 0.08, cell.y + 0.35 + ((hash >> 5) % 4) * 0.08,
+            (hash % 18) * Math.PI / 9, edgePlant === "forest-plant" ? 0.50 : 0.62,
+            "vegetation", true, 0.745, hash);
         }
       }
       // Edge-connected blocked masses visually continue the surrounding woodland.
@@ -920,7 +1051,8 @@ export class WinterArenaArt {
   compositionStats(theme: EnvironmentTheme): EnvironmentCompositionStats {
     if (theme.style !== "forest") {
       return { theme: "castle", trees: theme.treeCount, rocks: theme.rockCount,
-        vegetation: theme.propCount, importedModels: this.requiredAssetKeys(theme).length };
+        vegetation: theme.propCount, importedModels: this.requiredAssetKeys(theme).length,
+        waterFeatures: 0, bridges: 0, transitionDetails: 0 };
     }
     return {
       theme: "forest",
@@ -928,6 +1060,9 @@ export class WinterArenaArt {
       rocks: this.forestBorderRockCount + this.forestClusterStats.rocks,
       vegetation: this.forestBorderVegetationCount + this.forestClusterStats.vegetation,
       importedModels: this.requiredAssetKeys(theme).length,
+      waterFeatures: this.forestWaterFeatureCount,
+      bridges: this.forestBridgeCount,
+      transitionDetails: this.forestTransitionDetailCount,
     };
   }
 

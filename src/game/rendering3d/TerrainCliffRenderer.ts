@@ -60,11 +60,11 @@ export class TerrainCliffRenderer {
     this.topMaterial.roughness = 0.97;
     this.lipMaterial = new PBRMaterial(style === "forest" ? "forest-rock-earth-edge" : "royal-cliff-earth-edge", scene);
     // A pale cut-stone coping makes the raised lawn read as a landscaped rampart.
-    this.lipMaterial.albedoColor = style === "forest" ? new Color3(0.46, 0.32, 0.19) : new Color3(0.76, 0.70, 0.58);
+    this.lipMaterial.albedoColor = style === "forest" ? new Color3(0.62, 0.45, 0.27) : new Color3(0.76, 0.70, 0.58);
     this.lipMaterial.roughness = 0.97;
     this.lipMaterial.metallic = 0;
     this.faceMaterial = new PBRMaterial(style === "forest" ? "forest-natural-boulder-face" : "royal-cliff-natural-rock-face", scene);
-    this.faceMaterial.albedoColor = style === "forest" ? new Color3(0.68, 0.71, 0.62) : VISUAL_CONFIG.royalCliffTint;
+    this.faceMaterial.albedoColor = style === "forest" ? new Color3(0.80, 0.82, 0.74) : VISUAL_CONFIG.royalCliffTint;
     this.faceMaterial.albedoTexture = this.rockAlbedo;
     this.faceMaterial.metallic = 0;
     this.faceMaterial.roughness = 0.98;
@@ -298,7 +298,7 @@ export class TerrainCliffRenderer {
   private createForestRockTexture(): DynamicTexture {
     const texture = new DynamicTexture("forest-natural-rock", { width: 256, height: 256 }, this.scene, true);
     const ctx = texture.getContext();
-    ctx.fillStyle = "#62685e";
+    ctx.fillStyle = "#767c70";
     ctx.fillRect(0, 0, 256, 256);
     let seed = 0x71f03;
     const random = () => {

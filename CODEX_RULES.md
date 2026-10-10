@@ -104,3 +104,15 @@ Keep the final report concise:
 - blockers or unresolved items
 
 Do not repeat the entire task specification back to the user.
+
+## Browser verification:
+- Attempt focused browser/Chrome verification at most once.
+- If Windows sandbox blocks Chrome/DevTools startup with the known environment error, do not retry the same capture.
+- Report browser verification as environment-blocked and continue with available static/build/test verification.
+- Do not spend tokens repeatedly retrying known sandbox failures.
+
+## Map rollout rule:
+- For new visual, environment, camera, UI-preview, or map-specific changes, implement and verify on the 1-Spawn / Open Field map first.
+- Do not automatically apply or test the same change on 2-Spawn / Split Advance or 3-Spawn / Triple Convergence.
+- Only expand to additional maps after explicit user approval.
+- Preserve shared architecture so later rollout is easy, but keep the first implementation scoped to 1-Spawn.

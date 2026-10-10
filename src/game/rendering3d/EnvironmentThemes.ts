@@ -4,9 +4,9 @@ import type { EnvironmentAssetKey } from "./EnvironmentAssetLibrary";
 
 /** Shared Forest presentation palette: bright clearing, varied foliage, earthy scatter. */
 export const FOREST_PALETTE = {
-  playableGround: new Color3(0.94, 0.96, 0.88),
+  playableGround: new Color3(0.98, 0.98, 0.91),
   outskirtsGround: new Color3(0.25, 0.34, 0.21),
-  floorHex: "#849c67",
+  floorHex: "#99aa75",
   foliageTint: new Color3(0.76, 0.82, 0.64),
   /** Clearly distinct but cohesive per-instance tones; hardware instancing stays intact. */
   foliageVariations: [
@@ -15,8 +15,15 @@ export const FOREST_PALETTE = {
     new Color3(0.78, 0.84, 0.55),
     new Color3(0.55, 0.70, 0.57),
   ],
-  dirtPatchColors: ["rgba(103,66,37,0.48)", "rgba(143,94,48,0.43)", "rgba(82,57,38,0.35)", "rgba(174,126,67,0.34)"],
-  scatteredDirtPatchCount: 104,
+  /** Darker background crowns create depth without adding unique materials or meshes. */
+  depthFoliageVariations: [
+    new Color3(0.34, 0.49, 0.30),
+    new Color3(0.40, 0.56, 0.34),
+    new Color3(0.48, 0.61, 0.38),
+    new Color3(0.37, 0.53, 0.43),
+  ],
+  dirtPatchColors: ["rgba(112,76,44,0.36)", "rgba(151,104,56,0.32)", "rgba(92,67,45,0.28)", "rgba(181,139,79,0.27)"],
+  scatteredDirtPatchCount: 88,
 } as const;
 
 /** Curated low-cost Nature Kit additions used by the Forest composer and future scenic variants. */
@@ -25,6 +32,7 @@ export const FOREST_SCENIC_ASSETS = {
   shrubs: ["forest-quaternius-bush", "forest-quaternius-flower-bush"],
   boulders: ["forest-quaternius-rock-1", "forest-quaternius-rock-2", "forest-quaternius-rock-3"],
   terrainHelpers: ["forest-rocks-ramp", "forest-stones", "forest-patch-dirt"],
+  entryStructures: ["forest-bridge"],
 } as const satisfies Record<string, readonly EnvironmentAssetKey[]>;
 
 export interface EnvironmentTheme {

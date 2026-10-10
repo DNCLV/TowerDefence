@@ -22,7 +22,7 @@ export type EnvironmentAssetKey =
   | "castle-flag" | "castle-tree" | "castle-tree-large" | "castle-rock" | "castle-rock-large"
   | "castle-ground-hills" | "castle-fence" | "castle-ballista" | "medieval-wagon" | "medieval-crate"
   | "forest-tree" | "forest-tree-high" | "forest-rocks-low" | "forest-rocks-high" | "forest-rocks-ramp"
-  | "forest-stones" | "forest-plant" | "forest-patch-grass" | "forest-patch-dirt"
+  | "forest-stones" | "forest-plant" | "forest-patch-grass" | "forest-patch-dirt" | "forest-bridge"
   | "forest-quaternius-common-tree" | "forest-quaternius-pine"
   | "forest-quaternius-bush" | "forest-quaternius-flower-bush"
   | "forest-quaternius-rock-1" | "forest-quaternius-rock-2" | "forest-quaternius-rock-3";
@@ -78,6 +78,7 @@ const ASSETS: Record<EnvironmentAssetKey, AssetSource> = {
   "forest-plant": { rootUrl: "/assets/environment/forest/", fileName: "plant.glb" },
   "forest-patch-grass": { rootUrl: "/assets/environment/forest/", fileName: "patch-grass.glb" },
   "forest-patch-dirt": { rootUrl: "/assets/environment/forest/", fileName: "patch-dirt.glb" },
+  "forest-bridge": { rootUrl: "/assets/environment/forest/", fileName: "bridge.glb" },
   "forest-quaternius-common-tree": { rootUrl: "/assets/environment/quaternius-nature/", fileName: "common-tree.gltf", baseScale: 0.26 },
   "forest-quaternius-pine": { rootUrl: "/assets/environment/quaternius-nature/", fileName: "pine.gltf", baseScale: 0.22 },
   "forest-quaternius-bush": { rootUrl: "/assets/environment/quaternius-nature/", fileName: "bush.gltf", baseScale: 0.70 },

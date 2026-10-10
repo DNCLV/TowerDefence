@@ -31,6 +31,7 @@ const expectedQuaterniusNatureAssets = [
   "forest-quaternius-bush", "forest-quaternius-flower-bush",
   "forest-quaternius-rock-1", "forest-quaternius-rock-2", "forest-quaternius-rock-3",
 ];
+const expectedForestScenicAssets = ["forest-bridge", "forest-rocks-ramp"];
 const groveImportedTypes = ["treant", "thorn-owl", "druid", "seer", "bark-titan", "thorn-dancer"];
 const groveRosterTypes = ["treant", "thorn-owl", "druid", "seer", "bark-titan", "thorn-dancer"];
 const royalImportedTypes = ["green-archer", "battlemage", "sovereign", "holy-emperor"];
@@ -611,17 +612,25 @@ async function main() {
     || groveEnvironment?.endpointDecorationMeshCount !== 0
     || groveEnvironment?.environmentComposition?.trees < 150
     || groveEnvironment?.environmentComposition?.rocks < groveEnvironment?.terrainRegionCount
-    || groveEnvironment?.environmentComposition?.importedModels < 16
+    || groveEnvironment?.environmentComposition?.importedModels < 17
+    || groveEnvironment?.environmentComposition?.waterFeatures < 2
+    || groveEnvironment?.environmentComposition?.bridges < 2
+    || groveEnvironment?.environmentComposition?.transitionDetails < 20
     // Every curated Quaternius template must be represented by a real hardware instance;
     // preloading alone is not enough to count as a visual overhaul.
     || expectedQuaterniusNatureAssets.some((key) => !(groveEnvironment?.environmentRendering?.byAsset?.[key] > 0))
-    || groveEnvironment?.environmentRendering?.templateAssets < 14
+    || expectedForestScenicAssets.some((key) => !(groveEnvironment?.environmentRendering?.byAsset?.[key] > 0))
+    || groveEnvironment?.environmentRendering?.templateAssets < 16
     || groveEnvironment?.environmentRendering?.instances < (
       groveEnvironment?.environmentComposition?.trees
       + groveEnvironment?.environmentComposition?.rocks
       + groveEnvironment?.environmentComposition?.vegetation
     )) {
-    throw new Error(`Ancient Grove forest environment failed: ${JSON.stringify(groveEnvironment)}`);
+    throw new Error(`Ancient Grove forest environment failed: ${JSON.stringify({
+      groveEnvironment,
+      bridgeBrowserErrors: browserErrors.filter((entry) => JSON.stringify(entry).includes("bridge")),
+      recentBrowserErrors: browserErrors.slice(-24),
+    })}`);
   }
   console.log('Ancient Grove forest environment passed', JSON.stringify(groveEnvironment));
   if (process.env.SAVE_FOREST_ART_SCREENSHOTS === '1') {
@@ -634,6 +643,19 @@ async function main() {
       await evaluate("document.querySelector('pre[style*=\\\"z-index:30\\\"]')?.remove(); document.querySelector('#minimap-dock')?.style.setProperty('visibility', 'hidden')");
       const screenshot = await command('Page.captureScreenshot', { format: 'png', fromSurface: true });
       fs.writeFileSync(path.join(screenshotDirectory, `${mapId}-mobile.png`), Buffer.from(screenshot.data, 'base64'));
+      if (mapId === 'single-spawn') {
+        await evaluate(`(() => {
+          const canvas = document.querySelector('#game3d');
+          const bounds = canvas.getBoundingClientRect();
+          canvas.dispatchEvent(new WheelEvent('wheel', {
+            deltaY: 1200, clientX: bounds.left + bounds.width / 2, clientY: bounds.top + bounds.height / 2,
+            bubbles: true, cancelable: true,
+          }));
+        })()`);
+        await delay(350);
+        const overview = await command('Page.captureScreenshot', { format: 'png', fromSurface: true });
+        fs.writeFileSync(path.join(screenshotDirectory, `${mapId}-curated-overview.png`), Buffer.from(overview.data, 'base64'));
+      }
     };
     const openForestMap = async (mapId) => {
       await evaluate(`(() => {
@@ -1807,7 +1829,7 @@ async function main() {
   await delay(100);
   const pinchResult = await evaluate(`({ state: window.__towerDefenceInputDebug(), towers: window.__towerDefenceGameState.towers.length })`);
   if (Math.abs(pinchResult.state.cameraRadius - radiusBeforePinch) < 0.01
-    || pinchResult.state.cameraMaxRadius !== 42
+    || pinchResult.state.cameraMaxRadius !== 34
     || pinchResult.towers !== towersBeforePan || pinchResult.state.gesture !== "PINCH") {
     throw new Error(`Two-finger pinch failed or placed a defender: ${JSON.stringify({ radiusBeforePinch, pinchResult })}`);
   }

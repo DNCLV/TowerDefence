@@ -174,10 +174,23 @@ canvas { display: block; width: 100% !important; height: 100% !important; touch-
 .map-preview[data-preview-map="two-spawns"] { --preview-field-start: #a9d7b0; --preview-field-end: #5d9a82; --preview-terrain-start: #526d86; --preview-terrain-end: #293f59; }
 .map-preview[data-preview-map="three-spawns"] { --preview-field-start: #b9d3a0; --preview-field-end: #6f9877; --preview-terrain-start: #5b6882; --preview-terrain-end: #343d59; }
 .map-preview[data-preview-map="twin-bastion"] { --preview-field-start: #c8d7a2; --preview-field-end: #78947a; --preview-terrain-start: #6c687a; --preview-terrain-end: #3d4059; --preview-terrain-edge: #aaa3af; }
-.map-preview[data-preview-type="static"] { flex-basis: 52%; border-radius: 7px; background: #07141d; box-shadow: 0 5px 14px #020a1180; }
+.map-preview[data-preview-type="static"] { flex-basis: 52%; min-width: 0; max-width: 100%; border-radius: 7px; background: #07141d; box-shadow: 0 5px 14px #020a1180; }
 .map-preview[data-preview-type="static"]::before,
 .map-preview[data-preview-type="static"]::after { display: none; }
-.map-preview-artwork { display: block; width: 100%; height: 100%; object-fit: contain; object-position: center; border-radius: inherit; }
+.map-preview-artwork {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+  margin: 0;
+  object-fit: contain;
+  object-position: 50% 50%;
+  transform: none;
+  border-radius: inherit;
+}
 .map-preview::before { content: ""; position: absolute; z-index: 2; inset: 7px; border: 1px solid #e5f7e565; border-radius: 7px 3px 8px 4px; box-shadow: inset 0 0 16px #c7f4d11a; pointer-events: none; }
 .map-preview::after { content: ""; position: absolute; z-index: 0; inset: 0; opacity: .26; background: linear-gradient(115deg, transparent 20%, #d8fff52b 42%, transparent 63%); pointer-events: none; }
 .map-preview svg { position: relative; z-index: 1; display: block; width: min(100%, 118px); height: calc(100% - 16px); max-height: 176px; overflow: visible; filter: drop-shadow(0 3px 5px #0410187a); }
@@ -251,6 +264,10 @@ canvas { display: block; width: 100% !important; height: 100% !important; touch-
 @media (min-width: 800px) {
   .map-select-panel:not(.faction-select-panel) { width: min(100%, 820px); }
   .map-select-panel:not(.faction-select-panel) .map-choice-grid:not(.is-single-map) { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 519px) {
+  .map-panel, .map-choice-grid, .map-choice-card { min-width: 0; max-width: 100%; }
+  .map-choice-grid { width: 100%; }
 }
 @media (max-height: 650px) {
   .map-select-panel { gap: 10px; }

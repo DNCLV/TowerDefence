@@ -3,7 +3,7 @@ import { GameState } from "../src/game/GameState.ts";
 import { findPath } from "../src/game/pathfinding/Pathfinder.ts";
 import { VISUAL_CONFIG } from "../src/game/rendering3d/VisualConfig.ts";
 
-assert.ok(VISUAL_CONFIG.maxCameraRadius > 38, "camera can zoom farther out");
+assert.equal(VISUAL_CONFIG.maxCameraRadius, 34, "camera keeps the battlefield inside the curated scenic frame");
 
 for (const blockedCell of [{ x: 8, y: 9 }, { x: 8, y: 8 }]) {
   const state = new GameState("single-spawn");
