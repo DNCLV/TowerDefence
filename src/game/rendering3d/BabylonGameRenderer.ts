@@ -282,8 +282,7 @@ export class BabylonGameRenderer {
     this.camera.lowerAlphaLimit = VISUAL_CONFIG.defaultCameraAlpha; this.camera.upperAlphaLimit = VISUAL_CONFIG.defaultCameraAlpha;
     this.camera.lowerBetaLimit = VISUAL_CONFIG.defaultCameraBeta; this.camera.upperBetaLimit = VISUAL_CONFIG.defaultCameraBeta;
     this.camera.lowerRadiusLimit = VISUAL_CONFIG.minCameraRadius;
-    this.camera.upperRadiusLimit = this.currentTheme.style === "castle"
-      ? VISUAL_CONFIG.royalMaxCameraRadius : VISUAL_CONFIG.maxCameraRadius;
+    this.camera.upperRadiusLimit = VISUAL_CONFIG.maxCameraRadius;
     // Do not attach Babylon's ArcRotate controls: its defaults orbit/pan unpredictably across pointer types.
     this.camera.computeWorldMatrix();
     this.lastValidCameraState = this.captureCameraState();
@@ -785,6 +784,7 @@ export class BabylonGameRenderer {
     buildMode: string;
     lastAction: string;
     cameraRadius: number;
+    cameraMaxRadius: number;
     cameraTarget: { x: number; z: number };
   } {
     return {
@@ -795,6 +795,7 @@ export class BabylonGameRenderer {
       buildMode: this.gameState?.waveActive ? `LOCKED · ${this.buildDefenderType ?? "SELECT"}` : this.buildDefenderType ?? "SELECT",
       lastAction: this.inputLastAction,
       cameraRadius: Number(this.camera.radius.toFixed(2)),
+      cameraMaxRadius: this.camera.upperRadiusLimit ?? VISUAL_CONFIG.maxCameraRadius,
       cameraTarget: { x: Number(this.camera.target.x.toFixed(2)), z: Number(this.camera.target.z.toFixed(2)) },
     };
   }

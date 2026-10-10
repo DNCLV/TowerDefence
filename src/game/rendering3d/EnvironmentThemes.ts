@@ -15,7 +15,7 @@ export const FOREST_PALETTE = {
     new Color3(0.96, 1.00, 0.72),
     new Color3(0.68, 0.82, 0.72),
   ],
-  dirtPatchColors: ["rgba(119,82,47,0.25)", "rgba(153,111,62,0.21)", "rgba(96,70,45,0.18)"],
+  dirtPatchColors: ["rgba(112,72,39,0.40)", "rgba(151,103,54,0.34)", "rgba(88,61,39,0.29)", "rgba(178,132,72,0.26)"],
   scatteredDirtPatchCount: 92,
 } as const;
 

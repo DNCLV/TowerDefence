@@ -54,13 +54,50 @@ function defenderPortraitMarkup(type: DefenderType, fallbackClassName: string): 
     : `<span class="${fallbackClassName}" aria-label="Portrait unavailable">✦</span>`;
 }
 
+/** Deterministic presentation-only silhouette around an exact preview rectangle. */
+function organicPreviewRectPath(x: number, y: number, width: number, height: number, seed: number): string {
+  const right = x + width;
+  const bottom = y + height;
+  const radius = Math.max(0.18, Math.min(0.85, width * 0.16, height * 0.16));
+  const edgeVariation = Math.max(0.24, Math.min(0.72, Math.min(width, height) * 0.085));
+  const jitter = (salt: number) => (((((seed + 3) * (salt * 37 + 17)) % 17) - 8) / 8) * edgeVariation;
+  const point = (value: number) => Number(value.toFixed(3));
+  return [
+    `M ${point(x + radius)} ${point(y + jitter(1))}`,
+    `C ${point(x + width * 0.32)} ${point(y + jitter(2))} ${point(x + width * 0.68)} ${point(y + jitter(3))} ${point(right - radius)} ${point(y + jitter(4))}`,
+    `Q ${point(right + jitter(5))} ${point(y + jitter(6))} ${point(right + jitter(7))} ${point(y + radius)}`,
+    `C ${point(right + jitter(8))} ${point(y + height * 0.34)} ${point(right + jitter(9))} ${point(y + height * 0.7)} ${point(right + jitter(10))} ${point(bottom - radius)}`,
+    `Q ${point(right + jitter(11))} ${point(bottom + jitter(12))} ${point(right - radius)} ${point(bottom + jitter(13))}`,
+    `C ${point(x + width * 0.7)} ${point(bottom + jitter(14))} ${point(x + width * 0.3)} ${point(bottom + jitter(15))} ${point(x + radius)} ${point(bottom + jitter(16))}`,
+    `Q ${point(x + jitter(17))} ${point(bottom + jitter(18))} ${point(x + jitter(19))} ${point(bottom - radius)}`,
+    `C ${point(x + jitter(20))} ${point(y + height * 0.68)} ${point(x + jitter(21))} ${point(y + height * 0.32)} ${point(x + jitter(22))} ${point(y + radius)}`,
+    `Q ${point(x + jitter(23))} ${point(y + jitter(24))} ${point(x + radius)} ${point(y + jitter(1))} Z`,
+  ].join(" ");
+}
+
 function renderMapPreview(map: MapDefinition): string {
   const geometry = getMapPreviewGeometry(map);
   const previewId = `map-preview-${map.id.replace(/[^a-z0-9-]/gi, "-")}`;
   const markerRadius = Math.max(0.5, Math.min(1.05, Math.max(geometry.width, geometry.height) * 0.016));
-  const terrainRadius = Math.max(0.22, Math.min(0.7, Math.min(geometry.width, geometry.height) * 0.012));
-  const terrain = geometry.terrain.map(({ x, y, width, height }) =>
-    `<rect class="map-preview-terrain" data-terrain-rect="${x},${y},${width},${height}" x="${x}" y="${y}" width="${width}" height="${height}" rx="${terrainRadius}"/>`).join("");
+  const terrainData = geometry.terrain.map(({ x, y, width, height }) =>
+    `<rect class="map-preview-terrain" data-terrain-rect="${x},${y},${width},${height}" x="${x}" y="${y}" width="${width}" height="${height}"/>`).join("");
+  const terrain = geometry.terrain.map(({ x, y, width, height }, index) => {
+    const path = organicPreviewRectPath(x, y, width, height, index + map.id.length * 11);
+    return `<path class="map-preview-terrain-shadow" d="${path}"/>
+      <path class="map-preview-terrain-shape" d="${path}"/>
+      <ellipse class="map-preview-terrain-mottle" cx="${x + width * 0.3}" cy="${y + height * 0.28}" rx="${Math.max(0.25, width * 0.16)}" ry="${Math.max(0.35, height * 0.12)}"/>
+      <ellipse class="map-preview-terrain-mottle is-dark" cx="${x + width * 0.68}" cy="${y + height * 0.7}" rx="${Math.max(0.22, width * 0.13)}" ry="${Math.max(0.3, height * 0.1)}"/>
+      <path class="map-preview-terrain-contour" d="${path}"/>`;
+  }).join("");
+  const fieldPath = organicPreviewRectPath(0.18, 0.18, geometry.width - 0.36, geometry.height - 0.36, map.id.length * 29);
+  const fieldAccents = Array.from({ length: 5 }, (_, index) => {
+    const hash = Math.abs(map.id.length * 97 + index * 193);
+    const cx = geometry.width * (0.16 + ((hash % 67) / 100));
+    const cy = geometry.height * (0.12 + (((hash >> 2) % 73) / 100));
+    const rx = Math.max(0.65, geometry.width * (0.045 + (hash % 4) * 0.008));
+    const ry = Math.max(0.85, geometry.height * (0.025 + (hash % 3) * 0.006));
+    return `<ellipse class="map-preview-field-accent" cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}"/>`;
+  }).join("");
   const spawnColors = ["#ff6b66", "#69c5ff", "#69df9c"];
   const spawns = geometry.spawns.map(({ id, cell }, index) =>
     `<g class="map-preview-marker map-preview-spawn-marker" style="--spawn-color:${spawnColors[index % spawnColors.length]}">
@@ -88,12 +125,17 @@ function renderMapPreview(map: MapDefinition): string {
       <pattern id="${previewId}-grid" width="1" height="1" patternUnits="userSpaceOnUse">
         <path class="map-preview-grid-line" d="M 1 0 L 0 0 0 1"/>
       </pattern>
+      <clipPath id="${previewId}-field-clip"><path d="${fieldPath}"/></clipPath>
     </defs>
-    <rect class="map-preview-field" x="0" y="0" width="${geometry.width}" height="${geometry.height}" rx="0.8" fill="url(#${previewId}-field)"/>
-    <rect class="map-preview-light" x="0" y="0" width="${geometry.width}" height="${geometry.height}" rx="0.8" fill="url(#${previewId}-light)"/>
-    <rect class="map-preview-grid" x="0" y="0" width="${geometry.width}" height="${geometry.height}" rx="0.8" fill="url(#${previewId}-grid)"/>
-    <g class="map-preview-terrain-regions" fill="url(#${previewId}-terrain)">${terrain}</g>
-    <rect class="map-preview-map-frame" x="0.3" y="0.3" width="${geometry.width - 0.6}" height="${geometry.height - 0.6}" rx="0.65"/>
+    <g clip-path="url(#${previewId}-field-clip)">
+      <rect class="map-preview-field" x="0" y="0" width="${geometry.width}" height="${geometry.height}" fill="url(#${previewId}-field)"/>
+      <rect class="map-preview-light" x="0" y="0" width="${geometry.width}" height="${geometry.height}" fill="url(#${previewId}-light)"/>
+      <g class="map-preview-field-accents">${fieldAccents}</g>
+      <rect class="map-preview-grid" x="0" y="0" width="${geometry.width}" height="${geometry.height}" fill="url(#${previewId}-grid)"/>
+      <g class="map-preview-terrain-regions" fill="url(#${previewId}-terrain)">${terrain}</g>
+    </g>
+    <g class="map-preview-terrain-data" aria-hidden="true">${terrainData}</g>
+    <path class="map-preview-map-frame" d="${fieldPath}"/>
     <g class="map-preview-spawns">${spawns}</g>
     <g class="map-preview-goals">${goals}</g>
   </svg>`;

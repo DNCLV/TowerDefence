@@ -207,7 +207,7 @@ export class WinterArenaArt {
     };
     const palette = [
       "rgba(104,153,70,0.20)", "rgba(181,205,111,0.16)", "rgba(126,172,78,0.18)",
-      "rgba(173,132,72,0.14)", "rgba(112,84,53,0.10)", "rgba(203,170,99,0.12)",
+      "rgba(164,118,63,0.24)", "rgba(105,73,44,0.20)", "rgba(196,149,79,0.21)",
     ];
     for (let index = 0; index < 88; index += 1) {
       const x = random() * width, y = random() * height;
@@ -231,7 +231,7 @@ export class WinterArenaArt {
     // single continuous road or tying decoration to pathfinding data.
     for (let index = 0; index < FOREST_PALETTE.scatteredDirtPatchCount; index += 1) {
       const x = random() * width, y = random() * height;
-      const radius = Math.min(width, height) * (0.01 + random() * 0.025);
+      const radius = Math.min(width, height) * (0.014 + random() * 0.032);
       const color = FOREST_PALETTE.dirtPatchColors[index % FOREST_PALETTE.dirtPatchColors.length];
       drawDirtPatch(x, y, radius, color);
     }

@@ -324,7 +324,8 @@ async function main() {
         terrainRects: svg.querySelectorAll('.map-preview-terrain').length,
         spawns: [...svg.querySelectorAll('.map-preview-spawn')].map((node) => ({ x: Number(node.dataset.cellX), y: Number(node.dataset.cellY), color: node.style.getPropertyValue('--spawn-color') })),
         goal: { x: Number(svg.querySelector('.map-preview-goal').dataset.cellX), y: Number(svg.querySelector('.map-preview-goal').dataset.cellY) },
-        polishLayers: ['defs', '.map-preview-light', '.map-preview-grid', '.map-preview-map-frame', '.map-preview-marker-halo']
+        polishLayers: ['defs', 'clipPath', '.map-preview-light', '.map-preview-grid', '.map-preview-field-accent',
+          '.map-preview-terrain-shape', '.map-preview-terrain-contour', '.map-preview-map-frame', '.map-preview-marker-halo']
           .every((selector) => svg.querySelector(selector)),
         visible: (() => {
           const rect = svg.getBoundingClientRect();
@@ -1798,6 +1799,7 @@ async function main() {
   await delay(100);
   const pinchResult = await evaluate(`({ state: window.__towerDefenceInputDebug(), towers: window.__towerDefenceGameState.towers.length })`);
   if (Math.abs(pinchResult.state.cameraRadius - radiusBeforePinch) < 0.01
+    || pinchResult.state.cameraMaxRadius !== 42
     || pinchResult.towers !== towersBeforePan || pinchResult.state.gesture !== "PINCH") {
     throw new Error(`Two-finger pinch failed or placed a defender: ${JSON.stringify({ radiusBeforePinch, pinchResult })}`);
   }
@@ -1914,7 +1916,8 @@ async function main() {
     towerSelection: towerSelection.selectedTowerId,
     pointerCancel: { noPlacement: cancelResult.towerCount === towerCountBeforeCancel, selectionPreserved: cancelResult.selectedTowerId === towerSelection.selectedTowerId },
     pan: { distance: Number(panDistance.toFixed(2)), action: panResult.state.lastAction, towersUnchanged: panResult.towers === towersBeforePan },
-    pinch: { radiusBefore: radiusBeforePinch, radiusAfter: pinchResult.state.cameraRadius, action: pinchResult.state.lastAction, towersUnchanged: pinchResult.towers === towersBeforePan },
+    pinch: { radiusBefore: radiusBeforePinch, radiusAfter: pinchResult.state.cameraRadius, maxRadius: pinchResult.state.cameraMaxRadius,
+      action: pinchResult.state.lastAction, towersUnchanged: pinchResult.towers === towersBeforePan },
     traySwipe: { scrollLeft: traySwipe.scrollLeft, touchAction: traySwipe.touchAction, cameraUnchanged: true },
     buildCardTap, autoToggledOn, autoToggledOff, waveStarted, minimapEnemyBeforeMove, minimapEnemyAfterMove,
     desktopMousePan: { distance: Number(desktopPanDistance.toFixed(2)), action: desktopPan.lastAction, towersUnchanged: true },

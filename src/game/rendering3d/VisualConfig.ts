@@ -39,7 +39,6 @@ export const VISUAL_CONFIG = {
   defaultCameraTargetX: 39,
   minCameraRadius: 13.5,
   maxCameraRadius: 42,
-  royalMaxCameraRadius: 36,
   cameraPanSpeed: 1,
   cameraPanZoomMultiplier: 0.18,
   desktopDragThreshold: 8,
